@@ -1,0 +1,145 @@
+{
+  "model": "gpt-5.1",
+  "n_predictions": 9,
+  "n_failures": 0,
+  "exact_match_rate": 0.4444,
+  "avg_abs_score_gap": 1.633,
+  "max_score_gap": 4.3,
+  "match_rate_by_bucket": {
+    "Easy": {
+      "n": 3,
+      "match_rate": 0.3333
+    },
+    "Medium": {
+      "n": 3,
+      "match_rate": 0.6667
+    },
+    "Hard": {
+      "n": 3,
+      "match_rate": 0.3333
+    }
+  },
+  "confusion_matrix": {
+    "Easy": {
+      "Easy": 1,
+      "Medium": 1,
+      "Hard": 1
+    },
+    "Medium": {
+      "Easy": 1,
+      "Medium": 2,
+      "Hard": 0
+    },
+    "Hard": {
+      "Easy": 0,
+      "Medium": 2,
+      "Hard": 1
+    }
+  },
+  "disagreement_by_source_school": {
+    "Columbia": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Darden": {
+      "n": 2,
+      "disagreements": 1,
+      "disagreement_rate": 0.5
+    },
+    "Harvard": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Kellogg": {
+      "n": 1,
+      "disagreements": 0,
+      "disagreement_rate": 0.0
+    },
+    "MIT": {
+      "n": 2,
+      "disagreements": 1,
+      "disagreement_rate": 0.5
+    },
+    "Stern": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Yale": {
+      "n": 1,
+      "disagreements": 0,
+      "disagreement_rate": 0.0
+    }
+  },
+  "worst_disagreements": [
+    {
+      "case_title": "Gassy Convenience",
+      "source_school": "Stern",
+      "existing": "Easy",
+      "predicted": "Hard",
+      "existing_score": "3.50",
+      "predicted_score": "7.80",
+      "score_gap": "4.30",
+      "confidence": "0.860",
+      "notes": "Interviewee-led Bain power round with high quant rating (7/10), including weighted averages and NPV over a 3‑year pilot, plus profit and cost analysis and Mekko interpretation, puts this above standard medium cases like Copier Co. The qualitative side requires multi-part opportunity assessment (financials, implementation strategy, tech build/buy/partner, market trends) and synthesizing across multiple exhibits, making it closer to tough MBB final-round difficulty though not as extreme as the hardest anchors (e.g., NeuroNow)."
+    },
+    {
+      "case_title": "CEO of Your Favorite Company",
+      "source_school": "Darden",
+      "existing": "Easy",
+      "predicted": "Medium",
+      "existing_score": "3.50",
+      "predicted_score": "6.30",
+      "score_gap": "2.80",
+      "confidence": "0.780",
+      "notes": "Extremely ambiguous and fully candidate-led with no data or exhibits, but the math burden is light and optional; difficulty comes from open-ended structuring, creativity, and execution planning rather than complex quant, making it a challenging but still standard-fit interview case rather than a data-heavy hard case."
+    },
+    {
+      "case_title": "Recreational Aircraft (Bain, Round 1)",
+      "source_school": "MIT",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.50",
+      "predicted_score": "6.00",
+      "score_gap": "2.50",
+      "confidence": "0.860",
+      "notes": "Two-part, somewhat atypical stem with an initial high-level business-unit/portfolio discussion, then a full re-entry/growth strategy for a specific division. Includes a non-trivial but still standard market-sizing (multi-step, with incidence rates, segmentation, and replacement cycle) plus a follow-on profitability calculation. Ambiguity and synthesis are moderate but not at the level of the Hard anchors; overall feels like a solid, realistic Bain R1 case slightly tougher than Copier Co./Dr. Stern’s but below NeuroNow/Telecom Co."
+    },
+    {
+      "case_title": "Funeral Homes",
+      "source_school": "Columbia",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.50",
+      "predicted_score": "6.30",
+      "score_gap": "2.20",
+      "confidence": "0.860",
+      "notes": "Interviewer-led profitability case with a clear PE-style objective but in an obscure industry, requiring comfort with ambiguity plus a multi-step growth and EBITDA calculation (compounding volume and price, projecting margins, and backing into incremental EBITDA). Math burden and realism are higher than standard medium cases like Copier Co., but it lacks the multi-exhibit, synthesis-heavy complexity of the hard anchors such as NeuroNow or Telecom Co."
+    },
+    {
+      "case_title": "Practice Case 7 (Le Seine)",
+      "source_school": "Harvard",
+      "existing": "Medium",
+      "predicted": "Easy",
+      "existing_score": "5.50",
+      "predicted_score": "3.80",
+      "score_gap": "1.70",
+      "confidence": "0.860",
+      "notes": "Highly conceptual growth/market entry discussion with no real math, simple industry/segment comparison, and limited synthesis; comparable to Zephyr Beverages and other beginner-friendly cases rather than multi-step MBB-style market entry cases."
+    }
+  ],
+  "thresholds": {
+    "min_exact_match_rate": 0.7,
+    "max_avg_abs_score_gap": 1.0
+  },
+  "warnings": [
+    "exact_match_rate_below_threshold: 44.44% < 70%",
+    "avg_abs_score_gap_above_threshold: 1.63 > 1.00"
+  ],
+  "status": "FAIL",
+  "sample_size_requested": 9,
+  "sample_size_actual": 9,
+  "eval_csv": "output\\audit\\eval_gpt-5.1\\difficulty_calibration_eval.csv"
+}

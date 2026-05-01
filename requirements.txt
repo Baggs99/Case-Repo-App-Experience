@@ -1,0 +1,15 @@
+PyMuPDF>=1.23.0
+pdfplumber>=0.10.3
+click>=8.1.7
+PyYAML>=6.0.1
+python-slugify>=8.0.4
+pandas>=2.0.0
+openpyxl>=3.1.0
+openai>=2.0.0
+psycopg[binary,pool]>=3.1.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+jinja2>=3.1.0
+python-multipart>=0.0.9
+argon2-cffi>=23.1.0
+resend>=2.0.0

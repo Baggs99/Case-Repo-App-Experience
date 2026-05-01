@@ -1,0 +1,44 @@
+{# Partial: rendered standalone by /search (HTMX) and embedded in index.html #}
+
+<div class="flex items-baseline justify-between mb-3">
+    <p class="text-sm text-slate-600">
+        {% if total == 0 %}
+            No cases match your filters.
+        {% elif total <= cases|length %}
+            Showing all <strong class="text-slate-900">{{ total }}</strong> matching {{ "case" if total == 1 else "cases" }}.
+        {% else %}
+            Showing <strong class="text-slate-900">{{ cases|length }}</strong> of
+            <strong class="text-slate-900">{{ total }}</strong> matching cases.
+        {% endif %}
+    </p>
+</div>
+
+{% if cases %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+    {% for c in cases %}
+    <a href="/cases/{{ c.id }}"
+       class="block bg-white rounded-lg border border-slate-200 hover:border-slate-400 hover:shadow-sm transition p-4">
+
+        <div class="flex items-start justify-between gap-3">
+            <h3 class="font-medium text-slate-900 leading-snug">{{ c.case_title }}</h3>
+            {% if c.difficulty %}
+            <span class="shrink-0 text-xs px-2 py-0.5 rounded
+                {% if c.difficulty == 'Easy' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+                {% elif c.difficulty == 'Medium' %}bg-amber-50 text-amber-700 border border-amber-200
+                {% else %}bg-rose-50 text-rose-700 border border-rose-200{% endif %}">
+                {{ c.difficulty }}
+                {% if c.difficulty_score %}· {{ "%.1f"|format(c.difficulty_score) }}{% endif %}
+            </span>
+            {% endif %}
+        </div>
+
+        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+            <span>{{ c.source_school }}{% if c.source_year %} · {{ c.source_year }}{% endif %}</span>
+            {% if c.industry %}<span>·</span><span>{{ c.industry }}</span>{% endif %}
+            {% if c.case_type %}<span>·</span><span>{{ c.case_type }}</span>{% endif %}
+            {% if c.firm %}<span>·</span><span class="italic">{{ c.firm }}</span>{% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}

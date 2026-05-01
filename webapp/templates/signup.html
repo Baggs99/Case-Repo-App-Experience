@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Sign up · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto px-6 py-12">
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
+        <h1 class="text-xl font-semibold mb-1">Create your account</h1>
+        <p class="text-sm text-slate-600 mb-6">
+            Sign-up is open to anyone with an
+            <code class="text-xs bg-slate-100 px-1 py-0.5 rounded">@yale.edu</code> address.
+        </p>
+
+        {% if error %}
+        <div class="mb-4 px-3 py-2 rounded-md bg-rose-50 border border-rose-200 text-sm text-rose-800">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <form method="POST" action="/signup" class="space-y-4">
+            {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+            <div>
+                <label for="email" class="block text-xs font-medium text-slate-600 mb-1.5">
+                    Yale email
+                </label>
+                <input type="email" id="email" name="email" required
+                    value="{{ values.email or '' }}"
+                    placeholder="you@yale.edu"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900">
+            </div>
+
+            <div>
+                <label for="password" class="block text-xs font-medium text-slate-600 mb-1.5">
+                    Password
+                </label>
+                <input type="password" id="password" name="password" required minlength="8"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900">
+                <p class="text-xs text-slate-500 mt-1">At least 8 characters.</p>
+            </div>
+
+            <div>
+                <label for="password_confirm" class="block text-xs font-medium text-slate-600 mb-1.5">
+                    Confirm password
+                </label>
+                <input type="password" id="password_confirm" name="password_confirm" required minlength="8"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900">
+            </div>
+
+            <button type="submit"
+                class="w-full px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 font-medium">
+                Create account
+            </button>
+        </form>
+
+        <p class="text-sm text-slate-600 mt-6 text-center">
+            Already have an account? <a href="/login{% if next %}?next={{ next }}{% endif %}" class="text-slate-900 underline">Sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

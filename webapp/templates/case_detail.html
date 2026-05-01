@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}{{ case.case_title }} · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-6 py-8">
+
+    <a href="javascript:history.back()"
+       class="text-sm text-slate-500 hover:text-slate-900 mb-4 inline-flex items-center gap-1">
+        ← Back to results
+    </a>
+
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6 mb-6">
+        <div class="flex items-start justify-between gap-4 mb-4">
+            <div>
+                <h1 class="text-2xl font-semibold tracking-tight">{{ case.case_title }}</h1>
+                <p class="text-sm text-slate-500 mt-1">
+                    {{ case.source_school }}{% if case.source_year %} · {{ case.source_year }}{% endif %}
+                </p>
+            </div>
+            {% if case.difficulty %}
+            <span class="shrink-0 text-sm px-3 py-1 rounded-md
+                {% if case.difficulty == 'Easy' %}bg-emerald-50 text-emerald-700 border border-emerald-200
+                {% elif case.difficulty == 'Medium' %}bg-amber-50 text-amber-700 border border-amber-200
+                {% else %}bg-rose-50 text-rose-700 border border-rose-200{% endif %}">
+                {{ case.difficulty }}{% if case.difficulty_score %} · {{ "%.1f"|format(case.difficulty_score) }}/10{% endif %}
+            </span>
+            {% endif %}
+        </div>
+
+        <dl class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            {% if case.industry %}
+            <div>
+                <dt class="text-xs text-slate-500 uppercase tracking-wide">Industry</dt>
+                <dd class="text-slate-900 mt-0.5">{{ case.industry }}</dd>
+            </div>
+            {% endif %}
+
+            {% if case.case_type %}
+            <div>
+                <dt class="text-xs text-slate-500 uppercase tracking-wide">Case type</dt>
+                <dd class="text-slate-900 mt-0.5">{{ case.case_type }}</dd>
+            </div>
+            {% endif %}
+
+            {% if case.firm %}
+            <div>
+                <dt class="text-xs text-slate-500 uppercase tracking-wide">Firm</dt>
+                <dd class="text-slate-900 mt-0.5">{{ case.firm }}</dd>
+            </div>
+            {% endif %}
+
+            {% if case.page_count %}
+            <div>
+                <dt class="text-xs text-slate-500 uppercase tracking-wide">Pages</dt>
+                <dd class="text-slate-900 mt-0.5">{{ case.page_count }}</dd>
+            </div>
+            {% endif %}
+        </dl>
+
+        <div class="mt-5 flex gap-2">
+            <a href="{{ pdf_url }}" target="_blank" rel="noopener"
+               class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800">
+                Open PDF in new tab
+            </a>
+            <a href="{{ pdf_url }}" download
+               class="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded-md hover:bg-slate-50">
+                Download
+            </a>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <iframe src="{{ pdf_url }}"
+                class="w-full h-[80vh] border-0"
+                title="{{ case.case_title }}"></iframe>
+    </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Email verified · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto px-6 py-12">
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
+
+        {% if result.success %}
+        <div class="mb-4 inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-700">
+            ✓
+        </div>
+        <h1 class="text-xl font-semibold mb-2">Email verified</h1>
+        <p class="text-sm text-slate-600 mb-6">
+            Your account is now active. Sign in to start browsing cases.
+        </p>
+        <a href="/login"
+           class="block w-full text-center px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 font-medium">
+            Sign in
+        </a>
+
+        {% else %}
+        <div class="mb-4 inline-flex items-center justify-center w-10 h-10 rounded-full bg-rose-100 text-rose-700">
+            !
+        </div>
+        <h1 class="text-xl font-semibold mb-2">Verification failed</h1>
+        <p class="text-sm text-slate-600 mb-6">
+            {{ result.error or "We couldn&rsquo;t verify that link." }}
+        </p>
+        <a href="/signup"
+           class="block w-full text-center px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 font-medium">
+            Try signing up again
+        </a>
+        {% endif %}
+
+    </div>
+</div>
+{% endblock %}

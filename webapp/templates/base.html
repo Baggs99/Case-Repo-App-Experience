@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Case Repo{% endblock %}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+
+    <style>
+        body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+        .htmx-request .htmx-indicator { opacity: 1; }
+        .htmx-request.htmx-indicator { opacity: 1; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+    <header class="border-b border-slate-200 bg-white">
+        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <a href="/" class="flex items-center gap-2">
+                <span class="text-lg font-semibold tracking-tight">Case Repo</span>
+                <span class="text-xs text-slate-500 hidden sm:inline">consulting cases for MBAs</span>
+            </a>
+            <nav class="flex items-center gap-4 text-sm">
+                <a href="/" class="text-slate-600 hover:text-slate-900">Browse</a>
+                {% if current_user %}
+                    <span class="text-slate-500 hidden sm:inline">{{ current_user.email }}</span>
+                    <a href="/change-password" class="text-slate-600 hover:text-slate-900">Change password</a>
+                    <form method="POST" action="/logout" class="inline">
+                        <button type="submit" class="px-3 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50">
+                            Sign out
+                        </button>
+                    </form>
+                {% else %}
+                    <a href="/login" class="text-slate-600 hover:text-slate-900">Sign in</a>
+                    <a href="/signup" class="px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800">Sign up</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main class="flex-1">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="border-t border-slate-200 bg-white mt-12">
+        <div class="max-w-6xl mx-auto px-6 py-6 text-xs text-slate-500 flex justify-between">
+            <span>Case Repo — built for Yale SOM</span>
+            <span>{{ total_cases or 0 }} cases indexed</span>
+        </div>
+    </footer>
+
+</body>
+</html>

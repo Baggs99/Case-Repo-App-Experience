@@ -1,0 +1,156 @@
+{
+  "model": "gpt-4.1-mini",
+  "n_predictions": 9,
+  "n_failures": 0,
+  "exact_match_rate": 0.3333,
+  "avg_abs_score_gap": 1.833,
+  "max_score_gap": 4.0,
+  "match_rate_by_bucket": {
+    "Easy": {
+      "n": 3,
+      "match_rate": 0.0
+    },
+    "Medium": {
+      "n": 3,
+      "match_rate": 1.0
+    },
+    "Hard": {
+      "n": 3,
+      "match_rate": 0.0
+    }
+  },
+  "confusion_matrix": {
+    "Easy": {
+      "Easy": 0,
+      "Medium": 2,
+      "Hard": 1
+    },
+    "Medium": {
+      "Easy": 0,
+      "Medium": 3,
+      "Hard": 0
+    },
+    "Hard": {
+      "Easy": 0,
+      "Medium": 3,
+      "Hard": 0
+    }
+  },
+  "disagreement_by_source_school": {
+    "Columbia": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Darden": {
+      "n": 2,
+      "disagreements": 2,
+      "disagreement_rate": 1.0
+    },
+    "Harvard": {
+      "n": 1,
+      "disagreements": 0,
+      "disagreement_rate": 0.0
+    },
+    "Kellogg": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "MIT": {
+      "n": 2,
+      "disagreements": 1,
+      "disagreement_rate": 0.5
+    },
+    "Stern": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Yale": {
+      "n": 1,
+      "disagreements": 0,
+      "disagreement_rate": 0.0
+    }
+  },
+  "worst_disagreements": [
+    {
+      "case_title": "CEO of Your Favorite Company",
+      "source_school": "Darden",
+      "existing": "Easy",
+      "predicted": "Hard",
+      "existing_score": "3.50",
+      "predicted_score": "7.50",
+      "score_gap": "4.00",
+      "confidence": "0.900",
+      "notes": "This case is highly ambiguous with no data or exhibits provided, requiring the candidate to drive the case entirely through structured, creative thinking and business acumen. The qualitative complexity and synthesis burden are very high, as candidates must generate and justify strategic changes and execution plans without concrete data, making it more challenging than typical Medium cases. The quantitative burden is moderate since any estimates or quantifications are candidate-generated rather than data-driven."
+    },
+    {
+      "case_title": "Gassy Convenience",
+      "source_school": "Stern",
+      "existing": "Easy",
+      "predicted": "Medium",
+      "existing_score": "3.50",
+      "predicted_score": "6.00",
+      "score_gap": "2.50",
+      "confidence": "0.900",
+      "notes": "The case involves a moderately high quantitative burden with NPV and weighted average calculations, plus multi-faceted qualitative considerations like implementation strategy and market trends. The structure is moderately complex but manageable, similar to other Medium cases in the calibration set. The ambiguity is moderate, requiring some synthesis but not to a Hard level."
+    },
+    {
+      "case_title": "Funeral Homes",
+      "source_school": "Columbia",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.50",
+      "predicted_score": "6.00",
+      "score_gap": "2.50",
+      "confidence": "0.900",
+      "notes": "The case involves moderate complexity with multi-step profitability calculations including growth projections and EBITDA targets, combined with qualitative industry insights about a fragmented, niche market and shifting customer preferences. The math is manageable but requires careful multi-year projections and synthesis of financial and market factors, aligning well with a Medium difficulty level."
+    },
+    {
+      "case_title": "Recreational Aircraft (Bain, Round 1)",
+      "source_school": "MIT",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.50",
+      "predicted_score": "6.00",
+      "score_gap": "2.50",
+      "confidence": "0.900",
+      "notes": "The case involves moderate ambiguity with a two-part stem and requires multi-step reasoning including market sizing with both top-down and bottom-up approaches, profitability calculations, and strategic considerations. The math is moderate complexity, and the synthesis involves tying together market, financial, and operational factors, making it comparable to standard Medium difficulty cases in the calibration set."
+    },
+    {
+      "case_title": "Sticky Surfactants",
+      "source_school": "Darden",
+      "existing": "Easy",
+      "predicted": "Medium",
+      "existing_score": "3.50",
+      "predicted_score": "5.50",
+      "score_gap": "2.00",
+      "confidence": "0.900",
+      "notes": "The case involves a standard profitability framework with some complexity in evaluating multiple strategic options (divestiture, repurposing, pricing) and moderate quantitative analysis on costs and revenues. The ambiguity is moderate given the need to consider alternatives beyond profitability and the synthesis of market, cost, and strategic factors. Overall, it aligns well with medium difficulty calibration cases like Copier Co. and Dr. Stern's Botanicals."
+    },
+    {
+      "case_title": "A+ Airline Co",
+      "source_school": "Kellogg",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.00",
+      "predicted_score": "6.00",
+      "score_gap": "2.00",
+      "confidence": "0.900",
+      "notes": "This case involves a moderate level of quantitative work including market sizing and NPV calculations, combined with qualitative reasoning about customer behavior and cost structure changes. The structure is fairly clear (before vs. after comparison), but requires multi-step reasoning and synthesis of revenue, cost, and cash flow impacts, making it comparable to other Medium difficulty cases in the calibration set."
+    }
+  ],
+  "thresholds": {
+    "min_exact_match_rate": 0.7,
+    "max_avg_abs_score_gap": 1.0
+  },
+  "warnings": [
+    "exact_match_rate_below_threshold: 33.33% < 70%",
+    "avg_abs_score_gap_above_threshold: 1.83 > 1.00"
+  ],
+  "status": "FAIL",
+  "sample_size_requested": 9,
+  "sample_size_actual": 9,
+  "eval_csv": "output\\audit\\eval_gpt-4.1-mini\\difficulty_calibration_eval.csv"
+}

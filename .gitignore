@@ -1,0 +1,49 @@
+# Secrets — never commit
+.env
+.env.*
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Pipeline artefacts
+output/pipeline.log
+output/audit/*.csv
+output/audit/*.json
+
+# Dev email outbox (verification links etc.)
+output/emails/
+
+# ── PDFs — kept out of git on purpose ──────────────────────────────────────────
+# These are large binary blobs (~330 MB total) and most are copyrighted by
+# the source schools / consulting firms. They should live in object storage
+# (Cloudflare R2 / S3) and be referenced by URL, not committed.
+#
+# Note: output/case_catalog.csv IS kept in the repo — it's small (~280 KB)
+# and serves as the canonical seed for the Postgres `cases` table on a
+# fresh deploy.
+
+# Source casebooks (input to the pipeline)
+Yale/
+Booth/
+RocketBlocks/
+Wharton/
+Kellogg/
+Tuck/
+Darden/
+Stern/
+Ross/
+
+# Split individual case PDFs (output of the pipeline)
+output/cases/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

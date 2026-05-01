@@ -1,0 +1,3 @@
+case_title,source_pdf,error_type,error_message,attempts,prompt_hash
+CEO of Your Favorite Company,Yale/Darden 2017.pdf,APIConnectionError,Connection error.,3,fcc8e3a2d7b463e2
+"Zippy Snowmobiles (McKinsey, Round 1)",Booth/MIT 2011.pdf,APIConnectionError,Connection error.,3,fd338e6f137c521a

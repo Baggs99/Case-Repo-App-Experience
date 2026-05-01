@@ -1,0 +1,115 @@
+# ─────────────────────────────────────────────────────────────
+#  Case-Splitter pipeline configuration
+#  All thresholds and heuristics live here so you can tune
+#  without touching Python source.
+# ─────────────────────────────────────────────────────────────
+
+processing:
+  # How many pages from the front to search for a TOC
+  # Set high enough to catch late-appearing indexes like Booth 2021 (page 111)
+  max_toc_search_pages: 130
+  # PDFs with at least this many pages are assumed multi-case
+  likely_casebook_min_pages: 30
+  # A split case shorter than this triggers a review flag
+  min_case_pages: 3
+  # A split case longer than this triggers a review flag
+  max_case_pages: 60
+  # Pages to read when extracting case metadata
+  max_metadata_extract_pages: 3
+
+confidence:
+  # Below this → needs_manual_review = True
+  low_confidence_threshold: 0.50
+  # Parser must beat this to be used as primary TOC parser
+  toc_match_threshold: 0.65
+  # Header-pattern parser threshold
+  header_pattern_threshold: 0.45
+  # Cases above this are written without a review flag
+  min_confidence_for_auto_split: 0.60
+
+section_headers:
+  # Used to detect repeated case structure (multi-case signal)
+  # and to find section boundaries within each case.
+  primary:
+    - "Prompt"
+    - "Background"
+    - "Case Background"
+    - "Clarifying Information"
+    - "Clarifying Questions"
+    - "Additional Information"
+    - "Exhibits"
+    - "Exhibit 1"
+    - "Exhibit A"
+    - "Conclusion"
+    - "Suggested Framework"
+    - "Sample Framework"
+    - "Potential Framework"
+    - "Case Information"
+    - "Interviewer Guide"
+    - "Candidate Handout"
+    - "Answer"
+    - "Solution"
+    - "Overview"
+    - "Question"
+    - "Case Overview"
+    - "Framework"
+  # Phrases on a page that strongly suggest it is a TOC page
+  toc_indicators:
+    - "Table of Contents"
+    - "Contents"
+    - "Cases in This Guide"
+    - "Cases in this Casebook"
+    - "Index of Cases"
+    - "Case List"
+    - "Case Index"
+    - "List of Cases"
+
+heuristics:
+  # Minimum number of numeric-ended lines to treat a page as a TOC
+  min_toc_entries: 3
+  # Hard limits on extracted case title length
+  title_max_length: 150
+  title_min_length: 3
+  # For QA flags
+  very_short_case_pages: 3
+  very_long_case_pages: 55
+  # Warn when this many pages in a source PDF are unassigned
+  unassigned_pages_warn_threshold: 10
+
+# Folder-name → normalized school slug mapping.
+# Add new schools here; keys are matched case-insensitively.
+known_schools:
+  Booth: booth
+  Yale: yale
+  Ross: ross
+  Darden: darden
+  Wharton: wharton
+  Harvard: hbs
+  HBS: hbs
+  Kellogg: kellogg
+  RocketBlocks: rocketblocks
+  Haas: haas
+  Tuck: tuck
+  Stern: stern
+  Fuqua: fuqua
+  McCombs: mccombs
+  Tepper: tepper
+  Carlson: carlson
+  Johnson: johnson
+  Anderson: anderson
+  Sloan: sloan
+  MIT: sloan
+
+# School-specific overrides — merged on top of defaults at runtime.
+# Each key must match a slug from known_schools.
+school_overrides:
+  rocketblocks:
+    always_single_case: true
+    preferred_parser: single_case
+  booth:
+    preferred_parser: toc_driven
+    case_number_prefix: "Case"
+  yale:
+    preferred_parser: toc_driven
+  darden:
+    preferred_parser: toc_driven

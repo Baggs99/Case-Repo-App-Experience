@@ -1,0 +1,145 @@
+{
+  "model": "gpt-5-mini",
+  "n_predictions": 9,
+  "n_failures": 0,
+  "exact_match_rate": 0.4444,
+  "avg_abs_score_gap": 1.689,
+  "max_score_gap": 4.0,
+  "match_rate_by_bucket": {
+    "Easy": {
+      "n": 3,
+      "match_rate": 0.3333
+    },
+    "Medium": {
+      "n": 3,
+      "match_rate": 0.6667
+    },
+    "Hard": {
+      "n": 3,
+      "match_rate": 0.3333
+    }
+  },
+  "confusion_matrix": {
+    "Easy": {
+      "Easy": 1,
+      "Medium": 1,
+      "Hard": 1
+    },
+    "Medium": {
+      "Easy": 1,
+      "Medium": 2,
+      "Hard": 0
+    },
+    "Hard": {
+      "Easy": 0,
+      "Medium": 2,
+      "Hard": 1
+    }
+  },
+  "disagreement_by_source_school": {
+    "Columbia": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Darden": {
+      "n": 2,
+      "disagreements": 1,
+      "disagreement_rate": 0.5
+    },
+    "Harvard": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Kellogg": {
+      "n": 1,
+      "disagreements": 0,
+      "disagreement_rate": 0.0
+    },
+    "MIT": {
+      "n": 2,
+      "disagreements": 1,
+      "disagreement_rate": 0.5
+    },
+    "Stern": {
+      "n": 1,
+      "disagreements": 1,
+      "disagreement_rate": 1.0
+    },
+    "Yale": {
+      "n": 1,
+      "disagreements": 0,
+      "disagreement_rate": 0.0
+    }
+  },
+  "worst_disagreements": [
+    {
+      "case_title": "CEO of Your Favorite Company",
+      "source_school": "Darden",
+      "existing": "Easy",
+      "predicted": "Hard",
+      "existing_score": "3.50",
+      "predicted_score": "7.50",
+      "score_gap": "4.00",
+      "confidence": "0.800",
+      "notes": "This is highly ambiguous and synthesis-heavy: candidate must choose a firm, craft strategic changes, design a credible execution plan, quantify impacts on the fly, and defend risks with no exhibits. Math required is light, but the structural and execution demands closely mirror a tough MBB-style interview."
+    },
+    {
+      "case_title": "Gassy Convenience",
+      "source_school": "Stern",
+      "existing": "Easy",
+      "predicted": "Medium",
+      "existing_score": "3.50",
+      "predicted_score": "6.50",
+      "score_gap": "3.00",
+      "confidence": "0.850",
+      "notes": "Quantitatively heavier than a typical medium case (explicit NPV/weighted-average work and multi-year pilot modeling) but structurally fairly guided (clear framework, exhibits, and a focused pilot scope). Requires multi-step reasoning (region selection, financial modeling, implementation strategy, and risk assessment) but not the extreme ambiguity or data density of a top-tier MBB final-round case."
+    },
+    {
+      "case_title": "Funeral Homes",
+      "source_school": "Columbia",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.50",
+      "predicted_score": "6.00",
+      "score_gap": "2.50",
+      "confidence": "0.860",
+      "notes": "Moderate difficulty: requires multi-step mental math (compounding price/volume growth and EBITDA projection) plus qualitative brainstorming to identify new revenue/EBITDA streams; ambiguity is limited by interviewer-led clarifications and the problem is typical of an MBB profitability/PE screening case."
+    },
+    {
+      "case_title": "Recreational Aircraft (Bain, Round 1)",
+      "source_school": "MIT",
+      "existing": "Hard",
+      "predicted": "Medium",
+      "existing_score": "8.50",
+      "predicted_score": "6.00",
+      "score_gap": "2.50",
+      "confidence": "0.850",
+      "notes": "Moderate difficulty: contains a multi-part structure (industry drivers, synergies, business fit) plus a bottom-up market sizing and a follow-on profitability analysis. Math is straightforward but there are multiple reasoning steps and some ambiguity around cost/price assumptions, making it comparable to a typical MBB Round‑1 case."
+    },
+    {
+      "case_title": "Practice Case 7 (Le Seine)",
+      "source_school": "Harvard",
+      "existing": "Medium",
+      "predicted": "Easy",
+      "existing_score": "5.50",
+      "predicted_score": "3.50",
+      "score_gap": "2.00",
+      "confidence": "0.900",
+      "notes": "Short, classic HBS practice growth case with low ambiguity and minimal math; primarily asks for application of standard frameworks (4Ps/4Cs/Porter) and a straightforward recommendation. Synthesis burden is modest (choose segment, entry mode, execution levers) and it feels more like a beginner-friendly prep case than a tough MBB interview."
+    }
+  ],
+  "thresholds": {
+    "min_exact_match_rate": 0.7,
+    "max_avg_abs_score_gap": 1.0
+  },
+  "warnings": [
+    "exact_match_rate_below_threshold: 44.44% < 70%",
+    "avg_abs_score_gap_above_threshold: 1.69 > 1.00"
+  ],
+  "status": "FAIL",
+  "sample_size_requested": 9,
+  "sample_size_actual": 9,
+  "eval_csv": "output\\audit\\eval_gpt-5-mini\\difficulty_calibration_eval.csv"
+}

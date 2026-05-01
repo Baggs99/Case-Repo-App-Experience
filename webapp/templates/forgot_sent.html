@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Check your email · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto px-6 py-12">
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6 text-center">
+        <h1 class="text-xl font-semibold mb-2">Check your email</h1>
+        <p class="text-sm text-slate-600 mb-4">
+            If an account exists for <strong>{{ email }}</strong>, we just sent
+            a password-reset link to that address. The link is valid for 1 hour
+            and can only be used once.
+        </p>
+        <p class="text-xs text-slate-500">
+            Didn't get an email? Check Junk / Other, or
+            <a href="/forgot-password" class="text-slate-700 underline">try again</a>.
+        </p>
+    </div>
+</div>
+{% endblock %}

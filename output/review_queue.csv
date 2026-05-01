@@ -1,0 +1,72 @@
+id,case_title,source_pdf,source_folder,source_school,source_year,page_start,page_end,page_count,output_pdf_path,extraction_confidence,detection_method,needs_manual_review,industry,case_type,difficulty_overall,difficulty_quant,difficulty_qual,interviewer_style,prompt_excerpt,matched_toc_title,matched_start_page_text,matched_patterns,confidence_notes,review_flags
+c7a60c14-f2bb-4135-8b5a-ea7beb0e3195,Breast Cancer Surgery,Yale/Booth 2021.pdf,Yale,yale,2021,120,121,2,cases/Yale/Booth 2021/breast-cancer-surgery.pdf,0.9,toc,True,Healthcare,Market Entry,,,,,,Breast Cancer Surgery,"Structure and Framework
+Analytical and Problem Solving Ability
+Communication and Positive Attitude
+Synthesis and Recommendation
+Fit Questions
+Case Prompt
+Interviewer Guidance
+Case Development
+Case Eva",toc_entry,"boundary auto-corrected p118→p120 (title prominent at pos 9, was pos 429 on p118); 162 of 375 pages unassigned in source PDF; page_count=2 < min (3)",unassigned_pages_warning; too_few_pages
+4657c177-ed69-493f-a59a-0cef3832b313,Elena's Electronics,Yale/Booth 2021.pdf,Yale,yale,2021,176,181,6,cases/Yale/Booth 2021/elena-s-electronics.pdf,0.7,toc,True,Retail / CPG,Growth,HEAVY,,,,"Interviewer Guidance
+Case Development
+Case Evaluation
+Client Type
+Industry
+Case Type
+S       O      A      R
+1
+2
+1
+2
+1
+2
+1
+2
+Fit Evaluation
+Overall Fit Performance
+1. Framework
+2. Analysis of store revenues
+Case #12: Elena’s Electronics (1/ϲ)
+UNDISCLOSED – Round 1 – Candidate Led
+1.
+Tell me somethin",Elena's Electronics,"Structure and Framework
+Analytical and Problem Solving Ability
+Communication and Positive Attitude
+Synthesis and Recommendation
+Fit Questions
+Case Prompt
+Interviewer Guidance
+Case Development
+Case Eva",toc_entry,title fragment 'elena's electro' not found on start page; 162 of 375 pages unassigned in source PDF,title_mismatch_on_start_page; unassigned_pages_warning
+84a8bec2-8ebb-4aa8-8463-7c82b26a2abb,Linda's Great Burgers,Yale/Booth 2021.pdf,Yale,yale,2021,230,234,5,cases/Yale/Booth 2021/linda-s-great-burgers.pdf,0.7,toc,True,Financial Services,M&A,LIGHT,,,Interviewer-led,"Interviewer Guidance
+Case Development
+Case Evaluation
+Client Type
+Industry
+Case Type
+S       O      A      R
+1
+2
+1
+2
+1
+2
+1
+2
+Fit Evaluation
+Overall Fit Performance
+1. Framework
+2. Exhibit 1 & Synergy Calculation
+3. Growth Calculation
+4. Synthesis
+Case #22: Linda’s Great Burgers (1/ϱ)
+MCKINSEY & CO –",Linda's Great Burgers,"Structure and Framework
+Analytical and Problem Solving Ability
+Communication and Positive Attitude
+Synthesis and Recommendation
+Fit Questions
+Case Prompt
+Interviewer Guidance
+Case Development
+Case Eva",toc_entry,title fragment 'linda's great b' not found on start page; 162 of 375 pages unassigned in source PDF,title_mismatch_on_start_page; unassigned_pages_warning

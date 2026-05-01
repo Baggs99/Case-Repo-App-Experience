@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Browse cases · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-6 py-8">
+
+    <div class="mb-8">
+        <h1 class="text-3xl font-semibold tracking-tight">Browse cases</h1>
+        <p class="text-slate-600 mt-1">
+            Filter by difficulty, industry, case type, or school.
+            Click any card to read the full case PDF.
+        </p>
+    </div>
+
+    <form
+        id="search-form"
+        hx-get="/search"
+        hx-target="#results"
+        hx-trigger="input changed delay:300ms from:#q, change from:select, click from:button[data-difficulty]"
+        hx-push-url="true"
+        hx-indicator="#search-spinner"
+        class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 mb-6">
+
+        <div class="mb-4">
+            <label for="q" class="block text-xs font-medium text-slate-600 mb-1.5">
+                Search by title
+            </label>
+            <input
+                id="q" name="q" type="text"
+                value="{{ filters.q or '' }}"
+                placeholder="e.g. retirement, retail, pharma..."
+                class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent">
+        </div>
+
+        <div class="mb-4">
+            <label class="block text-xs font-medium text-slate-600 mb-1.5">Difficulty</label>
+            <div class="flex gap-2 flex-wrap">
+                <input type="hidden" name="difficulty" id="difficulty-input" value="{{ filters.difficulty or '' }}">
+                <button type="button" data-difficulty=""
+                    onclick="setDifficulty(this, '')"
+                    class="px-3 py-1.5 rounded-md text-sm border {% if not filters.difficulty %}bg-slate-900 text-white border-slate-900{% else %}bg-white text-slate-700 border-slate-300 hover:bg-slate-50{% endif %}">
+                    Any
+                </button>
+                {% for d in options.difficulties %}
+                <button type="button" data-difficulty="{{ d }}"
+                    onclick="setDifficulty(this, '{{ d }}')"
+                    class="px-3 py-1.5 rounded-md text-sm border {% if filters.difficulty == d %}bg-slate-900 text-white border-slate-900{% else %}bg-white text-slate-700 border-slate-300 hover:bg-slate-50{% endif %}">
+                    {{ d }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label for="industry" class="block text-xs font-medium text-slate-600 mb-1.5">Industry</label>
+                <select id="industry" name="industry"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    <option value="">Any industry</option>
+                    {% for v in options.industries %}
+                    <option value="{{ v }}" {% if filters.industry == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label for="case_type" class="block text-xs font-medium text-slate-600 mb-1.5">Case type</label>
+                <select id="case_type" name="case_type"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    <option value="">Any type</option>
+                    {% for v in options.case_types %}
+                    <option value="{{ v }}" {% if filters.case_type == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label for="school" class="block text-xs font-medium text-slate-600 mb-1.5">School</label>
+                <select id="school" name="school"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    <option value="">Any school</option>
+                    {% for v in options.schools %}
+                    <option value="{{ v }}" {% if filters.school == v %}selected{% endif %}>{{ v }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-between text-xs">
+            <span id="search-spinner" class="htmx-indicator text-slate-500">Searching…</span>
+            <a href="/" class="text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline">Reset filters</a>
+        </div>
+    </form>
+
+    <div id="results">
+        {% include "_search_results.html" %}
+    </div>
+
+</div>
+
+<script>
+    function setDifficulty(btn, value) {
+        document.getElementById("difficulty-input").value = value;
+        // Update visual state
+        document.querySelectorAll("button[data-difficulty]").forEach(el => {
+            const isSelected = el.dataset.difficulty === value;
+            el.className = "px-3 py-1.5 rounded-md text-sm border " + (
+                isSelected
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+            );
+        });
+        // Trigger HTMX request manually since hidden inputs don't fire change events
+        htmx.trigger("#search-form", "change");
+    }
+</script>
+{% endblock %}
