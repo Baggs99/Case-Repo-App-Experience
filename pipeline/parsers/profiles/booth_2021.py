@@ -4,11 +4,25 @@ Manual-override parser for the Booth School of Business Case Book 2021.
 Trigger condition (enforced by orchestrator):
     source filename contains "Booth 2021"
 
-Ground-truth page ranges taken from the case book TOC, with one correction:
-    Breast Cancer Surgery starts at p118 (not p120 — the TOC parser missed
-    the two-page intro that precedes the main case header).
+Ground truth derivation
+-----------------------
+Page ranges come from the in-PDF "Case #N: <Title> (X/Y)" headers, which
+are the canonical first/last-page-of-case markers printed on every page.
+For each case, ``human_start`` is the page where ``(1/Y)`` appears and
+``human_end`` is the page where ``(Y/Y)`` appears.
 
-The final case (Cruise Line Acquisition) extends to the last page of the PDF.
+These match the printed TOC ("Index of Practice Cases") on pages 111-112
+of the source PDF. The previous version of this table was reverse-derived
+from a flaky text-search and was off by 1-3 pages on 40 of 42 cases — the
+top page (case title, prompt, fit questions) was being clipped, so every
+split case effectively started at "(2/Y)". The same scan also failed to
+bound the final case, so Cruise Line Acquisition's split included 11
+trailing pages of sponsor marketing. Both are fixed here.
+
+Note: a few cases ((1/6), (1/5)) had the digits 6/5 mis-mapped to Greek
+glyphs ϲ/ϱ in the embedded font, which is why the original automated
+extraction missed them. We confirmed those cases by reading the surrounding
+pages directly.
 
 Every produced boundary is tagged:
     detection_method    = "manual_override_booth_2021"
@@ -30,55 +44,56 @@ logger = logging.getLogger(__name__)
 
 DETECTION_METHOD = "manual_override_booth_2021"
 
-# (title, human_start, human_end)  — None → last page of PDF
-_CASES: list[tuple[str, int, int | None]] = [
-    ("Army Hotel",                          114, 117),
-    ("Breast Cancer Surgery",               118, 121),   # fixed: was 120
-    ("Burger Palace",                       125, 127),
-    ("Chicken Pox Vaccine",                 129, 133),
-    ("Cleaning Products",                   135, 138),
-    ("Coffee and Tea Apparel",              140, 145),
-    ("Commercial Vehicle OEM in China",     148, 150),
-    ("Consumer Products Strategy",          152, 156),
-    ("Contact Lenses",                      158, 165),
-    ("Deepwater Inc.",                      167, 170),
-    ("Electric Utility",                    173, 175),
+# (title, human_start, human_end)
+# Verified against in-PDF "(1/Y)" and "(Y/Y)" headers on every page.
+_CASES: list[tuple[str, int, int]] = [
+    ("Army Hotel",                          113, 117),
+    ("Breast Cancer Surgery",               118, 121),
+    ("Burger Palace",                       122, 127),
+    ("Chicken Pox Vaccine",                 128, 133),
+    ("Cleaning Products",                   134, 138),
+    ("Coffee and Tea Apparel",              139, 145),
+    ("Commercial Vehicle OEM in China",     146, 150),
+    ("Consumer Products Strategy",          151, 156),
+    ("Contact Lenses",                      157, 165),
+    ("Deepwater Inc.",                      166, 170),
+    ("Electric Utility",                    171, 175),
     ("Elena's Electronics",                 176, 181),
-    ("Finance Co",                          183, 187),
-    ("French Beauty Co",                    189, 193),
-    ("German Telecom",                      195, 198),
-    ("Green Co",                            200, 204),
-    ("GreenShield Health Insurance",        206, 210),
-    ("Hawaiian Smoothies",                  212, 215),
-    ("Heavy Attrition",                     217, 219),
-    ("International Airlines",              221, 225),
-    ("Katrina",                             227, 229),
+    ("Finance Co",                          182, 187),
+    ("French Beauty Co",                    188, 193),
+    ("German Telecom",                      194, 198),
+    ("Green Co",                            199, 204),
+    ("GreenShield Health Insurance",        205, 210),
+    ("Hawaiian Smoothies",                  211, 215),
+    ("Heavy Attrition",                     216, 219),
+    ("International Airlines",              220, 225),
+    ("Katrina",                             226, 229),
     ("Linda's Great Burgers",               230, 234),
-    ("Lola Lo's Zoo",                       236, 240),
-    ("Lost Patent",                         242, 244),
-    ("Midwest Machinery Co.",               246, 250),
-    ("New Vaccine",                         252, 256),
-    ("Payments Company",                    258, 262),
-    ("Pharmaceutical Rare Disease",         264, 267),
-    ("Project Gargoyle",                    269, 276),
-    ("PyeongChang Winter Olympics",         278, 280),
-    ("Quahog Public Schools",               282, 285),
-    ("Retirement Apartment Complexes",      287, 291),
-    ("Skylight Goods",                      294, 301),
-    ("Smart Cards",                         303, 307),
-    ("Student Health Insurance",            309, 318),
-    ("Super Jr. Baby Formula",              321, 328),
-    ("Apache Helicopter",                   330, 335),
-    ("White Boards",                        337, 340),
-    ("Telco Talks",                         342, 345),
-    ("Yarmouth Yachts",                     348, 352),
-    ("Sueno Mattress",                      354, 357),
-    ("Cruise Line Acquisition",             361, None),  # → last page
+    ("Lola Lo's Zoo",                       235, 240),
+    ("Lost Patent",                         241, 244),
+    ("Midwest Machinery Co.",               245, 250),
+    ("New Vaccine",                         251, 256),
+    ("Payments Company",                    257, 262),
+    ("Pharmaceutical Rare Disease",         263, 267),
+    ("Project Gargoyle",                    268, 276),
+    ("PyeongChang Winter Olympics",         277, 280),
+    ("Quahog Public Schools",               281, 285),
+    ("Retirement Apartment Complexes",      286, 291),
+    ("Skylight Goods",                      292, 301),
+    ("Smart Cards",                         302, 307),
+    ("Student Health Insurance",            308, 318),
+    ("Super Jr. Baby Formula",              319, 328),
+    ("Apache Helicopter",                   329, 335),
+    ("White Boards",                        336, 340),
+    ("Telco Talks",                         341, 345),
+    ("Yarmouth Yachts",                     346, 352),
+    ("Sueno Mattress",                      353, 357),
+    ("Cruise Line Acquisition",             358, 364),
 ]
 
 _EXPECTED_CASE_COUNT = 42
-_FIRST_CASE_PAGE     = 114
-_MIN_EXPECTED_PAGES  = 361
+_FIRST_CASE_PAGE     = 113
+_MIN_EXPECTED_PAGES  = 364
 
 
 class Booth2021Parser(BaseCasebookParser):
@@ -111,7 +126,7 @@ class Booth2021Parser(BaseCasebookParser):
                 continue
 
             fitz_start = min(human_start - 1, total_pages - 1)
-            fitz_end   = (total_pages - 1) if human_end is None else min(human_end - 1, total_pages - 1)
+            fitz_end   = min(human_end   - 1, total_pages - 1)
 
             if fitz_start > fitz_end:
                 logger.warning(
@@ -128,7 +143,10 @@ class Booth2021Parser(BaseCasebookParser):
                 detection_method=DETECTION_METHOD,
                 matched_toc_title=title,
                 matched_patterns=["manual_ground_truth_index"],
-                confidence_notes=["Ground-truth TOC with Breast Cancer Surgery start corrected to p118."],
+                confidence_notes=[
+                    "Page ranges verified against in-PDF '(1/Y)' and '(Y/Y)' "
+                    "case headers on every page.",
+                ],
                 needs_manual_review=False,
             ))
 
