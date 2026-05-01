@@ -3,7 +3,8 @@ Auth HTTP routes:
 
   GET  /signup           sign-up form
   POST /signup           create user, send verification email
-  GET  /verify           consume token (link target from email)
+  GET  /verify           peek token (no consume), render confirm form
+  POST /verify           consume token, mark email verified
   GET  /login            login form
   POST /login            authenticate, set session cookie
   POST /logout           destroy session, clear cookie
@@ -11,7 +12,7 @@ Auth HTTP routes:
   POST /change-password  rotate password, kill all sessions, force re-login
   GET  /forgot-password  request a password-reset link
   POST /forgot-password  email a reset link (always shows "check your email")
-  GET  /reset-password   verify token (no consume), render new-password form
+  GET  /reset-password   peek token (no consume), render new-password form
   POST /reset-password   consume token, set new password, kill all sessions
 
 Design notes
@@ -22,8 +23,11 @@ Design notes
   by a real account vs free; instead we always show the same "check your
   email" message and silently skip the email if the address is taken.
   This matches industry best practice (1Password / GitHub style).
-- /verify is GET (idempotent-ish) so users can click links from email.
-  The server marks the token consumed so re-clicks fail gracefully.
+- /verify and /reset-password both use a two-step GET-then-POST flow.
+  Microsoft Defender Safe Links (and other corporate URL scanners) pre-
+  fetch every link in inbound email, which would burn a single-use token
+  before the human ever clicks it. ATP follows GETs but never submits
+  forms, so the actual consumption only happens on POST.
 - The optional `?next=<url>` param on /login redirects users to where they
   were trying to go before being bounced to login.
 """
@@ -44,8 +48,10 @@ from webapp.auth.email_sender import (
     get_email_sender,
 )
 from webapp.auth.email_verification import (
+    VerificationResult,
     consume_verification_token,
     issue_verification_token,
+    peek_verification_token,
 )
 from webapp.auth.password_reset import (
     consume_password_reset_token,
@@ -151,10 +157,29 @@ def signup_submit(
 
 
 # ── Verify email ───────────────────────────────────────────────────────────────
+#
+# Two-step flow (GET → POST) so URL scanners like Microsoft Defender's
+# Safe Links — which pre-fetch every link in inbound email — can't burn
+# the single-use token before the human ever sees the page. ATP follows
+# GETs but never submits forms, so the actual consumption happens only
+# when the user clicks the "Verify my email" button.
 
 @router.get("/verify", response_class=HTMLResponse)
-def verify(request: Request, token: Optional[str] = None):
-    result = consume_verification_token(token or "")
+def verify_form(request: Request, token: Optional[str] = None):
+    user_id = peek_verification_token(token or "")
+    if user_id is None:
+        result = VerificationResult(
+            success=False,
+            user_id=None,
+            error="This verification link is invalid or has expired.",
+        )
+        return render(request, "verify_done.html", {"result": result})
+    return render(request, "verify_confirm.html", {"token": token})
+
+
+@router.post("/verify", response_class=HTMLResponse)
+def verify_submit(request: Request, token: str = Form("")):
+    result = consume_verification_token(token)
     return render(request, "verify_done.html", {"result": result})
 
 

@@ -1,13 +1,17 @@
 """
-Email verification — issue and consume one-time verification tokens.
+Email verification — issue, peek, and consume one-time verification tokens.
 
 Flow:
   1. User signs up.
   2. We generate (raw, hash). Store hash in DB. Send raw in email link.
-  3. User clicks link → /verify?token=<raw>.
-  4. We hash the incoming raw, look up by hash, validate not expired /
-     not consumed, mark email_verified_at on the user, mark token
-     consumed_at on the verification row.
+  3. User clicks link → GET /verify?token=<raw>.
+       - We peek (validate WITHOUT consuming) so URL scanners
+         (Microsoft Safe Links, Gmail preview, antivirus link-checkers)
+         can pre-fetch the link without burning the token before the
+         human ever sees the confirm page.
+  4. User clicks "Verify my email" on the confirm page → POST /verify.
+       - We consume the token AND set email_verified_at atomically
+         (a row lock prevents two concurrent submits from both winning).
 
 Security properties:
   - Tokens are 32 random bytes (URL-safe base64 = 43 chars), not guessable.
@@ -65,6 +69,42 @@ def issue_verification_token(user_id: int) -> str:
     return raw
 
 
+def peek_verification_token(raw_token: str) -> Optional[int]:
+    """Return user_id iff the token exists, isn't consumed, and isn't expired.
+
+    Does NOT consume the token. The route uses this on GET to render the
+    confirm-verification page, so URL scanners that pre-fetch the link
+    don't burn the token before the human ever sees the form.
+    """
+    if not raw_token:
+        return None
+
+    token_hash = hash_token(raw_token)
+
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT user_id, expires_at, consumed_at
+                FROM email_verification_tokens
+                WHERE token_hash = %s;
+                """,
+                (token_hash,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        return None
+    if row["consumed_at"] is not None:
+        return None
+
+    now_aware = datetime.utcnow().replace(tzinfo=row["expires_at"].tzinfo)
+    if row["expires_at"] < now_aware:
+        return None
+
+    return row["user_id"]
+
+
 def consume_verification_token(raw_token: str) -> VerificationResult:
     """Validate `raw_token` and mark the associated user as email-verified.
 
@@ -72,6 +112,9 @@ def consume_verification_token(raw_token: str) -> VerificationResult:
       - token doesn't exist (typo'd or never issued)
       - token already consumed
       - token expired
+
+    Uses `FOR UPDATE` to prevent two concurrent POSTs (or a double-click)
+    from both succeeding.
     """
     if not raw_token:
         return VerificationResult(False, None, "Missing token.")
@@ -84,7 +127,8 @@ def consume_verification_token(raw_token: str) -> VerificationResult:
                 """
                 SELECT id, user_id, expires_at, consumed_at
                 FROM email_verification_tokens
-                WHERE token_hash = %s;
+                WHERE token_hash = %s
+                FOR UPDATE;
                 """,
                 (token_hash,),
             )
