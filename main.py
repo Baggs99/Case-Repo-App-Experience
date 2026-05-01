@@ -11,6 +11,10 @@ Commands
   classify-difficulty  Fill missing difficulty labels via the OpenAI API.
   evaluate-difficulty-calibration  QA the classifier against existing labels.
   classify-industry    Fill missing industry labels via the OpenAI API.
+  publish-cases  Sync case_catalog.csv into the Postgres `cases` table.
+  upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
+  verify-storage Walk the cases table and check every PDF resolves in storage.
+  serve          Launch the FastAPI web app.
 
 Examples
 --------
@@ -409,6 +413,161 @@ def publish_cases_cmd(catalog_path: str, database_url: str, dry_run: bool, verbo
         click.echo(f"  Inserted:              {stats['inserted']}")
         click.echo(f"  Updated:               {stats['updated']}")
     click.echo()
+
+
+# ── upload-pdfs command ────────────────────────────────────────────────────────
+
+@cli.command("upload-pdfs")
+@click.option("--catalog", "catalog_path", default="output/case_catalog.csv",
+              show_default=True,
+              help="Path to case_catalog.csv (or .xlsx).")
+@click.option("--source-dir", "source_dir", default=None,
+              help="Base directory for resolving relative pdf_path values. "
+                   "Defaults to the project root.")
+@click.option("--limit", type=int, default=None,
+              help="Upload at most N PDFs (for smoke tests).")
+@click.option("--force", is_flag=True, default=False,
+              help="Re-upload even if R2 already has the key.")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="List what would be uploaded without contacting R2.")
+@click.option("--verbose", is_flag=True, default=False,
+              help="Enable DEBUG-level logging and per-row [HAVE] lines.")
+def upload_pdfs_cmd(
+    catalog_path: str,
+    source_dir: str | None,
+    limit: int | None,
+    force: bool,
+    dry_run: bool,
+    verbose: bool,
+):
+    """
+    Bulk-upload every PDF referenced in case_catalog.csv to Cloudflare R2.
+
+    Reads R2_BUCKET_NAME, R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+    from .env. Idempotent: re-running skips PDFs already in the bucket
+    unless --force is set.
+
+    Examples:
+
+    \b
+      python main.py upload-pdfs --limit 5    # smoke test
+      python main.py upload-pdfs              # full run (~3-5 min for 467)
+      python main.py upload-pdfs --force      # overwrite every key
+    """
+    setup_logging(verbose=verbose)
+    import pandas as pd
+    from pipeline.storage import to_storage_key
+
+    cat_path = Path(catalog_path)
+    if not cat_path.exists():
+        click.echo(f"ERROR: catalog not found: {cat_path}", err=True)
+        raise SystemExit(1)
+
+    if cat_path.suffix.lower() in {".xlsx", ".xlsm"}:
+        df = pd.read_excel(cat_path)
+    else:
+        df = pd.read_csv(cat_path)
+
+    pdf_col = next(
+        (c for c in ("output_pdf_path", "pdf_path") if c in df.columns),
+        None,
+    )
+    if pdf_col is None:
+        click.echo(
+            "ERROR: catalog has neither 'output_pdf_path' nor 'pdf_path' column.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    if limit:
+        df = df.head(limit)
+
+    base = Path(source_dir).resolve() if source_dir else Path.cwd()
+    total = len(df)
+    width = max(3, len(str(total)))
+
+    click.echo(f"\nUploading {total} PDFs from {cat_path}")
+    click.echo(f"  Source base : {base}")
+
+    storage = None
+    if dry_run:
+        click.echo("  [DRY-RUN] R2 will not be contacted.\n")
+    else:
+        from pipeline.storage import R2Storage
+        try:
+            storage = R2Storage.from_env()
+        except RuntimeError as e:
+            click.echo(f"ERROR: {e}", err=True)
+            raise SystemExit(1)
+        click.echo(f"  Target      : {storage}\n")
+
+    n_uploaded = 0
+    n_already = 0
+    n_no_key = 0
+    n_missing_file = 0
+    n_failed = 0
+
+    for i, row_dict in enumerate(df.to_dict(orient="records"), start=1):
+        raw_path = row_dict.get(pdf_col)
+        prefix = f"  [{i:>{width}}/{total}]"
+
+        if not raw_path or (isinstance(raw_path, float) and pd.isna(raw_path)):
+            n_no_key += 1
+            click.echo(f"{prefix} [SKIP] empty pdf_path")
+            continue
+
+        raw_path = str(raw_path).strip()
+        key = to_storage_key(raw_path)
+        if not key:
+            n_no_key += 1
+            click.echo(f"{prefix} [SKIP] cannot compute key for {raw_path!r}")
+            continue
+
+        src = Path(raw_path)
+        if not src.is_absolute():
+            src = base / src
+        if not src.is_file():
+            n_missing_file += 1
+            click.echo(f"{prefix} [MISS] file not on disk: {src}")
+            continue
+
+        if dry_run:
+            click.echo(f"{prefix} [DRY ] {key}  ({src.stat().st_size:,} bytes)")
+            continue
+
+        try:
+            already = (not force) and storage.exists(key)
+        except Exception as e:  # noqa: BLE001
+            click.echo(f"{prefix} [WARN] head failed for {key}: {e}")
+            already = False
+
+        if already:
+            n_already += 1
+            if verbose:
+                click.echo(f"{prefix} [HAVE] {key}")
+            continue
+
+        try:
+            storage.put_file(key, src)
+            n_uploaded += 1
+            click.echo(f"{prefix} [PUT ] {key}  ({src.stat().st_size:,} bytes)")
+        except Exception as e:  # noqa: BLE001
+            n_failed += 1
+            click.echo(f"{prefix} [FAIL] {key} — {e}", err=True)
+
+    click.echo("\nResult:")
+    click.echo(f"  Total catalog rows:           {total}")
+    if not dry_run:
+        click.echo(f"  Uploaded:                     {n_uploaded}")
+        click.echo(f"  Skipped (already in bucket):  {n_already}")
+    click.echo(f"  Skipped (no / bad key):       {n_no_key}")
+    click.echo(f"  Skipped (file not on disk):   {n_missing_file}")
+    if not dry_run:
+        click.echo(f"  Failed:                       {n_failed}")
+    click.echo()
+
+    if n_failed > 0:
+        raise SystemExit(2)
 
 
 # ── serve command ──────────────────────────────────────────────────────────────

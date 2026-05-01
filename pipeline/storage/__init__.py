@@ -5,11 +5,11 @@ Public API
 ----------
 - `Storage`              the abstract interface
 - `LocalStorage`         filesystem-backed implementation
+- `R2Storage`            Cloudflare R2 (S3-compatible)
 - `get_storage()`        factory that reads env vars and returns the configured backend
 - `to_storage_key(...)`  utility for turning legacy absolute pdf paths into keys
 
-Cloud backends (R2 / S3 / Supabase Storage) are not yet implemented — see the
-TODO in `pipeline/storage/cloud.py` when you're ready to deploy.
+To switch backends in production, set `STORAGE_BACKEND=r2` in `.env`/Render.
 """
 
 from __future__ import annotations
@@ -18,12 +18,14 @@ import os
 from pathlib import Path
 
 from .base import Storage, validate_key
+from .cloud import R2Storage
 from .local import LocalStorage
 
 
 __all__ = [
     "Storage",
     "LocalStorage",
+    "R2Storage",
     "validate_key",
     "get_storage",
     "to_storage_key",
@@ -38,9 +40,11 @@ _DEFAULT_BASE = Path(__file__).resolve().parents[2] / "output" / "cases"
 def get_storage() -> Storage:
     """Return the configured storage backend.
 
-    Reads two environment variables:
-      - STORAGE_BACKEND     'local' (default) | 's3' | 'r2' | 'supabase'
+    Reads these environment variables:
+      - STORAGE_BACKEND     'local' (default) | 'r2' | 's3' | 'supabase'
       - STORAGE_LOCAL_DIR   override base dir for LocalStorage
+      - R2_BUCKET_NAME, R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+        consumed by R2Storage.from_env() when backend is 'r2'.
     """
     backend = os.environ.get("STORAGE_BACKEND", "local").lower()
 
@@ -48,16 +52,17 @@ def get_storage() -> Storage:
         base = os.environ.get("STORAGE_LOCAL_DIR", str(_DEFAULT_BASE))
         return LocalStorage(base)
 
-    if backend in ("s3", "r2", "supabase"):
+    if backend == "r2":
+        return R2Storage.from_env()
+
+    if backend in ("s3", "supabase"):
         raise NotImplementedError(
-            f"Storage backend {backend!r} is not yet implemented. "
-            "Add an S3-compatible backend in pipeline/storage/cloud.py "
-            "when you're ready to deploy."
+            f"Storage backend {backend!r} is not yet implemented."
         )
 
     raise ValueError(
         f"Unknown STORAGE_BACKEND {backend!r}. "
-        "Valid values: 'local', 's3', 'r2', 'supabase'."
+        "Valid values: 'local', 'r2', 's3', 'supabase'."
     )
 
 
