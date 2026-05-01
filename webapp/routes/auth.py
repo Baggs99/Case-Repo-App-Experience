@@ -144,12 +144,17 @@ def signup_submit(
     base_url = str(request.base_url).rstrip("/")
     verification_url = f"{base_url}/verify?token={raw_token}"
 
-    subject, body = build_verification_email(
+    subject, text_body, html_body = build_verification_email(
         recipient_email=user.email,
         verification_url=verification_url,
     )
     try:
-        get_email_sender().send(to=user.email, subject=subject, text_body=body)
+        get_email_sender().send(
+            to=user.email,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+        )
     except Exception:
         logger.exception("Failed to send verification email; user can request resend")
 
@@ -329,12 +334,17 @@ def forgot_password_submit(
         base_url = str(request.base_url).rstrip("/")
         reset_url = f"{base_url}/reset-password?token={raw_token}"
 
-        subject, body = build_password_reset_email(
+        subject, text_body, html_body = build_password_reset_email(
             recipient_email=user.email,
             reset_url=reset_url,
         )
         try:
-            get_email_sender().send(to=user.email, subject=subject, text_body=body)
+            get_email_sender().send(
+                to=user.email,
+                subject=subject,
+                text_body=text_body,
+                html_body=html_body,
+            )
         except Exception:
             logger.exception("Failed to send password-reset email; user can retry")
 
