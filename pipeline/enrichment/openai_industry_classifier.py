@@ -276,13 +276,21 @@ class IndustryExample:
 
 
 def _canonicalize(legacy: str) -> Optional[str]:
-    """Map a legacy industry string to its canonical bucket."""
+    """Map a legacy industry string to its canonical bucket.
+
+    Returns the canonical bucket name if the input matches either a canonical
+    label directly or any registered legacy variant (case-insensitively).
+    Returns None for blanks, NaN, or strings not in the taxonomy.
+    """
     if not legacy:
         return None
     s = legacy.strip()
     if not s or s.lower() == "nan":
         return None
     s_low = s.lower()
+    for canonical in INDUSTRY_TAXONOMY:
+        if canonical.lower() == s_low:
+            return canonical
     for canonical, variants in LEGACY_INDUSTRY_ALIASES.items():
         for v in variants:
             if v.lower() == s_low:
