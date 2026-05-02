@@ -27,6 +27,9 @@
                 <a href="/" class="text-slate-600 hover:text-slate-900">Browse</a>
                 {% if current_user %}
                     <span class="text-slate-500 hidden sm:inline">{{ current_user.email }}</span>
+                    {% if current_user_is_admin %}
+                        <a href="/admin/users" class="text-slate-600 hover:text-slate-900">Admin</a>
+                    {% endif %}
                     <a href="/change-password" class="text-slate-600 hover:text-slate-900">Change password</a>
                     <form method="POST" action="/logout" class="inline">
                         <button type="submit" class="px-3 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50">

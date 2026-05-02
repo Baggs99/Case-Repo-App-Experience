@@ -22,6 +22,22 @@ class Settings:
     static_dir: Path
     pdf_route_prefix: str
     search_result_limit: int
+    admin_emails: frozenset[str]
+
+    def is_admin(self, email: str | None) -> bool:
+        """True iff `email` is in the admin allowlist (case-insensitive)."""
+        if not email:
+            return False
+        return email.strip().lower() in self.admin_emails
+
+
+def _parse_admin_emails(raw: str | None) -> frozenset[str]:
+    """Parse ADMIN_EMAILS env var ('a@x.edu, b@x.edu') into a normalized set."""
+    if not raw:
+        return frozenset()
+    return frozenset(
+        e.strip().lower() for e in raw.split(",") if e.strip()
+    )
 
 
 def load_settings() -> Settings:
@@ -38,4 +54,5 @@ def load_settings() -> Settings:
         static_dir        = REPO_ROOT / "webapp" / "static",
         pdf_route_prefix  = "/files",
         search_result_limit = int(os.environ.get("WEBAPP_RESULT_LIMIT", "100")),
+        admin_emails      = _parse_admin_emails(os.environ.get("ADMIN_EMAILS")),
     )

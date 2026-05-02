@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Admin · Users · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-6 py-8">
+
+    <div class="mb-8">
+        <h1 class="text-3xl font-semibold tracking-tight">Users</h1>
+        <p class="text-slate-600 mt-1">
+            Everyone who has signed up for Case Repo. Newest first.
+        </p>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+            <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Total</div>
+            <div class="text-2xl font-semibold mt-1">{{ stats.total }}</div>
+            <div class="text-xs text-slate-500 mt-1">all-time signups</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+            <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Verified</div>
+            <div class="text-2xl font-semibold mt-1">{{ stats.verified }}</div>
+            <div class="text-xs text-slate-500 mt-1">{{ stats.verified_pct }}% of total</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+            <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">New (7d)</div>
+            <div class="text-2xl font-semibold mt-1">{{ stats.new_last_7d }}</div>
+            <div class="text-xs text-slate-500 mt-1">{{ stats.new_last_30d }} in last 30 days</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+            <div class="text-xs font-medium text-slate-500 uppercase tracking-wide">Active (7d)</div>
+            <div class="text-2xl font-semibold mt-1">{{ stats.active_last_7d }}</div>
+            <div class="text-xs text-slate-500 mt-1">logged in in last 7 days</div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+            <div class="text-sm font-medium text-slate-700">
+                {{ rows|length }} user{{ "s" if rows|length != 1 else "" }}
+            </div>
+            <div class="text-xs text-slate-500">
+                Sorted by signup date (newest first)
+            </div>
+        </div>
+
+        {% if rows %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-slate-50 border-b border-slate-200">
+                    <tr class="text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
+                        <th class="px-5 py-2.5">#</th>
+                        <th class="px-5 py-2.5">Email</th>
+                        <th class="px-5 py-2.5">Signed up</th>
+                        <th class="px-5 py-2.5">Verified</th>
+                        <th class="px-5 py-2.5">Last login</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                {% for r in rows %}
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-5 py-3 text-slate-400 tabular-nums">{{ r.id }}</td>
+                        <td class="px-5 py-3">
+                            <span class="font-medium text-slate-900">{{ r.email }}</span>
+                        </td>
+                        <td class="px-5 py-3 text-slate-600">
+                            <div>{{ humanize(r.created_at, now) }}</div>
+                            <div class="text-xs text-slate-400">{{ r.created_at.strftime("%Y-%m-%d %H:%M") }} UTC</div>
+                        </td>
+                        <td class="px-5 py-3">
+                            {% if r.is_verified %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    Verified
+                                </span>
+                                <div class="text-xs text-slate-400 mt-0.5">{{ humanize(r.email_verified_at, now) }}</div>
+                            {% else %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                    Pending
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-5 py-3 text-slate-600">
+                            {{ humanize(r.last_login_at, now) }}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div class="px-5 py-12 text-center text-slate-500 text-sm">
+                No users yet.
+            </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

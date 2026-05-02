@@ -46,6 +46,7 @@ _load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from webapp.auth.dependencies import RedirectToLogin
 from webapp.db import close_pool, init_pool
 from webapp.middleware import SessionMiddleware
+from webapp.routes import admin as admin_routes
 from webapp.routes import auth as auth_routes
 from webapp.routes import files as files_routes
 from webapp.routes import pages as pages_routes
@@ -107,6 +108,7 @@ def create_app() -> FastAPI:
     app.include_router(pages_routes.router)
     app.include_router(search_routes.router)
     app.include_router(files_routes.router)
+    app.include_router(admin_routes.router)
 
     return app
 

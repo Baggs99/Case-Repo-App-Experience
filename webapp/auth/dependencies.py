@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from webapp.auth.users import User
@@ -63,4 +63,18 @@ def require_verified_user(request: Request) -> User:
     user = require_auth(request)
     if not user.is_verified:
         raise RedirectToLogin(next_url="/login?unverified=1")
+    return user
+
+
+def require_admin(request: Request) -> User:
+    """Allow only admin-allowlisted users (per ADMIN_EMAILS env var).
+
+    Returns 404 — not 403 — for non-admins. The goal is to make the admin
+    surface invisible to logged-in non-admins: a 403 confirms the URL
+    exists, a 404 doesn't. Anonymous visitors get the normal login redirect.
+    """
+    user = require_auth(request)
+    settings = request.app.state.settings
+    if not settings.is_admin(user.email):
+        raise HTTPException(status_code=404, detail="Not Found")
     return user
