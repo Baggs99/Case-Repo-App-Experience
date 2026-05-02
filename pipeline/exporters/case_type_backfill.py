@@ -93,36 +93,68 @@ _CASE_TYPE_PATTERNS: list[tuple[str, str]] = [
 ]
 
 # ── Industry patterns ──────────────────────────────────────────────────────────
-# Only applied when industry is also blank.  Same longest-first ordering.
+# Only applied when industry is also blank. Patterns are canonical labels from
+# pipeline.enrichment.openai_industry_classifier.INDUSTRY_TAXONOMY so the
+# backfill output is consistent with the rest of the catalog.
+# Ordered longest → shortest so the most specific match wins first.
 
 _INDUSTRY_PATTERNS: list[tuple[str, str]] = [
+    # Compound / specific patterns first
+    ("consumer-packaged-goods", "Retail / CPG"),
     ("food-and-beverage",       "Food & Beverage"),
-    ("consumer-internet",       "Technology"),
-    ("consumer-packaged-goods", "Consumer Goods"),
     ("healthcare-financing",    "Healthcare"),
-    ("food-delivery",           "Food & Beverage"),
     ("food-manufacturing",      "Food & Beverage"),
-    ("hotel-tourism",           "Hospitality"),
-    ("social-media",            "Technology"),
-    ("public-sector",           "Government & Public Sector"),
+    ("food-delivery",           "Food & Beverage"),
+    ("hotel-tourism",           "Hospitality & Travel"),
+    ("rail-transportation",     "Transportation & Logistics"),
+    ("airline-carrier",         "Transportation & Logistics"),
     ("payment-cards",           "Financial Services"),
     ("streaming-media",         "Media & Entertainment"),
-    ("rail-transportation",     "Transportation & Logistics"),
+    ("ai-semiconductors",       "Technology"),
+    ("ai-healthcare",           "Healthcare"),
+    ("commerical-seaport",      "Transportation & Logistics"),
+    ("commercial-seaport",      "Transportation & Logistics"),
+    ("airport-rental",          "Transportation & Logistics"),
+    ("air-travel",              "Transportation & Logistics"),
+    ("digital-financial-services", "Financial Services"),
+    ("dental-insurance",        "Insurance"),
+    ("grocery-delivery",        "Retail / CPG"),
+    ("battery-manufacturing",   "Manufacturing"),
+    ("public-sector",           "Public Sector"),
+    ("non-profit",              "Non-Profit"),
+    ("social-media",            "Technology"),
+    ("consumer-internet",       "Technology"),
     ("fast-food",               "Food & Beverage"),
+    ("visual-content",          "Media & Entertainment"),
+    ("energy-subsidy",          "Energy & Utilities"),
+    ("discoverbank",            "Financial Services"),
+    ("capital-one",             "Financial Services"),
+    # Specific brand / product mentions
+    ("strava",                  "Technology"),
+    ("tariff",                  "Manufacturing"),
+    # Generic single-word patterns (checked last)
+    ("pharmaceuticals",         "Pharmaceuticals"),
+    ("pharmaceutical",          "Pharmaceuticals"),
     ("healthcare",              "Healthcare"),
-    ("pharmaceutical",          "Healthcare"),
     ("restaurant",              "Food & Beverage"),
-    ("construction",            "Engineering & Construction"),
-    ("manufacturing",           "Industrials"),
+    ("brewery",                 "Food & Beverage"),
+    ("construction",            "Manufacturing"),
+    ("manufacturing",           "Manufacturing"),
+    ("semiconductors",          "Technology"),
     ("automotive",              "Automotive"),
     ("entertainment",           "Media & Entertainment"),
-    ("retail",                  "Retail & CPG"),
+    ("retail",                  "Retail / CPG"),
     ("technology",              "Technology"),
-    ("airlines",                "Airline"),
-    ("airline",                 "Airline"),
-    ("brewery",                 "Food & Beverage"),
-    ("energy",                  "Energy, Utilities & Mining"),
+    ("airlines",                "Transportation & Logistics"),
+    ("airline",                 "Transportation & Logistics"),
+    ("seaport",                 "Transportation & Logistics"),
+    ("airport",                 "Transportation & Logistics"),
+    ("transportation",          "Transportation & Logistics"),
+    ("delivery",                "Transportation & Logistics"),
+    ("energy",                  "Energy & Utilities"),
     ("media",                   "Media & Entertainment"),
+    ("insurance",               "Insurance"),
+    ("hotel",                   "Hospitality & Travel"),
 ]
 
 
