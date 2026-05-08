@@ -14,7 +14,7 @@ PAGE OFFSET — CRITICAL:
     are NOT used for PDF extraction.
 
 Pages 1–5 (printed 51–55) are front matter / chapter headers and are excluded.
-Dairy Farm (case 25) extends to the last page of the PDF.
+The Dairy Farm split PDF is trimmed to four pages (printed 129–132; PDF 79–82).
 
 Every produced boundary is tagged:
     detection_method    = "manual_override_mit_2011"
@@ -66,7 +66,7 @@ _CASES: list[tuple[str, int, int | None, int, int | None]] = [
     ("Domino's Pizza (Bain, Round 1)",                      70,  72, 120, 122),
     ("Credit Card Company (Bain, Round 1)",                 73,  74, 123, 124),
     ("Utility Company (Bain, Round 1)",                     75,  78, 125, 128),
-    ("Dairy Farm (Bain, Round 1)",                          79, None, 129, None),
+    ("Dairy Farm (Bain, Round 1)",                          79, 82, 129, 132),
 ]
 
 _EXPECTED_CASE_COUNT = 25

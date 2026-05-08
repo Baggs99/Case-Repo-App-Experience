@@ -2752,8 +2752,8 @@
     "source_school": "booth",
     "source_year": 2011,
     "page_start": 79,
-    "page_end": 173,
-    "page_count": 95,
+    "page_end": 82,
+    "page_count": 4,
     "output_pdf_path": "cases/Booth/MIT 2011/dairy-farm-bain-round-1.pdf",
     "extraction_confidence": 1.0,
     "detection_method": "manual_override_mit_2011",
@@ -2772,7 +2772,7 @@
     ],
     "confidence_notes": [
       "Ground-truth TOC: exact page ranges, no heuristics.",
-      "Printed pages 129–END; offset = printed - 50."
+      "Printed pages 129–132; offset = printed - 50."
     ],
     "review_flags": []
   },
