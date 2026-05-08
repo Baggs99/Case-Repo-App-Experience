@@ -424,6 +424,9 @@ def publish_cases_cmd(catalog_path: str, database_url: str, dry_run: bool, verbo
               help="Postgres connection string. Defaults to $DATABASE_URL from .env.")
 @click.option("--case-id", "case_id_filter", type=int, default=None,
               help="Only generate previews for this case id.")
+@click.option("--match-title", "match_title", default=None,
+              help="Only cases whose title matches this substring (SQL ILIKE). "
+                   "Example: Dairy Farm. Mutually exclusive with --case-id.")
 @click.option("--limit", type=int, default=None,
               help="Process at most N cases after filtering.")
 @click.option("--skip-existing", is_flag=True, default=False,
@@ -433,6 +436,7 @@ def publish_cases_cmd(catalog_path: str, database_url: str, dry_run: bool, verbo
 def generate_previews_cmd(
     database_url: str | None,
     case_id_filter: int | None,
+    match_title: str | None,
     limit: int | None,
     skip_existing: bool,
     verbose: bool,
@@ -450,6 +454,7 @@ def generate_previews_cmd(
     \b
       python main.py generate-previews --skip-existing
       python main.py generate-previews --case-id 95 --verbose
+      python main.py generate-previews --match-title "Dairy Farm" --verbose
     """
     setup_logging(verbose=verbose)
     db_url = database_url or os.environ.get("DATABASE_URL")
@@ -459,6 +464,13 @@ def generate_previews_cmd(
             err=True,
         )
         raise SystemExit(1)
+
+    if case_id_filter is not None and match_title:
+        click.echo(
+            "ERROR: use either --case-id or --match-title, not both.",
+            err=True,
+        )
+        raise SystemExit(2)
 
     from pipeline.preview_generation import rasterize_pdf_bytes_to_preview_dir
     from pipeline.storage import get_storage
@@ -477,6 +489,14 @@ def generate_previews_cmd(
                     WHERE id = %s ORDER BY id;
                     """,
                     (case_id_filter,),
+                )
+            elif match_title:
+                cur.execute(
+                    """
+                    SELECT id, pdf_path, page_count FROM cases
+                    WHERE case_title ILIKE %s ORDER BY id;
+                    """,
+                    (f"%{match_title}%",),
                 )
             else:
                 cur.execute(
