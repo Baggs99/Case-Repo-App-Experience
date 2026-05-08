@@ -61,16 +61,14 @@ def case_detail(
         raise HTTPException(status_code=404, detail="Case not found")
 
     raw_pc = case.get("page_count")
-    preview_urls: list[str] = []
-    if raw_pc is not None and int(raw_pc) > 0:
-        n = int(raw_pc)
-        preview_urls = [
-            f"/files/cases/{case_id}/preview/{i}" for i in range(1, n + 1)
-        ]
+    try:
+        preview_page_count = int(raw_pc) if raw_pc is not None else 0
+    except (TypeError, ValueError):
+        preview_page_count = 0
 
     return render(request, "case_detail.html", {
         "case": case,
-        "preview_urls": preview_urls,
+        "preview_page_count": preview_page_count,
     })
 
 

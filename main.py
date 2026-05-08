@@ -12,6 +12,7 @@ Commands
   evaluate-difficulty-calibration  QA the classifier against existing labels.
   classify-industry    Fill missing industry labels via the OpenAI API.
   publish-cases  Sync case_catalog.csv into the Postgres `cases` table.
+  generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
   verify-storage Walk the cases table and check every PDF resolves in storage.
   serve          Launch the FastAPI web app.
@@ -413,6 +414,137 @@ def publish_cases_cmd(catalog_path: str, database_url: str, dry_run: bool, verbo
         click.echo(f"  Inserted:              {stats['inserted']}")
         click.echo(f"  Updated:               {stats['updated']}")
     click.echo()
+
+
+# ── generate-previews command ────────────────────────────────────────────────────
+
+@cli.command("generate-previews")
+@click.option("--database-url", "database_url", default=None,
+              help="Postgres connection string. Defaults to $DATABASE_URL from .env.")
+@click.option("--case-id", "case_id_filter", type=int, default=None,
+              help="Only generate previews for this case id.")
+@click.option("--limit", type=int, default=None,
+              help="Process at most N cases after filtering.")
+@click.option("--skip-existing", is_flag=True, default=False,
+              help="Skip if output/previews/{id}/page-001.jpg already exists.")
+@click.option("--verbose", is_flag=True, default=False,
+              help="Enable DEBUG logging.")
+def generate_previews_cmd(
+    database_url: str | None,
+    case_id_filter: int | None,
+    limit: int | None,
+    skip_existing: bool,
+    verbose: bool,
+):
+    """
+    Write JPEG previews to output/previews/{case_id}/page-NNN.jpg for each case.
+
+    Runs offline (CI / laptop / Render shell) — not during HTTP requests — so the
+    web tier never rasterises PDFs under traffic.
+
+    Requires PDFs readable via ``pipeline.storage`` (local or R2).
+
+    Example:
+
+    \b
+      python main.py generate-previews --skip-existing
+      python main.py generate-previews --case-id 95 --verbose
+    """
+    setup_logging(verbose=verbose)
+    db_url = database_url or os.environ.get("DATABASE_URL")
+    if not db_url:
+        click.echo(
+            "ERROR: no database URL. Set DATABASE_URL or pass --database-url.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    from pipeline.preview_generation import rasterize_pdf_bytes_to_preview_dir
+    from pipeline.storage import get_storage
+    from webapp.routes.files import _pdf_storage_key
+
+    import psycopg
+
+    repo_root = Path(__file__).resolve().parent
+
+    with psycopg.connect(db_url) as conn:
+        with conn.cursor() as cur:
+            if case_id_filter is not None:
+                cur.execute(
+                    """
+                    SELECT id, pdf_path, page_count FROM cases
+                    WHERE id = %s ORDER BY id;
+                    """,
+                    (case_id_filter,),
+                )
+            else:
+                cur.execute(
+                    "SELECT id, pdf_path, page_count FROM cases ORDER BY id;",
+                )
+            rows = list(cur.fetchall())
+
+    if limit is not None:
+        rows = rows[: max(0, int(limit))]
+
+    if not rows:
+        click.echo("No cases matched.")
+        raise SystemExit(0)
+
+    storage = get_storage()
+    n_ok = n_skip = n_fail = 0
+
+    for row in rows:
+        cid, raw_path, page_count = row[0], row[1], row[2]
+        tag = f"  [case {cid}]"
+
+        first_jpg = (
+            repo_root / "output" / "previews" / str(cid) / "page-001.jpg"
+        )
+        if skip_existing and first_jpg.is_file():
+            click.echo(f"{tag} skip (page-001.jpg exists)")
+            n_skip += 1
+            continue
+
+        key = _pdf_storage_key(str(raw_path) if raw_path is not None else None)
+        if not key:
+            click.echo(f"{tag} skip (bad pdf_path)", err=True)
+            n_fail += 1
+            continue
+
+        if not storage.exists(key):
+            click.echo(f"{tag} skip (PDF not in storage: {key})", err=True)
+            n_fail += 1
+            continue
+
+        try:
+            with storage.open(key) as fp:
+                pdf_bytes = fp.read()
+        except OSError as exc:
+            click.echo(f"{tag} read failed: {exc}", err=True)
+            n_fail += 1
+            continue
+
+        try:
+            pc = int(page_count) if page_count is not None else 0
+        except (TypeError, ValueError):
+            pc = 0
+
+        try:
+            written = rasterize_pdf_bytes_to_preview_dir(
+                case_id=cid,
+                pdf_bytes=pdf_bytes,
+                catalog_page_count=pc,
+                dest_root=repo_root,
+            )
+        except Exception as exc:
+            click.echo(f"{tag} raster failed: {exc}", err=True)
+            n_fail += 1
+            continue
+
+        click.echo(f"{tag} wrote {written} JPEG page(s)")
+        n_ok += 1
+
+    click.echo(f"\nDone: generated={n_ok} skipped={n_skip} failed={n_fail}")
 
 
 # ── upload-pdfs command ────────────────────────────────────────────────────────

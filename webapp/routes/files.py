@@ -9,7 +9,8 @@ Audit logging (``case_access_events``):
   PDF viewer often issues Range requests that were skipped by header heuristics,
   so **open_tab** never appeared in the admin dashboard.
 
-**Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (PNG page previews).
+**Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (JPEG previews; files
+must exist from ``python main.py generate-previews`` — no on-demand rasterisation).
 
 Legacy ``GET /files/{key}`` has no case id context — no audit rows.
 
@@ -19,6 +20,7 @@ Query ``?download=1`` on ``/files/cases/...`` redirects to ``/api/cases/.../down
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Optional
 from urllib.parse import unquote
 
@@ -28,7 +30,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pipeline.storage import get_storage, to_storage_key, validate_key
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
-from webapp.previews import ensure_preview_png
+from webapp.previews import existing_preview_file, preview_media_type
 from webapp.repositories.case_access import record_case_access
 from webapp.repositories.cases import get_case_by_id
 
@@ -74,6 +76,23 @@ def _storage_pdf_response(key: str, filename: str, *, attachment: bool) -> Respo
         ),
         status_code=302,
     )
+
+
+def _resolve_case_page_count(case_id: int) -> tuple[dict[str, Any], int]:
+    """Load case row + validated page count — no storage I/O (cheap for image hot path)."""
+    case = get_case_by_id(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    raw = case.get("page_count")
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Case has no page count")
+    try:
+        cp = int(raw)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Case has no page count")
+    if cp < 1:
+        raise HTTPException(status_code=404, detail="Case has no pages")
+    return case, cp
 
 
 def _resolve_case_pdf(case_id: int) -> tuple[dict[str, Any], str, str]:
@@ -142,50 +161,58 @@ def api_case_previews_manifest(
 
     Does not write audit rows — previews are not PDF downloads.
     """
-    case, _key, _filename = _resolve_case_pdf(case_id)
+    case = get_case_by_id(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
     raw_count = case.get("page_count")
     if raw_count is None or int(raw_count) < 1:
-        return {"case_id": case_id, "page_count": 0, "urls": []}
+        return {"case_id": case_id, "page_count": 0, "urls": [], "format": "jpeg"}
     n = int(raw_count)
     urls = [f"/files/cases/{case_id}/preview/{i}" for i in range(1, n + 1)]
-    return {"case_id": case_id, "page_count": n, "urls": urls}
+    return {
+        "case_id": case_id,
+        "page_count": n,
+        "urls": urls,
+        "format": "jpeg",
+    }
 
 
 @router.get("/files/cases/{case_id}/preview/{page_num:int}")
-def serve_case_preview_png(
+def serve_case_preview_image(
     case_id: int,
     page_num: int,
     user: User = Depends(require_auth),
 ):
-    """Serve one cached PNG page raster. Does **not** record case access."""
-    case, key, _filename = _resolve_case_pdf(case_id)
-    catalog_pages = case.get("page_count")
-    if catalog_pages is None:
-        raise HTTPException(status_code=404, detail="Case has no page count")
-    cp = int(catalog_pages)
+    """Serve a pre-generated preview file only (JPEG or legacy PNG). No PDF work."""
+    _case, cp = _resolve_case_page_count(case_id)
     if page_num < 1 or page_num > cp:
         raise HTTPException(status_code=404, detail="Page not found")
 
-    try:
-        path = ensure_preview_png(case_id, page_num, key)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except Exception:
-        logger.exception(
-            "Preview raster failed case_id=%s page=%s",
-            case_id,
-            page_num,
-        )
+    t0 = time.perf_counter()
+    path = existing_preview_file(case_id, page_num)
+    if path is None:
         raise HTTPException(
-            status_code=503,
-            detail="Preview unavailable",
-        ) from None
+            status_code=404,
+            detail="Preview not generated — run generate-previews for this case",
+        )
+
+    nbytes = path.stat().st_size
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    logger.info(
+        "preview_serve case_id=%s page=%s bytes=%s path_ms=%.2f",
+        case_id,
+        page_num,
+        nbytes,
+        elapsed_ms,
+    )
 
     return FileResponse(
         path,
-        media_type="image/png",
-        # inline display — not an attachment download
+        media_type=preview_media_type(path),
         content_disposition_type="inline",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
     )
 
 

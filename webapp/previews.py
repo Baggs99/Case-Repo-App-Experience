@@ -1,66 +1,34 @@
 """
-On-disk PNG previews for case PDFs (one image per page).
+Case page preview images on disk under ``output/previews/{case_id}/``.
 
-Used by ``GET /files/cases/{case_id}/preview/{n}`` so the case detail page can
-show page images without loading a PDF in the browser (no untracked toolbar
-download). Previews are **not** audit-logged.
-
-PNG files live under ``output/previews/{case_id}/page-001.png`` (002, …) and are
-created on first request via PyMuPDF.
+Files are **JPEG** (``page-001.jpg``, …) produced offline by
+``python main.py generate-previews``. The HTTP handler does **not** rasterize
+PDFs — it only serves existing files (optional legacy ``page-NNN.png``).
 """
 
 from __future__ import annotations
 
-import logging
-import threading
 from pathlib import Path
-
-import fitz
-
-from pipeline.storage import get_storage
-
-logger = logging.getLogger(__name__)
+from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PREVIEWS_ROOT = REPO_ROOT / "output" / "previews"
 
-_preview_lock = threading.Lock()
+
+def existing_preview_file(case_id: int, page_num: int) -> Optional[Path]:
+    """Return path to an on-disk preview, or None if not generated yet."""
+    base = PREVIEWS_ROOT / str(case_id)
+    jpg = base / f"page-{page_num:03d}.jpg"
+    if jpg.is_file() and jpg.stat().st_size > 0:
+        return jpg
+    png = base / f"page-{page_num:03d}.png"
+    if png.is_file() and png.stat().st_size > 0:
+        return png
+    return None
 
 
-def preview_png_path(case_id: int, page_num: int) -> Path:
-    """Absolute path to the cached PNG for ``page_num`` (1-based)."""
-    d = PREVIEWS_ROOT / str(case_id)
-    d.mkdir(parents=True, exist_ok=True)
-    return d / f"page-{page_num:03d}.png"
-
-
-def ensure_preview_png(case_id: int, page_num: int, storage_key: str) -> Path:
-    """Return path to the PNG, rasterizing from the PDF if the file is missing."""
-    out = preview_png_path(case_id, page_num)
-    if out.exists() and out.stat().st_size > 0:
-        return out
-
-    with _preview_lock:
-        if out.exists() and out.stat().st_size > 0:
-            return out
-
-        storage = get_storage()
-        with storage.open(storage_key) as fp:
-            pdf_bytes = fp.read()
-
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        try:
-            if page_num < 1 or page_num > doc.page_count:
-                raise ValueError(
-                    f"page {page_num} out of range for case {case_id} (1–{doc.page_count})"
-                )
-            page = doc.load_page(page_num - 1)
-            mat = fitz.Matrix(2.0, 2.0)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            tmp = out.with_suffix(".tmp.png")
-            pix.save(str(tmp))
-            tmp.replace(out)
-        finally:
-            doc.close()
-
-    return out
+def preview_media_type(path: Path) -> str:
+    suf = path.suffix.lower()
+    if suf in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    return "image/png"
