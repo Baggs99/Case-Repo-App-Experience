@@ -24,10 +24,11 @@ from webapp.db import get_pool
 logger = logging.getLogger(__name__)
 
 
-# Yale Mail addresses end in @yale.edu (Yale's Google Workspace tenant).
-# We enforce this in three places: form validation, app-layer validation
-# here, and a CHECK constraint at the DB level. Belt + suspenders + DB.
+# Yale SOM: any @yale.edu address. Chicago Booth: exactly one guest account.
+# Enforced here and via CHECK constraint on users.email (see db/schema.sql).
 ALLOWED_DOMAIN_SUFFIX = "@yale.edu"
+ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
+BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ class User:
 # ── Domain errors ──────────────────────────────────────────────────────────────
 
 class InvalidEmailDomain(ValueError):
-    """Email doesn't match the allowed domain (e.g. not @yale.edu)."""
+    """Email isn't @yale.edu, isn't the lone Booth guest, or is malformed."""
 
 
 class EmailAlreadyRegistered(ValueError):
@@ -73,23 +74,30 @@ def normalize_email(email: str) -> str:
 
 
 def validate_email(email: str) -> str:
-    """Return the normalized email iff it's a valid @yale.edu address.
+    """Return the normalized email iff it's allowed (@yale.edu or Booth guest).
 
-    Conservative: just checks suffix and a single '@'. We don't try to
-    validate the full RFC 5322 grammar — that's a 200-line regex with no
-    real benefit. The verification email is the actual proof of validity.
+    Conservative: single '@', suffix / allow-list checks. Verification email
+    is the actual proof of inbox control.
     """
     e = normalize_email(email)
     if "@" not in e or e.count("@") != 1:
         raise InvalidEmailDomain("Email address looks malformed.")
-    if not e.endswith(ALLOWED_DOMAIN_SUFFIX):
-        raise InvalidEmailDomain(
-            f"Sign-up is restricted to {ALLOWED_DOMAIN_SUFFIX} addresses."
-        )
     local = e.split("@")[0]
     if not local:
         raise InvalidEmailDomain("Email address is missing the local part.")
-    return e
+
+    if e.endswith(ALLOWED_DOMAIN_SUFFIX):
+        return e
+    if e == ALLOWED_BOOTH_EMAIL:
+        return e
+    if e.endswith(BOOTH_DOMAIN_SUFFIX):
+        raise InvalidEmailDomain(
+            "Chicago Booth sign-up is limited to invited addresses on this site."
+        )
+    raise InvalidEmailDomain(
+        f"Sign-up is restricted to {ALLOWED_DOMAIN_SUFFIX} addresses "
+        "and authorized Booth collaborators."
+    )
 
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
@@ -105,10 +113,10 @@ def _row_to_user(row: dict) -> User:
 
 
 def create_user(email: str, password: str) -> User:
-    """Create a new user with a hashed password. Email must be @yale.edu.
+    """Create a new user with a hashed password. Email must be allowed.
 
     Raises:
-      InvalidEmailDomain — bad / non-yale email
+      InvalidEmailDomain — domain / guest rules violated
       WeakPasswordError  — password too short / long
       EmailAlreadyRegistered — email taken
     """

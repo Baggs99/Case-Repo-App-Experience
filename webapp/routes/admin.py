@@ -10,10 +10,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from webapp.auth.dependencies import require_admin
-from webapp.auth.users import User
+from webapp.auth.users import User, get_user_by_id
+from webapp.repositories.case_access import list_case_access_for_user
 from webapp.repositories.users import get_user_stats, list_users
 from webapp.templating import render
 
@@ -34,6 +35,27 @@ def admin_users(
         "stats": stats,
         "rows":  rows,
         "now":   now,
+        "humanize": _humanize_delta,
+    })
+
+
+@router.get("/users/{user_id}")
+def admin_user_detail(
+    request: Request,
+    user_id: int,
+    user: User = Depends(require_admin),
+):
+    target = get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    events = list_case_access_for_user(user_id, limit=300)
+    now = datetime.now(timezone.utc)
+
+    return render(request, "admin_user_detail.html", {
+        "target": target,
+        "events": events,
+        "now":    now,
         "humanize": _humanize_delta,
     })
 

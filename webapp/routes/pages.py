@@ -2,7 +2,7 @@
 Page routes — full HTML responses (vs HTMX fragments in routes/search.py).
 
 All content routes are gated behind require_auth: the case repo is for
-verified Yale students only. The auth routes (/signup, /login, /verify)
+verified school-email accounts only. The auth routes (/signup, /login, /verify)
 live in routes/auth.py and are public.
 """
 
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from pipeline.storage import get_storage
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
 from webapp.repositories.cases import (
@@ -61,12 +60,8 @@ def case_detail(
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    storage = get_storage()
-    pdf_url = storage.url(case["pdf_path"]) if case.get("pdf_path") else None
-
     return render(request, "case_detail.html", {
         "case": case,
-        "pdf_url": pdf_url,
     })
 
 

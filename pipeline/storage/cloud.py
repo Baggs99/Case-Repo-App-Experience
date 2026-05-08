@@ -111,13 +111,25 @@ class R2Storage(Storage):
         validate_key(key)
         return int(self.client.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
 
-    def url(self, key: str, expires_in: Optional[int] = None) -> str:
+    def url(
+        self,
+        key: str,
+        expires_in: Optional[int] = None,
+        *,
+        attachment_filename: Optional[str] = None,
+    ) -> str:
         validate_key(key)
         expires = expires_in if expires_in is not None else self.DEFAULT_PRESIGN_EXPIRY
         expires = min(int(expires), self.MAX_PRESIGN_EXPIRY)
+        params: dict = {"Bucket": self.bucket, "Key": key}
+        if attachment_filename:
+            safe = attachment_filename.replace('"', "").replace("\r", "").replace("\n", "")
+            params["ResponseContentDisposition"] = (
+                f'attachment; filename="{safe}"'
+            )
         return self.client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self.bucket, "Key": key},
+            Params=params,
             ExpiresIn=expires,
         )
 

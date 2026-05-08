@@ -38,7 +38,14 @@ class LocalStorage(Storage):
     def size(self, key: str) -> int:
         return self._full_path(key).stat().st_size
 
-    def url(self, key: str, expires_in: Optional[int] = None) -> str:
+    def url(
+        self,
+        key: str,
+        expires_in: Optional[int] = None,
+        *,
+        attachment_filename: Optional[str] = None,
+    ) -> str:
+        _ = attachment_filename  # routing layer sets Content-Disposition for local files
         validate_key(key)
         # Quote each path segment individually — joining first would
         # double-encode the slashes.

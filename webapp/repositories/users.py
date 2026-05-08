@@ -23,6 +23,8 @@ class AdminUserRow:
     created_at: datetime
     email_verified_at: Optional[datetime]
     last_login_at: Optional[datetime]
+    download_count: int = 0
+    last_download_at: Optional[datetime] = None
 
     @property
     def is_verified(self) -> bool:
@@ -52,9 +54,19 @@ def list_users(*, limit: int = 500) -> list[AdminUserRow]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, email, created_at, email_verified_at, last_login_at
-                FROM users
-                ORDER BY created_at DESC
+                SELECT u.id, u.email, u.created_at, u.email_verified_at, u.last_login_at,
+                       COALESCE(d.download_count, 0)::int AS download_count,
+                       d.last_download_at
+                FROM users u
+                LEFT JOIN (
+                    SELECT user_id,
+                           COUNT(*) FILTER (WHERE kind = 'download') AS download_count,
+                           MAX(created_at) FILTER (WHERE kind = 'download')
+                               AS last_download_at
+                    FROM case_access_events
+                    GROUP BY user_id
+                ) d ON d.user_id = u.id
+                ORDER BY u.created_at DESC
                 LIMIT %s;
                 """,
                 (limit,),
@@ -67,6 +79,8 @@ def list_users(*, limit: int = 500) -> list[AdminUserRow]:
             created_at=r["created_at"],
             email_verified_at=r["email_verified_at"],
             last_login_at=r["last_login_at"],
+            download_count=r["download_count"] or 0,
+            last_download_at=r["last_download_at"],
         )
         for r in rows
     ]

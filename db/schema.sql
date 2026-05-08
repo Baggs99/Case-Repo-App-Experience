@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_cases_title_trgm ON cases USING GIN (case_title g
 -- ----------------------------------------------------------------------------
 -- users
 -- ----------------------------------------------------------------------------
--- Minimal shape needed for the @yale.edu auth flow we'll build next.
+-- Minimal shape needed for school-email auth (@yale.edu + invited Booth guest).
 -- email_verified_at is NULL until the user clicks the verification link.
 -- password_hash holds an argon2id (or bcrypt) hash — NEVER plain text.
 -- ----------------------------------------------------------------------------
@@ -80,8 +80,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     last_login_at       TIMESTAMPTZ,
 
-    -- Defense in depth: enforce @yale.edu at the DB level too, not only in app code.
-    CONSTRAINT users_email_yale_only CHECK (email ILIKE '%@yale.edu')
+    -- Defense in depth: @yale.edu for Yale SOM, plus one invited Booth account.
+    CONSTRAINT users_email_allowed CHECK (
+        email ILIKE '%@yale.edu'
+        OR lower(email::text) = 'acannata@chicagobooth.edu'
+    )
 );
 
 -- CITEXT (loaded at the top of this file) makes the email column
@@ -148,6 +151,26 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id    ON sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+
+
+-- ----------------------------------------------------------------------------
+-- case_access_events
+-- ----------------------------------------------------------------------------
+-- One row each time an authenticated user loads or downloads a case PDF via
+-- GET /files/cases/{case_id}. Used by the admin dashboard only.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS case_access_events (
+    id          SERIAL       PRIMARY KEY,
+    user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    case_id     INTEGER      NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+    kind        TEXT         NOT NULL CHECK (kind IN ('view', 'download')),
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_access_user_created
+    ON case_access_events (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_case_access_case
+    ON case_access_events (case_id);
 
 
 -- ----------------------------------------------------------------------------

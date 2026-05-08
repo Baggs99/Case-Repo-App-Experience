@@ -38,13 +38,22 @@ class Storage(ABC):
         """Return the size of the PDF at `key` in bytes."""
 
     @abstractmethod
-    def url(self, key: str, expires_in: Optional[int] = None) -> str:
+    def url(
+        self,
+        key: str,
+        expires_in: Optional[int] = None,
+        *,
+        attachment_filename: Optional[str] = None,
+    ) -> str:
         """Return a URL the browser can fetch.
 
         For local storage this is a relative path served by the web app.
         For cloud storage this is a signed URL that expires in `expires_in`
         seconds (defaults to 1 hour). Never returns a permanent public URL —
         we always want fine-grained access control.
+
+        When ``attachment_filename`` is set, cloud backends should hint
+        ``Content-Disposition: attachment`` so browsers save the file.
         """
 
     def local_path(self, key: str) -> Optional[Path]:

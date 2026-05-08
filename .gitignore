@@ -42,6 +42,10 @@ Ross/
 # Split individual case PDFs (output of the pipeline)
 output/cases/
 
+# Presentation build artefacts — regenerated from scripts in presentation/
+presentation/screenshots/
+presentation/Case_Repo_Product.pptx
+
 # OS / IDE
 .DS_Store
 Thumbs.db
