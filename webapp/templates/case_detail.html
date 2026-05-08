@@ -58,7 +58,7 @@
         </dl>
 
         <div class="mt-5 flex gap-2">
-            <a href="/files/cases/{{ case.id }}" target="_blank" rel="noopener"
+            <a href="/files/cases/{{ case.id }}?embed=1" target="_blank" rel="noopener"
                class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800">
                 Open PDF in new tab
             </a>
@@ -70,7 +70,7 @@
     </div>
 
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <iframe src="/files/cases/{{ case.id }}"
+        <iframe src="/files/cases/{{ case.id }}?embed=1"
                 class="w-full h-[80vh] border-0"
                 title="{{ case.case_title }}"></iframe>
     </div>

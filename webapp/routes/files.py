@@ -11,10 +11,10 @@ not write audit rows (no case id context).
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
 from pipeline.storage import get_storage, to_storage_key, validate_key
@@ -26,6 +26,51 @@ from webapp.repositories.cases import get_case_by_id
 
 router = APIRouter()
 
+
+def _infer_case_pdf_access_kind(
+    request: Request,
+    *,
+    download_query: bool,
+) -> Optional[Literal["view", "download"]]:
+    """Classify this request for audit logging.
+
+    We tag **inline reading** URLs with ``?embed=1`` (iframe + “Open in new tab”).
+
+    The browser’s built-in PDF toolbar **Save / Download** typically issues a
+    fresh GET **without** ``embed`` or ``download`` — that counts as **download**
+    so admin stats match the white Download button.
+
+    Range requests with ``Sec-Fetch-Dest: empty`` are progressive viewer chunks;
+    they are skipped so we do not flood the audit table.
+
+    Returns ``None`` to skip logging entirely.
+    """
+    if download_query:
+        return "download"
+
+    range_hdr = (request.headers.get("range") or "").strip()
+    dest = (request.headers.get("sec-fetch-dest") or "").lower()
+    mode = (request.headers.get("sec-fetch-mode") or "").lower()
+
+    # Progressive PDF loads inside the viewer (many Range GETs); never audit each chunk.
+    if range_hdr and dest == "empty":
+        return None
+
+    embed_raw = request.query_params.get("embed")
+    if embed_raw is not None and embed_raw.strip().lower() in (
+        "1", "true", "yes",
+    ):
+        return "view"
+
+    if dest == "iframe":
+        return "view"
+
+    # Top-level “open PDF” navigation (e.g. bookmarked URL without ?embed=1).
+    if dest == "document" and mode == "navigate":
+        return "view"
+
+    # Built-in viewer Save/Download: GET without ?embed=1 / ?download=1.
+    return "download"
 
 def _pdf_storage_key(raw: str | None) -> Optional[str]:
     """Derive a storage key from a catalog ``pdf_path`` (absolute or relative)."""
@@ -46,6 +91,7 @@ def _pdf_storage_key(raw: str | None) -> Optional[str]:
 
 @router.get("/files/cases/{case_id}")
 def serve_case_pdf(
+    request: Request,
     case_id: int,
     download: bool = Query(False),
     user: User = Depends(require_auth),
@@ -63,7 +109,9 @@ def serve_case_pdf(
     if not storage.exists(key):
         raise HTTPException(status_code=404, detail="PDF not found")
 
-    record_case_access(user.id, case_id, "download" if download else "view")
+    kind = _infer_case_pdf_access_kind(request, download_query=download)
+    if kind is not None:
+        record_case_access(user.id, case_id, kind)
 
     filename = key.split("/")[-1]
     local = storage.local_path(key)
