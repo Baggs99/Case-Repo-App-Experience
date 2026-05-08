@@ -51,6 +51,7 @@ from webapp.routes import auth as auth_routes
 from webapp.routes import files as files_routes
 from webapp.routes import pages as pages_routes
 from webapp.routes import search as search_routes
+from webapp.routes import votes as votes_routes
 from webapp.settings import load_settings
 
 
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(pages_routes.router)
     app.include_router(search_routes.router)
     app.include_router(files_routes.router)
+    app.include_router(votes_routes.router)
     app.include_router(admin_routes.router)
 
     return app

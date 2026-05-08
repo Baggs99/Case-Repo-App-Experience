@@ -57,6 +57,36 @@
             {% endif %}
         </dl>
 
+        <div id="case-vote-root"
+             class="mt-5 pt-5 border-t border-slate-100"
+             data-case-id="{{ case.id }}"
+             data-current-vote="{{ vote_state.vote or '' }}"
+             data-useful="{{ vote_state.useful_count }}"
+             data-not="{{ vote_state.not_useful_count }}"
+             data-pct="{{ vote_state.useful_percentage if vote_state.useful_percentage is not none else '' }}">
+            <p class="text-xs text-slate-500 uppercase tracking-wide mb-2">Prep feedback</p>
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="button" id="vote-useful"
+                        class="vote-useful-btn inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition border-slate-200 bg-white text-slate-800 hover:bg-slate-50">
+                    <span aria-hidden="true">👍</span> Useful
+                    <span class="vote-count-useful tabular-nums text-slate-500">({{ vote_state.useful_count }})</span>
+                </button>
+                <button type="button" id="vote-not"
+                        class="vote-not-btn inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition border-slate-200 bg-white text-slate-800 hover:bg-slate-50">
+                    <span aria-hidden="true">👎</span> Not useful
+                    <span class="vote-count-not tabular-nums text-slate-500">({{ vote_state.not_useful_count }})</span>
+                </button>
+                {% if vote_state.useful_percentage is not none %}
+                <span id="vote-pct-wrap" class="text-xs text-slate-500">
+                    <span class="tabular-nums">{{ "%.0f"|format(vote_state.useful_percentage) }}%</span> found this useful
+                </span>
+                {% else %}
+                <span id="vote-pct-wrap" class="text-xs text-slate-400 hidden">—</span>
+                {% endif %}
+            </div>
+            <p id="vote-error" class="mt-2 text-sm text-red-600 hidden" role="alert"></p>
+        </div>
+
         <div class="mt-5 flex flex-wrap gap-2">
             <a href="/api/cases/{{ case.id }}/open-pdf" target="_blank" rel="noopener"
                class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800">
@@ -98,6 +128,137 @@
 
 </div>
 
+<script>
+(function () {
+  var root = document.getElementById("case-vote-root");
+  if (!root) return;
+
+  var caseId = root.getAttribute("data-case-id");
+  var usefulBtn = document.getElementById("vote-useful");
+  var notBtn = document.getElementById("vote-not");
+  var errEl = document.getElementById("vote-error");
+  var pctWrap = document.getElementById("vote-pct-wrap");
+
+  if (!usefulBtn || !notBtn) return;
+
+  var cur = root.getAttribute("data-current-vote") || "";
+  var u = parseInt(root.getAttribute("data-useful") || "0", 10);
+  var n = parseInt(root.getAttribute("data-not") || "0", 10);
+
+  function pctLabel(uu, nn) {
+    var t = uu + nn;
+    if (t <= 0) return null;
+    return Math.round((100 * uu) / t);
+  }
+
+  function render(uu, nn, nextCur) {
+    cur = nextCur;
+    root.setAttribute("data-current-vote", cur);
+    root.setAttribute("data-useful", String(uu));
+    root.setAttribute("data-not", String(nn));
+    var cu = root.querySelector(".vote-count-useful");
+    var cn = root.querySelector(".vote-count-not");
+    if (cu) cu.textContent = "(" + uu + ")";
+    if (cn) cn.textContent = "(" + nn + ")";
+    var p = pctLabel(uu, nn);
+    if (pctWrap) {
+      if (p === null) {
+        pctWrap.textContent = "";
+        pctWrap.classList.add("hidden");
+      } else {
+        pctWrap.classList.remove("hidden");
+        pctWrap.textContent = p + "% found this useful";
+        pctWrap.className = "text-xs text-slate-500";
+      }
+    }
+    usefulBtn.classList.remove("border-emerald-400", "bg-emerald-50", "text-emerald-900");
+    notBtn.classList.remove("border-rose-400", "bg-rose-50", "text-rose-900");
+    usefulBtn.classList.add("border-slate-200", "bg-white", "text-slate-800");
+    notBtn.classList.add("border-slate-200", "bg-white", "text-slate-800");
+    if (cur === "useful") {
+      usefulBtn.classList.remove("border-slate-200", "bg-white", "text-slate-800");
+      usefulBtn.classList.add("border-emerald-400", "bg-emerald-50", "text-emerald-900");
+    } else if (cur === "not_useful") {
+      notBtn.classList.remove("border-slate-200", "bg-white", "text-slate-800");
+      notBtn.classList.add("border-rose-400", "bg-rose-50", "text-rose-900");
+    }
+  }
+
+  function optimistic(req) {
+    var snap = { c: cur, uu: u, nn: n };
+    var oc = cur;
+    var ou = u;
+    var nv = n;
+    if (req === null) {
+      if (oc === "useful") ou--;
+      else if (oc === "not_useful") nv--;
+      return { snap: snap, nextC: "", nu: ou, nn: nv };
+    }
+    if (oc === req) {
+      if (req === "useful") ou--;
+      else nv--;
+      return { snap: snap, nextC: "", nu: ou, nn: nv };
+    }
+    if (oc === "useful") ou--;
+    else if (oc === "not_useful") nv--;
+    if (req === "useful") ou++;
+    else nv++;
+    return { snap: snap, nextC: req, nu: ou, nn: nv };
+  }
+
+  function showErr(msg) {
+    if (!errEl) return;
+    errEl.textContent = msg;
+    errEl.classList.remove("hidden");
+  }
+  function hideErr() {
+    if (!errEl) return;
+    errEl.classList.add("hidden");
+  }
+
+  async function submitVote(req) {
+    hideErr();
+    var o = optimistic(req);
+    render(o.nu, o.nn, o.nextC);
+    try {
+      var res = await fetch("/api/cases/" + caseId + "/vote", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ vote_type: req }),
+      });
+      if (!res.ok) {
+        var snap = o.snap;
+        render(snap.uu, snap.nn, snap.c);
+        var detail = "Could not save vote.";
+        try {
+          var j = await res.json();
+          if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+        } catch (e) {}
+        showErr(detail);
+        return;
+      }
+      var data = await res.json();
+      u = data.useful_count;
+      n = data.not_useful_count;
+      render(u, n, data.vote || "");
+    } catch (e) {
+      var snap = o.snap;
+      render(snap.uu, snap.nn, snap.c);
+      showErr("Network error — try again.");
+    }
+  }
+
+  usefulBtn.addEventListener("click", function () {
+    submitVote("useful");
+  });
+  notBtn.addEventListener("click", function () {
+    submitVote("not_useful");
+  });
+
+  render(u, n, cur);
+})();
+</script>
 {% if preview_page_count > 0 %}
 <script>
 (function () {

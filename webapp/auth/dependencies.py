@@ -36,6 +36,18 @@ class RedirectToLogin(Exception):
         self.next_url = next_url
 
 
+def require_auth_api(request: Request) -> User:
+    """Like ``require_auth`` but returns **401 JSON** when unauthenticated.
+
+    Use for ``/api/...`` routes consumed by ``fetch`` so clients get a machine-readable
+    error instead of an HTML redirect.
+    """
+    user = get_current_user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+
 def require_auth(request: Request) -> User:
     """Dependency for routes that need a logged-in user.
 
