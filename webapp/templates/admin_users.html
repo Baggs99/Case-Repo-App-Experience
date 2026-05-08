@@ -52,6 +52,7 @@
                         <th class="px-5 py-2.5">#</th>
                         <th class="px-5 py-2.5">Email</th>
                         <th class="px-5 py-2.5">Downloads</th>
+                        <th class="px-5 py-2.5">Open PDF</th>
                         <th class="px-5 py-2.5">Signed up</th>
                         <th class="px-5 py-2.5">Verified</th>
                         <th class="px-5 py-2.5">Last login</th>
@@ -69,6 +70,12 @@
                             <div>{{ r.download_count }}</div>
                             {% if r.last_download_at %}
                             <div class="text-xs text-slate-400">{{ humanize(r.last_download_at, now) }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="px-5 py-3 text-slate-600 tabular-nums">
+                            <div>{{ r.open_pdf_count }}</div>
+                            {% if r.last_open_pdf_at %}
+                            <div class="text-xs text-slate-400">{{ humanize(r.last_open_pdf_at, now) }}</div>
                             {% endif %}
                         </td>
                         <td class="px-5 py-3 text-slate-600">

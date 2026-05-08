@@ -1,23 +1,23 @@
 """
-PDF serving — speaks to the Storage abstraction so the same route
-handles local filesystem, S3, R2, Supabase, etc.
+PDF and preview image serving — uses the Storage abstraction (local, S3, R2, …).
 
-Tracked entry points:
+Audit logging (``case_access_events``):
 
-- ``GET /files/cases/{case_id}`` — inline PDF for reading (logs **view** where
-  applicable). Used by PDF.js on the case detail page and “Open PDF in new tab”.
-- ``GET /api/cases/{case_id}/download`` — **only** path that logs **download**
-  (explicit save). The page “Download” button links here so counts stay exact.
+- ``GET /api/cases/{case_id}/download`` — records **download** (explicit save).
+- ``GET /files/cases/{case_id}?open_tab=1`` — records **open_tab** (“Open PDF in
+  new tab”). Progressive Range chunks are skipped so we do not log each fetch.
 
-Legacy ``GET /files/{key}`` does not write audit rows (no case id context).
+**Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (PNG page previews).
 
-Query ``?download=1`` on ``/files/cases/...`` redirects to the API route so
-old bookmarks keep working without recording twice on the files handler.
+Legacy ``GET /files/{key}`` has no case id context — no audit rows.
+
+Query ``?download=1`` on ``/files/cases/...`` redirects to ``/api/cases/.../download``.
 """
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+import logging
+from typing import Any, Literal, Optional
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -26,53 +26,42 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from pipeline.storage import get_storage, to_storage_key, validate_key
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
+from webapp.previews import ensure_preview_png
 from webapp.repositories.case_access import record_case_access
 from webapp.repositories.cases import get_case_by_id
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 def _infer_case_pdf_access_kind(
     request: Request,
-) -> Optional[Literal["view", "download"]]:
-    """Classify this request for audit logging.
+) -> Optional[Literal["open_tab"]]:
+    """Record **open_tab** only when our UI adds ``open_tab=1`` (new-tab PDF).
 
-    **Downloads** are never inferred here — they use
-    ``GET /api/cases/{case_id}/download`` only.
-
-    Inline reading uses ``?embed=1`` (PDF.js loader + “Open PDF in new tab”).
-    Progressive Range chunks from the viewer are skipped so we do not log each
-    byte range.
+    PNG previews use a separate URL and never hit this handler for auditing.
+    Chunked Range loads (``Sec-Fetch-Dest: empty``) are skipped.
 
     Returns ``None`` to skip logging entirely.
     """
-    range_hdr = (request.headers.get("range") or "").strip()
-    dest = (request.headers.get("sec-fetch-dest") or "").lower()
-    mode = (request.headers.get("sec-fetch-mode") or "").lower()
-
-    # Progressive PDF loads inside PDF.js / browser viewer (many Range GETs).
-    if range_hdr and dest == "empty":
-        return None
-
-    embed_raw = request.query_params.get("embed")
-    embed_true = embed_raw is not None and embed_raw.strip().lower() in (
+    open_tab_raw = request.query_params.get("open_tab")
+    open_tab_true = open_tab_raw is not None and open_tab_raw.strip().lower() in (
         "1",
         "true",
         "yes",
     )
-    if embed_true:
-        return "view"
+    if not open_tab_true:
+        return None
 
-    if dest == "iframe":
-        return "view"
+    range_hdr = (request.headers.get("range") or "").strip()
+    dest = (request.headers.get("sec-fetch-dest") or "").lower()
 
-    # Top-level “open PDF” navigation (e.g. bookmarked URL without ?embed=1).
-    if dest == "document" and mode == "navigate":
-        return "view"
+    if range_hdr and dest == "empty":
+        return None
 
-    # Without ?embed=1 this is usually a direct save/navigation edge case — treat as view.
-    return "view"
+    return "open_tab"
 
 
 def _pdf_storage_key(raw: str | None) -> Optional[str]:
@@ -113,8 +102,8 @@ def _storage_pdf_response(key: str, filename: str, *, attachment: bool) -> Respo
     )
 
 
-def _resolve_case_pdf(case_id: int) -> tuple[str, str]:
-    """Return ``(storage_key, filename)`` or raise HTTPException."""
+def _resolve_case_pdf(case_id: int) -> tuple[dict[str, Any], str, str]:
+    """Return ``(case_row, storage_key, filename)`` or raise HTTPException."""
     case = get_case_by_id(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -128,7 +117,7 @@ def _resolve_case_pdf(case_id: int) -> tuple[str, str]:
         raise HTTPException(status_code=404, detail="PDF not found")
 
     filename = key.split("/")[-1]
-    return key, filename
+    return case, key, filename
 
 
 @router.get("/api/cases/{case_id}/download")
@@ -136,15 +125,66 @@ def api_download_case_pdf(
     case_id: int,
     user: User = Depends(require_auth),
 ):
-    """Record exactly one **download** audit row, then stream the PDF as an attachment.
-
-    All explicit downloads (the case-detail Download button) use this route so
-    tracking stays accurate. The embedded reader uses PDF.js canvas rendering,
-    which removes the browser PDF toolbar’s untrackable download control.
-    """
-    key, filename = _resolve_case_pdf(case_id)
+    """Record exactly one **download** audit row, then stream the PDF as an attachment."""
+    _case, key, filename = _resolve_case_pdf(case_id)
     record_case_access(user.id, case_id, "download")
     return _storage_pdf_response(key, filename, attachment=True)
+
+
+@router.get("/api/cases/{case_id}/previews")
+def api_case_previews_manifest(
+    case_id: int,
+    user: User = Depends(require_auth),
+):
+    """JSON list of authenticated preview image URLs (same-origin paths).
+
+    Does not write audit rows — previews are not PDF downloads.
+    """
+    case, _key, _filename = _resolve_case_pdf(case_id)
+    raw_count = case.get("page_count")
+    if raw_count is None or int(raw_count) < 1:
+        return {"case_id": case_id, "page_count": 0, "urls": []}
+    n = int(raw_count)
+    urls = [f"/files/cases/{case_id}/preview/{i}" for i in range(1, n + 1)]
+    return {"case_id": case_id, "page_count": n, "urls": urls}
+
+
+@router.get("/files/cases/{case_id}/preview/{page_num:int}")
+def serve_case_preview_png(
+    case_id: int,
+    page_num: int,
+    user: User = Depends(require_auth),
+):
+    """Serve one cached PNG page raster. Does **not** record case access."""
+    case, key, _filename = _resolve_case_pdf(case_id)
+    catalog_pages = case.get("page_count")
+    if catalog_pages is None:
+        raise HTTPException(status_code=404, detail="Case has no page count")
+    cp = int(catalog_pages)
+    if page_num < 1 or page_num > cp:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    try:
+        path = ensure_preview_png(case_id, page_num, key)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception:
+        logger.exception(
+            "Preview raster failed case_id=%s page=%s",
+            case_id,
+            page_num,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Preview unavailable",
+        ) from None
+
+    return FileResponse(
+        path,
+        media_type="image/png",
+        # inline display — not an attachment download
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/files/cases/{case_id}")
@@ -154,10 +194,9 @@ def serve_case_pdf(
     download: bool = Query(False),
     user: User = Depends(require_auth),
 ):
-    """Serve a case PDF for inline reading and log **view** events (not downloads)."""
-    key, filename = _resolve_case_pdf(case_id)
+    """Serve the case PDF (inline). Logs **open_tab** only when ``open_tab=1``."""
+    _case, key, filename = _resolve_case_pdf(case_id)
 
-    # Legacy / bookmarked ?download=1 — canonical tracking lives on /api/cases/.../download.
     if download:
         return RedirectResponse(
             url=f"/api/cases/{case_id}/download",

@@ -156,14 +156,14 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
 -- ----------------------------------------------------------------------------
 -- case_access_events
 -- ----------------------------------------------------------------------------
--- One row each time an authenticated user loads or downloads a case PDF via
--- GET /files/cases/{case_id}. Used by the admin dashboard only.
+-- One row per audited PDF action: download, open in new tab (open_tab), or
+-- legacy view. PNG page previews are not logged here.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS case_access_events (
     id          SERIAL       PRIMARY KEY,
     user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     case_id     INTEGER      NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-    kind        TEXT         NOT NULL CHECK (kind IN ('view', 'download')),
+    kind        TEXT         NOT NULL CHECK (kind IN ('view', 'download', 'open_tab')),
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 

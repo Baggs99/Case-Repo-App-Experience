@@ -25,6 +25,8 @@ class AdminUserRow:
     last_login_at: Optional[datetime]
     download_count: int = 0
     last_download_at: Optional[datetime] = None
+    open_pdf_count: int = 0
+    last_open_pdf_at: Optional[datetime] = None
 
     @property
     def is_verified(self) -> bool:
@@ -56,13 +58,18 @@ def list_users(*, limit: int = 500) -> list[AdminUserRow]:
                 """
                 SELECT u.id, u.email, u.created_at, u.email_verified_at, u.last_login_at,
                        COALESCE(d.download_count, 0)::int AS download_count,
-                       d.last_download_at
+                       d.last_download_at,
+                       COALESCE(d.open_pdf_count, 0)::int AS open_pdf_count,
+                       d.last_open_pdf_at
                 FROM users u
                 LEFT JOIN (
                     SELECT user_id,
                            COUNT(*) FILTER (WHERE kind = 'download') AS download_count,
                            MAX(created_at) FILTER (WHERE kind = 'download')
-                               AS last_download_at
+                               AS last_download_at,
+                           COUNT(*) FILTER (WHERE kind = 'open_tab') AS open_pdf_count,
+                           MAX(created_at) FILTER (WHERE kind = 'open_tab')
+                               AS last_open_pdf_at
                     FROM case_access_events
                     GROUP BY user_id
                 ) d ON d.user_id = u.id
@@ -81,6 +88,8 @@ def list_users(*, limit: int = 500) -> list[AdminUserRow]:
             last_login_at=r["last_login_at"],
             download_count=r["download_count"] or 0,
             last_download_at=r["last_download_at"],
+            open_pdf_count=r["open_pdf_count"] or 0,
+            last_open_pdf_at=r["last_open_pdf_at"],
         )
         for r in rows
     ]

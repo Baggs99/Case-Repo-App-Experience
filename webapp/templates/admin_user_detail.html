@@ -13,8 +13,7 @@
     <div class="mb-8">
         <h1 class="text-3xl font-semibold tracking-tight">{{ target.email }}</h1>
         <p class="text-slate-600 mt-1">
-            Case PDF views and downloads (newest first). Each row is one request:
-            opening the case page iframe, opening “PDF in new tab”, or clicking Download.
+            Case PDF activity (newest first). Previews on the case page are PNGs and are not listed here.
         </p>
     </div>
 
@@ -42,6 +41,10 @@
                             {% if e.kind == 'download' %}
                                 <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-rose-50 text-rose-800 border border-rose-200">
                                     Download
+                                </span>
+                            {% elif e.kind == 'open_tab' %}
+                                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200">
+                                    Open PDF (tab)
                                 </span>
                             {% else %}
                                 <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">

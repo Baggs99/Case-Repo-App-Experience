@@ -1,9 +1,10 @@
 """
 Audit log for authenticated case PDF access (in-browser view vs download).
 
-Rows are written when users hit ``GET /files/cases/{case_id}`` (**view**) or
-``GET /api/cases/{case_id}/download`` (**download**). Legacy ``GET /files/{key}``
-URLs are not logged (no stable case id).
+Rows are written for ``GET /api/cases/{case_id}/download`` (**download**),
+``GET /files/cases/{case_id}?open_tab=1`` (**open_tab**), and legacy **view**
+rows may exist from older app versions. PNG previews under
+``/files/cases/{case_id}/preview/…`` are not logged.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from webapp.db import get_pool
 
 logger = logging.getLogger(__name__)
 
-AccessKind = Literal["view", "download"]
+AccessKind = Literal["view", "download", "open_tab"]
 
 
 @dataclass(frozen=True)

@@ -42,6 +42,9 @@ Ross/
 # Split individual case PDFs (output of the pipeline)
 output/cases/
 
+# Rasterized page previews (generated on demand from PDFs)
+output/previews/
+
 # Presentation build artefacts — regenerated from scripts in presentation/
 presentation/screenshots/
 presentation/Case_Repo_Product.pptx

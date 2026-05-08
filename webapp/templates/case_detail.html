@@ -57,9 +57,9 @@
             {% endif %}
         </dl>
 
-        {# Download uses only /api/cases/.../download so audit rows stay exact (one row per click). #}
-        <div class="mt-5 flex gap-2">
-            <a href="/files/cases/{{ case.id }}?embed=1" target="_blank" rel="noopener"
+        {# Download → audit API only. Open in new tab → PDF with open_tab=1 (counts separately from downloads). #}
+        <div class="mt-5 flex flex-wrap gap-2">
+            <a href="/files/cases/{{ case.id }}?embed=1&amp;open_tab=1" target="_blank" rel="noopener"
                class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800">
                 Open PDF in new tab
             </a>
@@ -71,87 +71,63 @@
     </div>
 
     {#
-      Inline reader: PDF.js renders to canvas.
-
-      A native <iframe src=".pdf"> uses the browser’s built-in PDF UI. Parent pages cannot
-      attach JS inside that viewer or hide its toolbar download button (opaque UI / sandbox).
-      Users could save from there without hitting our audit endpoint. PDF.js removes that
-      toolbar entirely; saving uses the Download button above, which calls /api/cases/.../download.
+      Page previews are PNGs from /files/cases/{id}/preview/{n} — no PDF in-page,
+      so there is no browser PDF toolbar or untracked download arrow. Preview
+      requests do not write case_access rows.
     #}
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div id="pdf-root" data-case-id="{{ case.id }}" class="flex flex-col min-h-[80vh]">
-            <p id="pdf-loading" class="p-8 text-center text-slate-500 text-sm">Loading PDF…</p>
-            <p id="pdf-error" class="hidden p-8 text-center text-red-600 text-sm"></p>
-            <div id="pdf-pages" class="hidden overflow-auto flex-1 bg-slate-100 p-4 space-y-4"></div>
+        <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
+            <p id="preview-status" class="text-sm text-slate-600">
+                {% if preview_urls and preview_urls|length > 0 %}
+                Loading previews…
+                {% else %}
+                Preview unavailable. Use Open PDF in new tab or Download.
+                {% endif %}
+            </p>
         </div>
-        <noscript>
-            <div class="p-6 text-sm text-slate-600 border-t border-slate-200 bg-amber-50">
-                Inline viewing requires JavaScript.
-                <a href="/files/cases/{{ case.id }}?embed=1" target="_blank" rel="noopener"
-                   class="text-slate-900 underline">Open this PDF in a new tab</a> instead.
-            </div>
-        </noscript>
+        <div id="preview-strip"
+             class="overflow-auto max-h-[85vh] bg-slate-100 p-4 space-y-4">
+            {% if preview_urls and preview_urls|length > 0 %}
+                {% for url in preview_urls %}
+                <figure class="mx-auto max-w-full">
+                    <img src="{{ url }}"
+                         alt="Case page {{ loop.index }}"
+                         loading="lazy"
+                         decoding="async"
+                         class="w-full h-auto shadow-sm bg-white border border-slate-200 rounded-sm preview-page-img"
+                         data-preview-index="{{ loop.index }}"
+                         onerror="this.closest('figure')?.classList.add('preview-img-error')" />
+                </figure>
+                {% endfor %}
+            {% endif %}
+        </div>
     </div>
 
 </div>
 
-{# pdf.js pinned build — canvas viewer only (no browser PDF toolbar). #}
-<script type="module">
-const PDFJS_VER = "4.6.82";
-const workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.worker.mjs`;
-
-const root = document.getElementById("pdf-root");
-const caseId = root?.dataset.caseId;
-const loadingEl = document.getElementById("pdf-loading");
-const errorEl = document.getElementById("pdf-error");
-const pagesEl = document.getElementById("pdf-pages");
-
-async function main() {
-  if (!caseId || !pagesEl) return;
-
-  try {
-    const pdfjsLib = await import(
-      `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VER}/build/pdf.mjs`
-    );
-    pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
-
-    const pdfUrl = `/files/cases/${encodeURIComponent(caseId)}?embed=1`;
-    const loadingTask = pdfjsLib.getDocument({
-      url: pdfUrl,
-      withCredentials: true,
-    });
-    const pdf = await loadingTask.promise;
-
-    const maxW = Math.min(900, Math.max(280, root.clientWidth - 48));
-
-    for (let num = 1; num <= pdf.numPages; num++) {
-      const page = await pdf.getPage(num);
-      const baseViewport = page.getViewport({ scale: 1 });
-      const scale = Math.min(maxW / baseViewport.width, 2);
-      const viewport = page.getViewport({ scale });
-
-      const canvas = document.createElement("canvas");
-      canvas.className = "mx-auto shadow-sm bg-white max-w-full";
-      const ctx = canvas.getContext("2d");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-
-      const task = page.render({ canvasContext: ctx, viewport });
-      await task.promise;
-      pagesEl.appendChild(canvas);
-    }
-
-    loadingEl.classList.add("hidden");
-    pagesEl.classList.remove("hidden");
-  } catch (err) {
-    console.error(err);
-    loadingEl.classList.add("hidden");
-    errorEl.textContent =
-      "Could not load the PDF. Try “Open PDF in a new tab”, or download using the button above.";
-    errorEl.classList.remove("hidden");
+{% if preview_urls and preview_urls|length > 0 %}
+<script>
+(function () {
+  var imgs = document.querySelectorAll("img.preview-page-img");
+  var status = document.getElementById("preview-status");
+  var total = imgs.length;
+  if (!total || !status) return;
+  var done = 0;
+  function check() {
+    done++;
+    if (done >= total) status.classList.add("hidden");
   }
-}
-
-main();
+  imgs.forEach(function (img) {
+    if (img.complete) check();
+    else {
+      img.addEventListener("load", check);
+      img.addEventListener("error", check);
+    }
+  });
+})();
 </script>
+<style>
+  .preview-img-error { display: none; }
+</style>
+{% endif %}
 {% endblock %}
