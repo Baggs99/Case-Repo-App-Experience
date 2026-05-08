@@ -4,8 +4,10 @@ PDF and preview image serving — uses the Storage abstraction (local, S3, R2, �
 Audit logging (``case_access_events``):
 
 - ``GET /api/cases/{case_id}/download`` — records **download** (explicit save).
-- ``GET /files/cases/{case_id}?open_tab=1`` — records **open_tab** (“Open PDF in
-  new tab”). Progressive Range chunks are skipped so we do not log each fetch.
+- ``GET /api/cases/{case_id}/open-pdf`` — records **open_tab**, then redirects to
+  the inline PDF. This avoids relying on ``/files/cases/...?open_tab=1``: Chrome’s
+  PDF viewer often issues Range requests that were skipped by header heuristics,
+  so **open_tab** never appeared in the admin dashboard.
 
 **Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (PNG page previews).
 
@@ -17,10 +19,10 @@ Query ``?download=1`` on ``/files/cases/...`` redirects to ``/api/cases/.../down
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from pipeline.storage import get_storage, to_storage_key, validate_key
@@ -34,34 +36,6 @@ from webapp.repositories.cases import get_case_by_id
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def _infer_case_pdf_access_kind(
-    request: Request,
-) -> Optional[Literal["open_tab"]]:
-    """Record **open_tab** only when our UI adds ``open_tab=1`` (new-tab PDF).
-
-    PNG previews use a separate URL and never hit this handler for auditing.
-    Chunked Range loads (``Sec-Fetch-Dest: empty``) are skipped.
-
-    Returns ``None`` to skip logging entirely.
-    """
-    open_tab_raw = request.query_params.get("open_tab")
-    open_tab_true = open_tab_raw is not None and open_tab_raw.strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-    if not open_tab_true:
-        return None
-
-    range_hdr = (request.headers.get("range") or "").strip()
-    dest = (request.headers.get("sec-fetch-dest") or "").lower()
-
-    if range_hdr and dest == "empty":
-        return None
-
-    return "open_tab"
 
 
 def _pdf_storage_key(raw: str | None) -> Optional[str]:
@@ -131,6 +105,22 @@ def api_download_case_pdf(
     return _storage_pdf_response(key, filename, attachment=True)
 
 
+@router.get("/api/cases/{case_id}/open-pdf")
+def api_open_case_pdf_tab(
+    case_id: int,
+    user: User = Depends(require_auth),
+):
+    """Record **open_tab** once, then redirect to the inline PDF route.
+
+    The case-detail button targets this URL — not ``/files/cases/...?open_tab=1`` —
+    because the browser’s first PDF fetch is often a chunked Range request that we
+    deliberately do not audit on ``/files/cases/...``.
+    """
+    _resolve_case_pdf(case_id)
+    record_case_access(user.id, case_id, "open_tab")
+    return RedirectResponse(url=f"/files/cases/{case_id}", status_code=302)
+
+
 @router.get("/api/cases/{case_id}/previews")
 def api_case_previews_manifest(
     case_id: int,
@@ -189,12 +179,11 @@ def serve_case_preview_png(
 
 @router.get("/files/cases/{case_id}")
 def serve_case_pdf(
-    request: Request,
     case_id: int,
     download: bool = Query(False),
     user: User = Depends(require_auth),
 ):
-    """Serve the case PDF (inline). Logs **open_tab** only when ``open_tab=1``."""
+    """Serve the case PDF inline. Audit rows for opens use ``/api/cases/.../open-pdf``."""
     _case, key, filename = _resolve_case_pdf(case_id)
 
     if download:
@@ -202,10 +191,6 @@ def serve_case_pdf(
             url=f"/api/cases/{case_id}/download",
             status_code=302,
         )
-
-    kind = _infer_case_pdf_access_kind(request)
-    if kind is not None:
-        record_case_access(user.id, case_id, kind)
 
     return _storage_pdf_response(key, filename, attachment=False)
 

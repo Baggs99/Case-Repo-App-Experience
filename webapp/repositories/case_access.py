@@ -2,8 +2,8 @@
 Audit log for authenticated case PDF access (in-browser view vs download).
 
 Rows are written for ``GET /api/cases/{case_id}/download`` (**download**),
-``GET /files/cases/{case_id}?open_tab=1`` (**open_tab**), and legacy **view**
-rows may exist from older app versions. PNG previews under
+``GET /api/cases/{case_id}/open-pdf`` (**open_tab**), and legacy **view** rows
+may exist from older app versions. PNG previews under
 ``/files/cases/{case_id}/preview/…`` are not logged.
 """
 
