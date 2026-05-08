@@ -51,3 +51,7 @@ presentation/Case_Repo_Product.pptx
 Thumbs.db
 .vscode/
 .idea/
+
+# Office temp lockfiles (e.g. ~$deck.pptx while PowerPoint has the file open)
+**/~$*.pptx
+
