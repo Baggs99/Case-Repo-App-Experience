@@ -11,6 +11,7 @@ not write audit rows (no case id context).
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Literal, Optional
 from urllib.parse import unquote
 
@@ -20,25 +21,48 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pipeline.storage import get_storage, to_storage_key, validate_key
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
-from webapp.repositories.case_access import record_case_access
+from webapp.repositories.case_access import (
+    get_last_case_access_event,
+    record_case_access,
+)
 from webapp.repositories.cases import get_case_by_id
 
 
 router = APIRouter()
 
+# ``?embed=1`` full GET after a ``view`` row: likely toolbar Save (same URL as iframe).
+# Too wide → false “download” on a quick return visit; too narrow → missed toolbar saves.
+_EMBED_VIEW_TO_DOWNLOAD_SEC = 300
+# Chrome sometimes issues another ``?embed=1`` full GET within seconds after a toolbar
+# ``download``. Keep this tight: opening the iframe shortly after the white Download
+# button also follows a ``download`` row and must log ``view``.
+_EMBED_REPEAT_DOWNLOAD_SEC = 25
+
+
+def _seconds_since_utc(ts: datetime) -> float:
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - ts).total_seconds()
+
 
 def _infer_case_pdf_access_kind(
     request: Request,
     *,
+    user_id: int,
+    case_id: int,
     download_query: bool,
 ) -> Optional[Literal["view", "download"]]:
     """Classify this request for audit logging.
 
     We tag **inline reading** URLs with ``?embed=1`` (iframe + “Open in new tab”).
 
-    The browser’s built-in PDF toolbar **Save / Download** typically issues a
-    fresh GET **without** ``embed`` or ``download`` — that counts as **download**
-    so admin stats match the white Download button.
+    Chrome’s embedded PDF viewer often **reuses that same ``?embed=1`` URL** when
+    the user clicks its toolbar Download — after we’ve already logged the first
+    load as **view**. We look at the **latest** audit row: a fresh ``view`` within
+    a reading window → **download**; a **recent** ``download`` → another toolbar
+    save; otherwise this fetch is a new **view** (e.g. returning after saving).
+
+    Toolbar saves that issue a GET **without** ``embed`` still count as **download**.
 
     Range requests with ``Sec-Fetch-Dest: empty`` are progressive viewer chunks;
     they are skipped so we do not flood the audit table.
@@ -57,9 +81,28 @@ def _infer_case_pdf_access_kind(
         return None
 
     embed_raw = request.query_params.get("embed")
-    if embed_raw is not None and embed_raw.strip().lower() in (
+    embed_true = embed_raw is not None and embed_raw.strip().lower() in (
         "1", "true", "yes",
-    ):
+    )
+    if embed_true:
+        # Second full fetch with the iframe URL (same ?embed=1) is usually toolbar Save.
+        if range_hdr:
+            return "view"
+        last = get_last_case_access_event(user_id, case_id)
+        if last is None:
+            return "view"
+        kind, ts = last
+        try:
+            age = _seconds_since_utc(ts)
+        except (TypeError, ValueError, OSError):
+            age = 0.0
+
+        # Another full ``?embed=1`` immediately after a toolbar ``download`` row (chained saves).
+        if kind == "download" and age <= _EMBED_REPEAT_DOWNLOAD_SEC:
+            return "download"
+        # Inline load was logged as view; next full ?embed=1 fetch is often Save.
+        if kind == "view" and age <= _EMBED_VIEW_TO_DOWNLOAD_SEC:
+            return "download"
         return "view"
 
     if dest == "iframe":
@@ -109,7 +152,12 @@ def serve_case_pdf(
     if not storage.exists(key):
         raise HTTPException(status_code=404, detail="PDF not found")
 
-    kind = _infer_case_pdf_access_kind(request, download_query=download)
+    kind = _infer_case_pdf_access_kind(
+        request,
+        user_id=user.id,
+        case_id=case_id,
+        download_query=download,
+    )
     if kind is not None:
         record_case_access(user.id, case_id, kind)
 
