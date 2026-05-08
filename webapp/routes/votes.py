@@ -8,6 +8,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from psycopg.errors import UndefinedTable
 
 from webapp.auth.dependencies import require_auth_api
 from webapp.auth.users import User
@@ -16,6 +17,11 @@ from webapp.repositories.cases import get_case_by_id
 
 
 router = APIRouter(tags=["votes"])
+
+_VOTE_MIGRATION_HINT = (
+    "Voting requires database migration 007 (case_votes table). "
+    "Apply db/migrations/007_case_votes.sql on Postgres."
+)
 
 
 class VotePostBody(BaseModel):
@@ -48,4 +54,7 @@ def api_post_case_vote(
 ):
     """Create, update, toggle off, or clear a vote."""
     _case_or_404(case_id)
-    return apply_vote(case_id, user.id, body.vote_type)
+    try:
+        return apply_vote(case_id, user.id, body.vote_type)
+    except UndefinedTable:
+        raise HTTPException(status_code=503, detail=_VOTE_MIGRATION_HINT)

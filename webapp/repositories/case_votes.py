@@ -4,13 +4,24 @@ SQL for ``case_votes`` — one vote per user per case (useful / not_useful).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal, Optional
 
+from psycopg.errors import UndefinedTable
 from psycopg.rows import dict_row
 
 from webapp.db import get_pool
 
+logger = logging.getLogger(__name__)
+
 VoteType = Literal["useful", "not_useful"]
+
+EMPTY_VOTE_STATE: dict[str, Any] = {
+    "vote": None,
+    "useful_count": 0,
+    "not_useful_count": 0,
+    "useful_percentage": None,
+}
 
 
 def _pct(useful: int, not_useful: int) -> Optional[float]:
@@ -50,6 +61,23 @@ def get_vote_state(case_id: int, user_id: int) -> dict[str, Any]:
         "not_useful_count": not_u,
         "useful_percentage": _pct(useful, not_u),
     }
+
+
+def get_vote_state_safe(case_id: int, user_id: int) -> dict[str, Any]:
+    """Like ``get_vote_state`` but returns empty aggregates if ``case_votes`` is missing.
+
+    Deployments must run ``db/migrations/007_case_votes.sql``; until then case pages
+    still render and voting buttons no-op at the API layer.
+    """
+    try:
+        return get_vote_state(case_id, user_id)
+    except UndefinedTable:
+        logger.warning(
+            "case_votes table missing — apply db/migrations/007_case_votes.sql "
+            "(case_id=%s)",
+            case_id,
+        )
+        return dict(EMPTY_VOTE_STATE)
 
 
 def apply_vote(
@@ -139,3 +167,15 @@ def list_cases_with_vote_stats(*, sort: str = "title", limit: int = 2000) -> lis
         n = int(r["not_useful_count"] or 0)
         r["useful_percentage"] = _pct(u, n)
     return rows
+
+
+def list_cases_with_vote_stats_safe(*, sort: str = "title", limit: int = 2000) -> list[dict[str, Any]]:
+    """Same as ``list_cases_with_vote_stats`` but returns [] if ``case_votes`` is missing."""
+    try:
+        return list_cases_with_vote_stats(sort=sort, limit=limit)
+    except UndefinedTable:
+        logger.warning(
+            "case_votes table missing — apply db/migrations/007_case_votes.sql "
+            "(admin case list empty)"
+        )
+        return []

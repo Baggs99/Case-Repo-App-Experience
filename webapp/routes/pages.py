@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
-from webapp.repositories.case_votes import get_vote_state
+from webapp.repositories.case_votes import get_vote_state_safe
 from webapp.repositories.cases import (
     SearchFilters,
     get_case_by_id,
@@ -67,7 +67,7 @@ def case_detail(
     except (TypeError, ValueError):
         preview_page_count = 0
 
-    vote_state = get_vote_state(case_id, user.id)
+    vote_state = get_vote_state_safe(case_id, user.id)
 
     return render(request, "case_detail.html", {
         "case": case,

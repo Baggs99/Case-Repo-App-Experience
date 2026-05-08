@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from webapp.auth.dependencies import require_admin
 from webapp.auth.users import User, get_user_by_id
 from webapp.repositories.case_access import list_case_access_for_user
-from webapp.repositories.case_votes import ADMIN_SORT_SQL, list_cases_with_vote_stats
+from webapp.repositories.case_votes import ADMIN_SORT_SQL, list_cases_with_vote_stats_safe
 from webapp.repositories.users import get_user_stats, list_users
 from webapp.templating import render
 
@@ -30,7 +30,7 @@ def admin_cases(
     user: User = Depends(require_admin),
 ):
     sort_key = sort if sort in ADMIN_SORT_SQL else "title"
-    rows = list_cases_with_vote_stats(sort=sort_key, limit=3000)
+    rows = list_cases_with_vote_stats_safe(sort=sort_key, limit=3000)
     return render(request, "admin_cases.html", {
         "rows": rows,
         "sort": sort_key,
