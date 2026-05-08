@@ -101,7 +101,12 @@ def api_download_case_pdf(
 ):
     """Record exactly one **download** audit row, then stream the PDF as an attachment."""
     _case, key, filename = _resolve_case_pdf(case_id)
-    record_case_access(user.id, case_id, "download")
+    if not record_case_access(user.id, case_id, "download"):
+        logger.error(
+            "download audit insert failed user_id=%s case_id=%s — check case_access_events.kind CHECK constraint",
+            user.id,
+            case_id,
+        )
     return _storage_pdf_response(key, filename, attachment=True)
 
 
@@ -117,7 +122,14 @@ def api_open_case_pdf_tab(
     deliberately do not audit on ``/files/cases/...``.
     """
     _resolve_case_pdf(case_id)
-    record_case_access(user.id, case_id, "open_tab")
+    if not record_case_access(user.id, case_id, "open_tab"):
+        logger.error(
+            "open_tab audit insert failed user_id=%s case_id=%s — apply "
+            "db/migrations/005_case_access_kind_constraint_fix.sql on Postgres "
+            "(kind CHECK must allow open_tab)",
+            user.id,
+            case_id,
+        )
     return RedirectResponse(url=f"/files/cases/{case_id}", status_code=302)
 
 

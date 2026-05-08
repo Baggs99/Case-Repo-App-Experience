@@ -33,18 +33,26 @@ class CaseAccessRow:
     created_at: datetime
 
 
-def record_case_access(user_id: int, case_id: int, kind: AccessKind) -> None:
-    """Best-effort insert — PDF delivery succeeds even if logging fails."""
+def record_case_access(user_id: int, case_id: int, kind: AccessKind) -> bool:
+    """Insert an audit row. Returns False if the DB rejected the row (logged).
+
+    Common failure: ``kind = 'open_tab'`` when the DB CHECK constraint was never
+    migrated — run ``db/migrations/005_case_access_kind_constraint_fix.sql``.
+    PDF delivery should still proceed; callers treat a False return as best-effort.
+    """
     try:
         with get_pool().connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO case_access_events (user_id, case_id, kind)
-                    VALUES (%s, %s, %s);
+                    VALUES (%s, %s, %s)
+                    RETURNING id;
                     """,
                     (user_id, case_id, kind),
                 )
+                row = cur.fetchone()
+                return row is not None
     except Exception:
         logger.exception(
             "Failed to record case access user_id=%s case_id=%s kind=%s",
@@ -52,6 +60,7 @@ def record_case_access(user_id: int, case_id: int, kind: AccessKind) -> None:
             case_id,
             kind,
         )
+        return False
 
 
 def list_case_access_for_user(user_id: int, *, limit: int = 200) -> list[CaseAccessRow]:
