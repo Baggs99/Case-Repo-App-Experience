@@ -13,6 +13,7 @@ Commands
   classify-industry    Fill missing industry labels via the OpenAI API.
   publish-cases  Sync case_catalog.csv into the Postgres `cases` table.
   generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline).
+  sync-pdf-pages Trim local PDF files to match catalog page_count (then upload).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
   verify-storage Walk the cases table and check every PDF resolves in storage.
   serve          Launch the FastAPI web app.
@@ -547,6 +548,135 @@ def generate_previews_cmd(
     click.echo(f"\nDone: generated={n_ok} skipped={n_skip} failed={n_fail}")
 
 
+# ── sync-pdf-pages command ─────────────────────────────────────────────────────
+
+@cli.command("sync-pdf-pages")
+@click.option("--catalog", "catalog_path", default="output/case_catalog.csv",
+              show_default=True,
+              help="Path to case_catalog.csv (or .xlsx).")
+@click.option("--match", "match_substr", required=True,
+              help="Only rows whose case_title contains this substring (case-insensitive).")
+@click.option("--source-dir", "source_dir", default=None,
+              help="Base directory for resolving relative pdf_path values. "
+                   "Defaults to the project root.")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Show actions without modifying PDFs.")
+def sync_pdf_pages_cmd(
+    catalog_path: str,
+    match_substr: str,
+    source_dir: str | None,
+    dry_run: bool,
+):
+    """
+    Trim local catalog PDFs so page count matches the catalog's page_count column.
+
+    Use when metadata was updated (shorter case) but the split PDF on disk—and
+    therefore R2—still has old extra pages. Typical flow::
+
+        python main.py sync-pdf-pages --match "Dairy Farm"
+        python main.py upload-pdfs --match "Dairy Farm" --force
+
+    Requires the PDF path from case_catalog to exist locally (absolute or
+    relative to --source-dir).
+    """
+    setup_logging(verbose=False)
+    import pandas as pd
+
+    from utils.pdf_utils import open_pdf_safely, rewrite_pdf_first_n_pages
+
+    cat_path = Path(catalog_path)
+    if not cat_path.exists():
+        click.echo(f"ERROR: catalog not found: {cat_path}", err=True)
+        raise SystemExit(1)
+
+    if cat_path.suffix.lower() in {".xlsx", ".xlsm"}:
+        df = pd.read_excel(cat_path)
+    else:
+        df = pd.read_csv(cat_path)
+
+    pdf_col = next(
+        (c for c in ("output_pdf_path", "pdf_path") if c in df.columns),
+        None,
+    )
+    if pdf_col is None:
+        click.echo(
+            "ERROR: catalog has neither 'output_pdf_path' nor 'pdf_path' column.",
+            err=True,
+        )
+        raise SystemExit(1)
+    if "case_title" not in df.columns:
+        click.echo("ERROR: catalog has no 'case_title' column.", err=True)
+        raise SystemExit(1)
+    if "page_count" not in df.columns:
+        click.echo("ERROR: catalog has no 'page_count' column.", err=True)
+        raise SystemExit(1)
+
+    m = match_substr.lower()
+    df = df[df["case_title"].astype(str).str.lower().str.contains(m, na=False)]
+    if df.empty:
+        click.echo(f"No rows matched case_title containing {match_substr!r}.", err=True)
+        raise SystemExit(1)
+
+    base = Path(source_dir).resolve() if source_dir else Path.cwd()
+    click.echo(f"\nSync PDF pages — {len(df)} catalog row(s), base {base}\n")
+
+    n_changed = 0
+    n_noop = 0
+    n_missing = 0
+    n_fail = 0
+
+    for row_dict in df.to_dict(orient="records"):
+        title = str(row_dict.get("case_title", "")).strip()
+        raw_path = row_dict.get(pdf_col)
+        if not raw_path or (isinstance(raw_path, float) and pd.isna(raw_path)):
+            click.echo(f"  [SKIP] {title!r}: empty pdf path")
+            continue
+        try:
+            pc = int(float(row_dict["page_count"]))
+        except (TypeError, ValueError):
+            click.echo(f"  [SKIP] {title!r}: bad page_count")
+            continue
+
+        src = Path(str(raw_path).strip())
+        if not src.is_absolute():
+            src = base / src
+        if not src.is_file():
+            n_missing += 1
+            click.echo(f"  [MISS] {title!r}: {src}")
+            continue
+
+        if dry_run:
+            doc, err = open_pdf_safely(src)
+            if doc:
+                extra = f" ({len(doc)} pages on disk)"
+                doc.close()
+            else:
+                extra = f" ({err})" if err else ""
+            click.echo(f"  [DRY ] {title!r} → first {pc} page(s){extra}")
+            continue
+
+        changed, msg = rewrite_pdf_first_n_pages(src, pc)
+        click.echo(f"  {'[OK  ]' if changed or msg.startswith('no-op') else '[FAIL]'} "
+                   f"{title!r}: {msg}")
+        if changed:
+            n_changed += 1
+        elif msg.startswith("no-op"):
+            n_noop += 1
+        else:
+            n_fail += 1
+
+    click.echo("\nResult:")
+    click.echo(f"  Trimmed:     {n_changed}")
+    click.echo(f"  Unchanged:   {n_noop}")
+    click.echo(f"  Missing file:{n_missing}")
+    if not dry_run:
+        click.echo(f"  Failed:      {n_fail}")
+    click.echo()
+
+    if n_missing > 0 or n_fail > 0:
+        raise SystemExit(2)
+
+
 # ── upload-pdfs command ────────────────────────────────────────────────────────
 
 @cli.command("upload-pdfs")
@@ -556,6 +686,8 @@ def generate_previews_cmd(
 @click.option("--source-dir", "source_dir", default=None,
               help="Base directory for resolving relative pdf_path values. "
                    "Defaults to the project root.")
+@click.option("--match", "match_substr", default=None,
+              help="Only rows whose case_title contains this substring (case-insensitive).")
 @click.option("--limit", type=int, default=None,
               help="Upload at most N PDFs (for smoke tests).")
 @click.option("--force", is_flag=True, default=False,
@@ -567,6 +699,7 @@ def generate_previews_cmd(
 def upload_pdfs_cmd(
     catalog_path: str,
     source_dir: str | None,
+    match_substr: str | None,
     limit: int | None,
     force: bool,
     dry_run: bool,
@@ -585,6 +718,7 @@ def upload_pdfs_cmd(
       python main.py upload-pdfs --limit 5    # smoke test
       python main.py upload-pdfs              # full run (~3-5 min for 467)
       python main.py upload-pdfs --force      # overwrite every key
+      python main.py upload-pdfs --match "Dairy Farm" --force  # one case
     """
     setup_logging(verbose=verbose)
     import pandas as pd
@@ -610,6 +744,24 @@ def upload_pdfs_cmd(
             err=True,
         )
         raise SystemExit(1)
+
+    if match_substr:
+        title_col = "case_title" if "case_title" in df.columns else None
+        if title_col:
+            mlow = match_substr.lower()
+            before = len(df)
+            df = df[
+                df[title_col].astype(str).str.lower().str.contains(mlow, na=False)
+            ]
+            click.echo(
+                f"  Filter (--match): {len(df)} of {before} row(s) "
+                f"(case_title contains {match_substr!r})"
+            )
+        else:
+            click.echo(
+                "WARN: --match ignored: catalog has no 'case_title' column.",
+                err=True,
+            )
 
     if limit:
         df = df.head(limit)

@@ -7,6 +7,7 @@ All page indices throughout this module are 0-based (fitz convention).
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -133,6 +134,39 @@ def save_pdf_pages(
         )
     finally:
         new_doc.close()
+
+
+def rewrite_pdf_first_n_pages(source_path: Path, n: int) -> tuple[bool, str]:
+    """
+    Replace *source_path* with a PDF that contains only the first *n* pages.
+
+    Uses a temp file and atomic replace. If the document already has ≤ n pages,
+    the file is left unchanged and (False, reason) is returned.
+    """
+    if n < 1:
+        return False, "n must be >= 1"
+
+    doc, err = open_pdf_safely(source_path)
+    if doc is None:
+        return False, err or "cannot open PDF"
+
+    try:
+        total = len(doc)
+        if total <= n:
+            return False, f"no-op ({total} page(s), already ≤ {n})"
+
+        out = fitz.open()
+        try:
+            out.insert_pdf(doc, from_page=0, to_page=n - 1)
+            tmp = source_path.with_suffix(".truncate.tmp.pdf")
+            out.save(str(tmp))
+        finally:
+            out.close()
+    finally:
+        doc.close()
+
+    os.replace(tmp, source_path)
+    return True, f"truncated {total} → {n} page(s)"
 
 
 # ── Counting helpers ──────────────────────────────────────────────────────────

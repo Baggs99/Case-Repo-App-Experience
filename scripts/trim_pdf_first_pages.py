@@ -8,11 +8,15 @@ Requires PyMuPDF (fitz), same as the rest of the pipeline.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
-import fitz
+# Allow running from repo root without PYTHONPATH hacks
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from utils.pdf_utils import rewrite_pdf_first_n_pages  # noqa: E402
 
 
 def main() -> None:
@@ -21,26 +25,10 @@ def main() -> None:
         sys.exit(2)
     path = Path(sys.argv[1]).resolve()
     n = int(sys.argv[2])
-    if n < 1:
-        raise SystemExit("page_count must be >= 1")
-
-    src = fitz.open(path)
-    try:
-        if len(src) <= n:
-            print(f"No-op: {path} already has {len(src)} page(s) (<= {n}).")
-            return
-        dst = fitz.open()
-        try:
-            dst.insert_pdf(src, from_page=0, to_page=n - 1)
-            tmp = path.with_suffix(".trim.tmp.pdf")
-            dst.save(tmp)
-        finally:
-            dst.close()
-    finally:
-        src.close()
-
-    os.replace(tmp, path)
-    print(f"Wrote {path} with {n} page(s).")
+    changed, msg = rewrite_pdf_first_n_pages(path, n)
+    print(f"{path}: {msg}")
+    if not changed and not msg.startswith("no-op"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
