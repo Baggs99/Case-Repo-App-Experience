@@ -497,6 +497,9 @@ def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
               help="Postgres connection string. Defaults to $DATABASE_URL from .env.")
 @click.option("--case-id", "case_id_filter", type=int, default=None,
               help="Only generate previews for this case id.")
+@click.option("--min-case-id", "min_case_id", type=int, default=None,
+              help="Only cases with id >= this value (resume after stopping). "
+                   "Not used together with --case-id.")
 @click.option("--match-title", "match_title", default=None,
               help="Only cases whose title matches this substring (SQL ILIKE). "
                    "Example: Dairy Farm. Mutually exclusive with --case-id.")
@@ -509,6 +512,7 @@ def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
 def generate_previews_cmd(
     database_url: str | None,
     case_id_filter: int | None,
+    min_case_id: int | None,
     match_title: str | None,
     limit: int | None,
     skip_existing: bool,
@@ -532,6 +536,7 @@ def generate_previews_cmd(
       python main.py generate-previews --skip-existing
       python main.py generate-previews --case-id 95 --verbose
       python main.py generate-previews --match-title "Dairy Farm" --verbose
+      python main.py generate-previews --min-case-id 287
     """
     setup_logging(verbose=verbose)
     db_url = database_url or os.environ.get("DATABASE_URL")
@@ -549,6 +554,13 @@ def generate_previews_cmd(
         )
         raise SystemExit(2)
 
+    if case_id_filter is not None and min_case_id is not None:
+        click.echo(
+            "ERROR: do not use --min-case-id with --case-id.",
+            err=True,
+        )
+        raise SystemExit(2)
+
     from pipeline.preview_generation import rasterize_pdf_bytes_to_preview_dir
     from pipeline.preview_upload_r2 import maybe_upload_preview_jpegs
     from pipeline.storage import get_storage
@@ -559,6 +571,7 @@ def generate_previews_cmd(
 
     repo_root = Path(__file__).resolve().parent
 
+    min_id = min_case_id
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
             if case_id_filter is not None:
@@ -570,17 +583,36 @@ def generate_previews_cmd(
                     (case_id_filter,),
                 )
             elif match_title:
-                cur.execute(
-                    """
-                    SELECT id, pdf_path, page_count FROM cases
-                    WHERE case_title ILIKE %s ORDER BY id;
-                    """,
-                    (f"%{match_title}%",),
-                )
+                if min_id is not None:
+                    cur.execute(
+                        """
+                        SELECT id, pdf_path, page_count FROM cases
+                        WHERE case_title ILIKE %s AND id >= %s
+                        ORDER BY id;
+                        """,
+                        (f"%{match_title}%", min_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, pdf_path, page_count FROM cases
+                        WHERE case_title ILIKE %s ORDER BY id;
+                        """,
+                        (f"%{match_title}%",),
+                    )
             else:
-                cur.execute(
-                    "SELECT id, pdf_path, page_count FROM cases ORDER BY id;",
-                )
+                if min_id is not None:
+                    cur.execute(
+                        """
+                        SELECT id, pdf_path, page_count FROM cases
+                        WHERE id >= %s ORDER BY id;
+                        """,
+                        (min_id,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT id, pdf_path, page_count FROM cases ORDER BY id;",
+                    )
             rows = list(cur.fetchall())
 
     if limit is not None:
