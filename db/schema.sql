@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS cases (
 
     pdf_path          TEXT         NOT NULL,
 
+    -- Operator-controlled duplicate review (see db/migrations/009_case_duplicate_review_flags.sql).
+    is_duplicate_case          BOOLEAN NOT NULL DEFAULT false,
+    unique_case_count_eligible BOOLEAN NOT NULL DEFAULT true,
+
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 

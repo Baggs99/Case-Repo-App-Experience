@@ -157,11 +157,16 @@ def pick_canonical_case_ids(rows: Iterable[dict]) -> set[int]:
     (year may be ``None``). Rows whose ``normalized_title`` is empty / None
     are treated as their own group (we only collapse exact-match titles, per
     requirement 2).
+
+    Rows with ``is_duplicate_case`` true are excluded from grouping (they
+    never appear in public deduped search).
     """
     canonical: dict[str, dict] = {}
     standalone: list[int] = []
 
     for r in rows:
+        if r.get("is_duplicate_case"):
+            continue
         nt = (r.get("normalized_title") or "").strip()
         rid = int(r["id"])
         year = r.get("source_year")
@@ -197,6 +202,12 @@ def _is_better_canonical(candidate: dict, current: dict) -> bool:
         if cand_year > curr_year:
             return False
 
+    # Same calendar year (including both NULL): prefer already-eligible rows.
+    ce = bool(candidate.get("unique_case_count_eligible", True))
+    ue = bool(current.get("unique_case_count_eligible", True))
+    if ce != ue:
+        return ce and not ue
+
     return int(candidate["id"]) < int(current["id"])
 
 
@@ -220,18 +231,22 @@ _FILTER_WHERE = """
 _DEDUP_CTE = """
     WITH ranked AS (
         SELECT
-            id, case_title, normalized_title,
-            source_school, source_year,
-            industry, case_type, difficulty, difficulty_score,
-            firm, page_count, pdf_path,
+            cs.id, cs.case_title, cs.normalized_title,
+            cs.source_school, cs.source_year,
+            cs.industry, cs.case_type, cs.difficulty, cs.difficulty_score,
+            cs.firm, cs.page_count, cs.pdf_path,
             ROW_NUMBER() OVER (
                 -- Empty / NULL normalized_title rows must NOT collapse into
                 -- one another; bucket each by a synthetic per-row key so
                 -- they all survive as their own canonical.
-                PARTITION BY COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)
-                ORDER BY source_year ASC NULLS LAST, id ASC
+                PARTITION BY COALESCE(NULLIF(cs.normalized_title, ''), '__id_' || cs.id::text)
+                ORDER BY
+                    cs.source_year ASC NULLS LAST,
+                    CASE WHEN COALESCE(cs.unique_case_count_eligible, true) THEN 0 ELSE 1 END ASC,
+                    cs.id ASC
             ) AS rn
-        FROM cases
+        FROM cases cs
+        WHERE NOT COALESCE(cs.is_duplicate_case, false)
     )
 """
 
@@ -322,14 +337,13 @@ def count_all_cases(*, include_duplicates: bool = False) -> int:
     if include_duplicates:
         sql = "SELECT COUNT(*) FROM cases;"
     else:
-        # Count distinct normalized_title groups, plus every NULL / empty
-        # title row standing on its own — same rule as the SEARCH_SQL_DEDUP
-        # PARTITION BY clause and ``pick_canonical_case_ids``.
-        sql = """
-            SELECT COUNT(DISTINCT
-                COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)
-            ) AS total
-            FROM cases;
+        # Same partition rule as SEARCH_SQL_DEDUP, after excluding rows the
+        # operator marked ``is_duplicate_case`` (cross-title dupes).
+        sql = f"""
+            {_DEDUP_CTE}
+            SELECT COUNT(*) AS total
+            FROM ranked
+            WHERE rn = 1;
         """
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
@@ -350,6 +364,7 @@ def get_case_by_id(case_id: int) -> Optional[dict]:
                        industry, case_type, difficulty, difficulty_score,
                        firm, interviewer_led, page_count, pdf_path,
                        preview_public_slug,
+                       is_duplicate_case, unique_case_count_eligible,
                        created_at, updated_at
                 FROM cases
                 WHERE id = %s;

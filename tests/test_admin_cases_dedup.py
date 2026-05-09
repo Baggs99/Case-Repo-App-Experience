@@ -94,7 +94,10 @@ class TestAdminListSqlShape:
 
     def test_order_picks_oldest_year_then_lowest_id(self):
         src = self._build_sql(include_duplicates=False)
-        assert "ORDER BY cs.source_year ASC NULLS LAST, cs.id ASC" in src
+        assert "ORDER BY" in src
+        assert "cs.source_year ASC NULLS LAST" in src
+        assert "unique_case_count_eligible" in src
+        assert "cs.id ASC" in src
 
     def test_default_filters_to_canonical_only(self):
         src = self._build_sql(include_duplicates=False)
@@ -102,9 +105,18 @@ class TestAdminListSqlShape:
         # include_duplicates is False.
         assert 'where_sql = "" if include_duplicates else "WHERE c.rn = 1"' in src
 
+    def test_excludes_operator_marked_duplicates_before_ranking(self):
+        src = self._build_sql(include_duplicates=False)
+        assert "WHERE NOT COALESCE(cs.is_duplicate_case, false)" in src
+
     def test_is_canonical_flag_exposed_to_template(self):
         src = self._build_sql(include_duplicates=False)
-        assert "(c.rn = 1) AS is_canonical" in src
+        # Canonical = highest-ranked AND not operator-flagged. Both pieces
+        # must show up so the admin badge tracks the operator's intent
+        # (tested at the SQL-string level since we can't hit Postgres here).
+        assert "AS is_canonical" in src
+        assert "c.rn = 1" in src
+        assert "NOT COALESCE(c.is_duplicate_case" in src
 
 
 # ── Route accepts the include_duplicates query param ───────────────────────────

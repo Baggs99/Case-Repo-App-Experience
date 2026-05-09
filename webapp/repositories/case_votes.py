@@ -157,34 +157,44 @@ def list_cases_with_vote_stats(
     "Duplicate" rows visually without losing them from the listing.
     """
     order_sql = ADMIN_SORT_SQL.get(sort, ADMIN_SORT_SQL["title"])
+    # Default view: hide both operator-flagged duplicates AND title-grouped
+    # non-canonical copies. ``include_duplicates`` view: keep every row, but
+    # rank within each title group so we can label canonical vs duplicate;
+    # ``is_canonical`` requires rn=1 AND not operator-flagged.
+    cte_filter = "" if include_duplicates else "WHERE NOT COALESCE(cs.is_duplicate_case, false)"
     where_sql = "" if include_duplicates else "WHERE c.rn = 1"
     sql = f"""
         WITH ranked_cases AS (
             SELECT
                 cs.id, cs.case_title, cs.normalized_title,
                 cs.source_school, cs.source_year,
+                cs.is_duplicate_case,
                 ROW_NUMBER() OVER (
                     PARTITION BY COALESCE(
                         NULLIF(cs.normalized_title, ''),
                         '__id_' || cs.id::text
                     )
-                    ORDER BY cs.source_year ASC NULLS LAST, cs.id ASC
+                    ORDER BY
+                        cs.source_year ASC NULLS LAST,
+                        CASE WHEN COALESCE(cs.unique_case_count_eligible, true) THEN 0 ELSE 1 END ASC,
+                        cs.id ASC
                 ) AS rn
             FROM cases cs
+            {cte_filter}
         )
         SELECT
             c.id,
             c.case_title,
             c.source_school,
             c.source_year,
-            (c.rn = 1) AS is_canonical,
+            (c.rn = 1 AND NOT COALESCE(c.is_duplicate_case, false)) AS is_canonical,
             COUNT(*) FILTER (WHERE cv.vote_type = 'useful')::int AS useful_count,
             COUNT(*) FILTER (WHERE cv.vote_type = 'not_useful')::int AS not_useful_count,
             COUNT(cv.id)::int AS total_votes
         FROM ranked_cases c
         LEFT JOIN case_votes cv ON cv.case_id = c.id
         {where_sql}
-        GROUP BY c.id, c.case_title, c.source_school, c.source_year, c.rn
+        GROUP BY c.id, c.case_title, c.source_school, c.source_year, c.rn, c.is_duplicate_case
         ORDER BY {order_sql}
         LIMIT %(limit)s;
     """
@@ -227,11 +237,25 @@ def get_admin_case_counts() -> dict[str, int]:
     is off.
     """
     sql = """
+        WITH ranked AS (
+            SELECT
+                cs.id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(
+                        NULLIF(cs.normalized_title, ''),
+                        '__id_' || cs.id::text
+                    )
+                    ORDER BY
+                        cs.source_year ASC NULLS LAST,
+                        CASE WHEN COALESCE(cs.unique_case_count_eligible, true) THEN 0 ELSE 1 END ASC,
+                        cs.id ASC
+                ) AS rn
+            FROM cases cs
+            WHERE NOT COALESCE(cs.is_duplicate_case, false)
+        )
         SELECT
-            COUNT(DISTINCT
-                COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)
-            ) AS canonical_count,
-            COUNT(*) AS all_count
+            (SELECT COUNT(*)::int FROM ranked WHERE rn = 1) AS canonical_count,
+            COUNT(*)::int AS all_count
         FROM cases;
     """
     with get_pool().connection() as conn:

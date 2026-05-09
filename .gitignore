@@ -16,6 +16,9 @@ output/pipeline.log
 output/audit/*.csv
 output/audit/*.json
 
+# Duplicate review CSVs (operator-local; generated + edited before apply)
+output/duplicate_review_*.csv
+
 # Dev email outbox (verification links etc.)
 output/emails/
 

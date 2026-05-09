@@ -119,6 +119,9 @@ ON CONFLICT (source_school, source_year, normalized_title) DO UPDATE SET
     interviewer_led  = EXCLUDED.interviewer_led,
     page_count       = EXCLUDED.page_count,
     pdf_path         = EXCLUDED.pdf_path,
+    -- Preserve operator duplicate-review flags across catalog re-sync.
+    is_duplicate_case          = cases.is_duplicate_case,
+    unique_case_count_eligible = cases.unique_case_count_eligible,
     updated_at       = NOW()
 RETURNING (xmax = 0) AS inserted;
 """

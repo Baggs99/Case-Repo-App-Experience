@@ -91,6 +91,16 @@ class TestPickCanonicalCaseIds:
         ]
         assert pick_canonical_case_ids(rows) == {1, 2, 3}
 
+    def test_operator_flag_excludes_from_title_grouping(self):
+        # Rows already marked duplicate never participate in the
+        # normalized_title canonical race (mirrors SQL pre-filter).
+        rows = [
+            {**_row(101, "Zoo Co", "Kellogg", 2024, "zoo co"), "is_duplicate_case": True},
+            _row(102, "Zoo Co", "Kellogg", 2023, "zoo co"),
+            _row(103, "Zoo Co", "Kellogg", 2016, "zoo co"),
+        ]
+        assert pick_canonical_case_ids(rows) == {103}
+
     def test_duplicate_within_same_group_with_different_year_ordering(self):
         # Inputs in arbitrary order should still produce the same canonical.
         rows_a = [
@@ -148,10 +158,16 @@ class TestDedupSqlShape:
     def test_partition_uses_normalized_title_with_id_fallback(self):
         # PARTITION key matches the Python helper's grouping rule: rows with
         # an empty normalized_title each form their own singleton group.
-        assert "PARTITION BY COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)" in SEARCH_SQL_DEDUP
+        assert "PARTITION BY COALESCE(NULLIF(cs.normalized_title, ''), '__id_' || cs.id::text)" in SEARCH_SQL_DEDUP
 
     def test_order_picks_oldest_year_then_lowest_id(self):
-        assert "ORDER BY source_year ASC NULLS LAST, id ASC" in SEARCH_SQL_DEDUP
+        assert "ORDER BY" in SEARCH_SQL_DEDUP
+        assert "cs.source_year ASC NULLS LAST" in SEARCH_SQL_DEDUP
+        assert "unique_case_count_eligible" in SEARCH_SQL_DEDUP
+        assert "cs.id ASC" in SEARCH_SQL_DEDUP
+
+    def test_excludes_operator_marked_duplicates_before_ranking(self):
+        assert "WHERE NOT COALESCE(cs.is_duplicate_case, false)" in SEARCH_SQL_DEDUP
 
     def test_dedup_filters_to_rn_one(self):
         assert "rn = 1" in SEARCH_SQL_DEDUP
