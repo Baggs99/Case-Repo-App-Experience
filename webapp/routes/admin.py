@@ -15,7 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from webapp.auth.dependencies import require_admin
 from webapp.auth.users import User, get_user_by_id
 from webapp.repositories.case_access import list_case_access_for_user
-from webapp.repositories.case_votes import ADMIN_SORT_SQL, list_cases_with_vote_stats_safe
+from webapp.repositories.case_votes import (
+    ADMIN_SORT_SQL,
+    get_vote_counts_by_user_safe,
+    get_vote_counts_for_user_safe,
+    list_cases_with_vote_stats_safe,
+    list_votes_for_user_safe,
+)
 from webapp.repositories.users import get_user_stats, list_users
 from webapp.templating import render
 
@@ -45,11 +51,17 @@ def admin_users(
 ):
     stats = get_user_stats()
     rows = list_users(limit=500)
+
+    # One round-trip for every voter, then look up per-row in the template.
+    # Empty dict (e.g. when ``case_votes`` is missing) renders as zeros.
+    vote_counts = get_vote_counts_by_user_safe(user_ids=[r.id for r in rows])
+
     now = datetime.now(timezone.utc)
 
     return render(request, "admin_users.html", {
         "stats": stats,
         "rows":  rows,
+        "vote_counts": vote_counts,
         "now":   now,
         "humanize": _humanize_delta,
     })
@@ -72,6 +84,30 @@ def admin_user_detail(
         "target": target,
         "events": events,
         "now":    now,
+        "humanize": _humanize_delta,
+    })
+
+
+@router.get("/users/{user_id}/votes")
+def admin_user_votes(
+    request: Request,
+    user_id: int,
+    user: User = Depends(require_admin),
+):
+    """Per-user voting activity: aggregate counts plus the list of voted cases."""
+    target = get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    counts = get_vote_counts_for_user_safe(user_id)
+    votes = list_votes_for_user_safe(user_id, limit=1000)
+    now = datetime.now(timezone.utc)
+
+    return render(request, "admin_user_votes.html", {
+        "target":   target,
+        "counts":   counts,
+        "votes":    votes,
+        "now":      now,
         "humanize": _humanize_delta,
     })
 

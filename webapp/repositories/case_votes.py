@@ -179,3 +179,147 @@ def list_cases_with_vote_stats_safe(*, sort: str = "title", limit: int = 2000) -
             "(admin case list empty)"
         )
         return []
+
+
+# ── Per-user vote views (admin) ────────────────────────────────────────────────
+
+def list_votes_for_user(user_id: int, *, limit: int = 1000) -> list[dict[str, Any]]:
+    """Return every vote a user has cast, joined with case metadata.
+
+    Newest votes first (uses ``updated_at`` so toggling a vote bubbles it
+    up — i.e. "voted_at" reflects the most recent action on that case).
+    """
+    sql = """
+        SELECT
+            cv.id           AS vote_id,
+            cv.vote_type,
+            cv.created_at,
+            cv.updated_at   AS voted_at,
+            c.id            AS case_id,
+            c.case_title,
+            c.source_school,
+            c.source_year,
+            c.industry,
+            c.case_type,
+            c.difficulty
+        FROM case_votes cv
+        JOIN cases c ON c.id = cv.case_id
+        WHERE cv.user_id = %s
+        ORDER BY cv.updated_at DESC, cv.id DESC
+        LIMIT %s;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (user_id, limit))
+            return list(cur.fetchall())
+
+
+def list_votes_for_user_safe(user_id: int, *, limit: int = 1000) -> list[dict[str, Any]]:
+    """Same as ``list_votes_for_user`` but tolerates a missing ``case_votes`` table."""
+    try:
+        return list_votes_for_user(user_id, limit=limit)
+    except UndefinedTable:
+        logger.warning(
+            "case_votes table missing — apply db/migrations/007_case_votes.sql "
+            "(user_id=%s vote list empty)",
+            user_id,
+        )
+        return []
+
+
+def get_vote_counts_for_user(user_id: int) -> dict[str, Any]:
+    """Aggregate useful / not-useful counts plus the most recent vote time for one user."""
+    sql = """
+        SELECT
+            COUNT(*) FILTER (WHERE vote_type = 'useful')::int     AS useful_count,
+            COUNT(*) FILTER (WHERE vote_type = 'not_useful')::int AS not_useful_count,
+            COUNT(*)::int                                         AS total_count,
+            MAX(updated_at)                                       AS last_voted_at
+        FROM case_votes
+        WHERE user_id = %s;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (user_id,))
+            row = cur.fetchone() or {}
+
+    return {
+        "useful_count":     int(row.get("useful_count") or 0),
+        "not_useful_count": int(row.get("not_useful_count") or 0),
+        "total_count":      int(row.get("total_count") or 0),
+        "last_voted_at":    row.get("last_voted_at"),
+    }
+
+
+def get_vote_counts_for_user_safe(user_id: int) -> dict[str, Any]:
+    """Same as ``get_vote_counts_for_user`` but returns zeros if ``case_votes`` is missing."""
+    try:
+        return get_vote_counts_for_user(user_id)
+    except UndefinedTable:
+        logger.warning(
+            "case_votes table missing — apply db/migrations/007_case_votes.sql "
+            "(user_id=%s counts zeroed)",
+            user_id,
+        )
+        return {
+            "useful_count":     0,
+            "not_useful_count": 0,
+            "total_count":      0,
+            "last_voted_at":    None,
+        }
+
+
+def get_vote_counts_by_user(*, user_ids: Optional[list[int]] = None) -> dict[int, dict[str, int]]:
+    """Bulk: return ``{user_id: {useful_count, not_useful_count, total_count}}``.
+
+    When ``user_ids`` is None, returns counts for every user that has voted.
+    Used by the admin Users page to render per-user aggregate columns in a
+    single query (vs N+1).
+    """
+    if user_ids is not None and not user_ids:
+        return {}
+
+    sql = """
+        SELECT
+            user_id,
+            COUNT(*) FILTER (WHERE vote_type = 'useful')::int     AS useful_count,
+            COUNT(*) FILTER (WHERE vote_type = 'not_useful')::int AS not_useful_count,
+            COUNT(*)::int                                         AS total_count,
+            MAX(updated_at)                                       AS last_voted_at
+        FROM case_votes
+        {where}
+        GROUP BY user_id;
+    """
+    where_clause = ""
+    params: tuple = ()
+    if user_ids is not None:
+        where_clause = "WHERE user_id = ANY(%s)"
+        params = (list(user_ids),)
+    sql = sql.format(where=where_clause)
+
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+    return {
+        int(r["user_id"]): {
+            "useful_count":     int(r["useful_count"] or 0),
+            "not_useful_count": int(r["not_useful_count"] or 0),
+            "total_count":      int(r["total_count"] or 0),
+            "last_voted_at":    r["last_voted_at"],
+        }
+        for r in rows
+    }
+
+
+def get_vote_counts_by_user_safe(*, user_ids: Optional[list[int]] = None) -> dict[int, dict[str, int]]:
+    """Same as ``get_vote_counts_by_user`` but returns {} if ``case_votes`` is missing."""
+    try:
+        return get_vote_counts_by_user(user_ids=user_ids)
+    except UndefinedTable:
+        logger.warning(
+            "case_votes table missing — apply db/migrations/007_case_votes.sql "
+            "(per-user vote aggregates zeroed)"
+        )
+        return {}

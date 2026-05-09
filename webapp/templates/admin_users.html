@@ -53,6 +53,8 @@
                         <th class="px-5 py-2.5">Email</th>
                         <th class="px-5 py-2.5">Downloads</th>
                         <th class="px-5 py-2.5">Open PDF</th>
+                        <th class="px-5 py-2.5">Useful</th>
+                        <th class="px-5 py-2.5">Not Useful</th>
                         <th class="px-5 py-2.5">Signed up</th>
                         <th class="px-5 py-2.5">Verified</th>
                         <th class="px-5 py-2.5">Last login</th>
@@ -61,6 +63,7 @@
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                 {% for r in rows %}
+                    {% set vc = vote_counts.get(r.id, {}) %}
                     <tr class="hover:bg-slate-50">
                         <td class="px-5 py-3 text-slate-400 tabular-nums">{{ r.id }}</td>
                         <td class="px-5 py-3">
@@ -77,6 +80,12 @@
                             {% if r.last_open_pdf_at %}
                             <div class="text-xs text-slate-400">{{ humanize(r.last_open_pdf_at, now) }}</div>
                             {% endif %}
+                        </td>
+                        <td class="px-5 py-3 tabular-nums">
+                            <span class="text-emerald-700 font-medium">{{ vc.get("useful_count", 0) }}</span>
+                        </td>
+                        <td class="px-5 py-3 tabular-nums">
+                            <span class="text-rose-700 font-medium">{{ vc.get("not_useful_count", 0) }}</span>
                         </td>
                         <td class="px-5 py-3 text-slate-600">
                             <div>{{ humanize(r.created_at, now) }}</div>
@@ -97,10 +106,15 @@
                         <td class="px-5 py-3 text-slate-600">
                             {{ humanize(r.last_login_at, now) }}
                         </td>
-                        <td class="px-5 py-3 text-right">
+                        <td class="px-5 py-3 text-right whitespace-nowrap">
                             <a href="/admin/users/{{ r.id }}"
                                class="text-sm text-slate-700 hover:text-slate-900 underline underline-offset-2">
                                 PDF activity
+                            </a>
+                            <span class="text-slate-300 mx-1">·</span>
+                            <a href="/admin/users/{{ r.id }}/votes"
+                               class="text-sm text-slate-700 hover:text-slate-900 underline underline-offset-2">
+                                Vote activity
                             </a>
                         </td>
                     </tr>
