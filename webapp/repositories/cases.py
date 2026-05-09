@@ -163,6 +163,7 @@ def get_case_by_id(case_id: int) -> Optional[dict]:
                 SELECT id, case_title, normalized_title, source_school, source_year,
                        industry, case_type, difficulty, difficulty_score,
                        firm, interviewer_led, page_count, pdf_path,
+                       preview_public_slug,
                        created_at, updated_at
                 FROM cases
                 WHERE id = %s;
@@ -170,3 +171,29 @@ def get_case_by_id(case_id: int) -> Optional[dict]:
                 (case_id,),
             )
             return cur.fetchone()
+
+
+def fetch_or_assign_preview_slug(conn, case_id: int) -> str:
+    """Return ``preview_public_slug`` for the case; assign an opaque slug if absent."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE cases
+            SET preview_public_slug = REPLACE(gen_random_uuid()::text, '-', '')
+            WHERE id = %s AND preview_public_slug IS NULL
+            RETURNING preview_public_slug;
+            """,
+            (case_id,),
+        )
+        inserted = cur.fetchone()
+        if inserted and inserted[0]:
+            return str(inserted[0])
+
+        cur.execute(
+            "SELECT preview_public_slug FROM cases WHERE id = %s;",
+            (case_id,),
+        )
+        existing = cur.fetchone()
+        if not existing or not existing[0]:
+            raise LookupError(f"case id {case_id} has no preview_public_slug")
+        return str(existing[0])

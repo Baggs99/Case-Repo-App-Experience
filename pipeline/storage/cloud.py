@@ -139,6 +139,7 @@ class R2Storage(Storage):
         src: Path,
         *,
         content_type: str = "application/pdf",
+        cache_control: str | None = None,
     ) -> None:
         """Upload a local file to R2 under `key`.
 
@@ -151,12 +152,17 @@ class R2Storage(Storage):
         if not src.is_file():
             raise FileNotFoundError(f"source file does not exist: {src}")
 
+        extras: dict = {}
+        if cache_control:
+            extras["CacheControl"] = cache_control
+
         with src.open("rb") as f:
             self.client.put_object(
                 Bucket=self.bucket,
                 Key=key,
                 Body=f,
                 ContentType=content_type,
+                **extras,
             )
 
     def __repr__(self) -> str:

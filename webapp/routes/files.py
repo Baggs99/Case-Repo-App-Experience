@@ -9,8 +9,10 @@ Audit logging (``case_access_events``):
   PDF viewer often issues Range requests that were skipped by header heuristics,
   so **open_tab** never appeared in the admin dashboard.
 
-**Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (JPEG previews; files
-must exist from ``python main.py generate-previews`` — no on-demand rasterisation).
+**Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (authenticated fallback
+JPEGs; files must exist from ``python main.py generate-previews`` —
+no on-demand rasterisation). With ``CASE_PREVIEW_PUBLIC_BASE_URL`` the HTML uses
+opaque public URLs under ``pv/{{slug}}/`` on your CDN/R2 bucket instead.
 
 Legacy ``GET /files/{key}`` has no case id context — no audit rows.
 
@@ -24,14 +26,14 @@ import time
 from typing import Any, Optional
 from urllib.parse import unquote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from pipeline.storage import get_storage, to_storage_key, validate_key
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
 from webapp.previews import existing_preview_file, preview_media_type
-from webapp.repositories.case_access import record_case_access
+from webapp.preview_urls import preview_page_urls
 from webapp.repositories.cases import get_case_by_id
 
 
@@ -154,10 +156,11 @@ def api_open_case_pdf_tab(
 
 @router.get("/api/cases/{case_id}/previews")
 def api_case_previews_manifest(
+    request: Request,
     case_id: int,
     user: User = Depends(require_auth),
 ):
-    """JSON list of authenticated preview image URLs (same-origin paths).
+    """JSON list of preview image URLs (same-origin paths or public CDN URLs).
 
     Does not write audit rows — previews are not PDF downloads.
     """
@@ -168,7 +171,13 @@ def api_case_previews_manifest(
     if raw_count is None or int(raw_count) < 1:
         return {"case_id": case_id, "page_count": 0, "urls": [], "format": "jpeg"}
     n = int(raw_count)
-    urls = [f"/files/cases/{case_id}/preview/{i}" for i in range(1, n + 1)]
+    settings = request.app.state.settings
+    urls = preview_page_urls(
+        case_id=case_id,
+        case_row=dict(case),
+        page_count=n,
+        settings=settings,
+    )
     return {
         "case_id": case_id,
         "page_count": n,

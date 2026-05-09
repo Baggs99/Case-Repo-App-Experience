@@ -12,6 +12,7 @@ Commands
   evaluate-difficulty-calibration  QA the classifier against existing labels.
   classify-industry    Fill missing industry labels via the OpenAI API.
   publish-cases  Sync case_catalog.csv into the Postgres `cases` table.
+  apply-sql-migration  Run a SQL file against Postgres (defaults to preview-public-slug migration).
   generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline).
   sync-pdf-pages Trim local PDF files to match catalog page_count (then upload).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
@@ -417,6 +418,78 @@ def publish_cases_cmd(catalog_path: str, database_url: str, dry_run: bool, verbo
     click.echo()
 
 
+def _resolve_repo_relative_file(rel_posix: str) -> Path:
+    """Resolve a path relative to repo root.
+
+    Checks ``main.py``'s directory and its parent — covers Render deployments
+    where the app lives in ``src/`` while ``db/`` sits at the project root.
+    """
+    rel = Path(rel_posix.replace("\\", "/"))
+    anchor = Path(__file__).resolve().parent
+    for base in (anchor, anchor.parent):
+        candidate = (base / rel).resolve()
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"cannot find file {rel_posix!r} under {anchor} or {anchor.parent}"
+    )
+
+
+# ── apply-sql-migration command ─────────────────────────────────────────────────
+
+@cli.command("apply-sql-migration")
+@click.option("--file", "relative_sql_path",
+              default="db/migrations/008_preview_public_slug.sql",
+              show_default=True,
+              help="Path to SQL file relative to repo root.")
+@click.option("--database-url", "database_url", default=None,
+              help="Postgres connection string. Defaults to $DATABASE_URL from .env.")
+def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
+    """
+    Execute a migration SQL script (no schema version table).
+
+    Defaults to adding ``preview_public_slug`` for public CDN thumbnails.
+    Finds the file next to ``main.py`` or one level up (Render ``~/project/src`` layouts).
+
+    \b
+    Example:
+      python main.py apply-sql-migration
+      python main.py apply-sql-migration --database-url "$DATABASE_URL"
+    """
+    db_url = database_url or os.environ.get("DATABASE_URL")
+    if not db_url:
+        click.echo(
+            "ERROR: no database URL.\n"
+            "  Set DATABASE_URL or pass --database-url.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    try:
+        sql_path = _resolve_repo_relative_file(relative_sql_path)
+    except FileNotFoundError as exc:
+        click.echo(f"ERROR: {exc}", err=True)
+        raise SystemExit(2)
+
+    sql_text = sql_path.read_text(encoding="utf-8")
+    click.echo(f"Applying: {sql_path}")
+
+    try:
+        import psycopg
+    except ImportError:
+        click.echo("ERROR: psycopg not installed.", err=True)
+        raise SystemExit(1)
+
+    try:
+        with psycopg.connect(db_url) as conn:
+            conn.execute(sql_text)
+    except Exception as exc:
+        click.echo(f"ERROR: migration failed: {exc}", err=True)
+        raise SystemExit(3)
+
+    click.echo("Done.\n")
+
+
 # ── generate-previews command ────────────────────────────────────────────────────
 
 @cli.command("generate-previews")
@@ -449,6 +522,10 @@ def generate_previews_cmd(
 
     Requires PDFs readable via ``pipeline.storage`` (local or R2).
 
+    If ``CASE_PREVIEW_PUBLIC_BASE_URL`` is set (and R2 credentials are available),
+    each generated page is also uploaded to R2 under ``pv/<slug>/page-NNN.jpg``.
+    Serve that bucket (or prefix) from a Cloudflare-connected custom domain.
+
     Example:
 
     \b
@@ -473,7 +550,9 @@ def generate_previews_cmd(
         raise SystemExit(2)
 
     from pipeline.preview_generation import rasterize_pdf_bytes_to_preview_dir
+    from pipeline.preview_upload_r2 import maybe_upload_preview_jpegs
     from pipeline.storage import get_storage
+    from webapp.repositories.cases import fetch_or_assign_preview_slug
     from webapp.routes.files import _pdf_storage_key
 
     import psycopg
@@ -514,56 +593,72 @@ def generate_previews_cmd(
     storage = get_storage()
     n_ok = n_skip = n_fail = 0
 
-    for row in rows:
-        cid, raw_path, page_count = row[0], row[1], row[2]
-        tag = f"  [case {cid}]"
+    with psycopg.connect(db_url) as conn:
+        for row in rows:
+            cid, raw_path, page_count = row[0], row[1], row[2]
+            tag = f"  [case {cid}]"
 
-        first_jpg = (
-            repo_root / "output" / "previews" / str(cid) / "page-001.jpg"
-        )
-        if skip_existing and first_jpg.is_file():
-            click.echo(f"{tag} skip (page-001.jpg exists)")
-            n_skip += 1
-            continue
+            try:
+                slug = fetch_or_assign_preview_slug(conn, cid)
+            except LookupError as exc:
+                click.echo(f"{tag} slug error: {exc}", err=True)
+                n_fail += 1
+                continue
 
-        key = _pdf_storage_key(str(raw_path) if raw_path is not None else None)
-        if not key:
-            click.echo(f"{tag} skip (bad pdf_path)", err=True)
-            n_fail += 1
-            continue
+            conn.commit()
 
-        if not storage.exists(key):
-            click.echo(f"{tag} skip (PDF not in storage: {key})", err=True)
-            n_fail += 1
-            continue
-
-        try:
-            with storage.open(key) as fp:
-                pdf_bytes = fp.read()
-        except OSError as exc:
-            click.echo(f"{tag} read failed: {exc}", err=True)
-            n_fail += 1
-            continue
-
-        try:
-            pc = int(page_count) if page_count is not None else 0
-        except (TypeError, ValueError):
-            pc = 0
-
-        try:
-            written = rasterize_pdf_bytes_to_preview_dir(
-                case_id=cid,
-                pdf_bytes=pdf_bytes,
-                catalog_page_count=pc,
-                dest_root=repo_root,
+            first_jpg = (
+                repo_root / "output" / "previews" / str(cid) / "page-001.jpg"
             )
-        except Exception as exc:
-            click.echo(f"{tag} raster failed: {exc}", err=True)
-            n_fail += 1
-            continue
+            if skip_existing and first_jpg.is_file():
+                click.echo(f"{tag} skip (page-001.jpg exists)")
+                n_skip += 1
+                continue
 
-        click.echo(f"{tag} wrote {written} JPEG page(s)")
-        n_ok += 1
+            key = _pdf_storage_key(str(raw_path) if raw_path is not None else None)
+            if not key:
+                click.echo(f"{tag} skip (bad pdf_path)", err=True)
+                n_fail += 1
+                continue
+
+            if not storage.exists(key):
+                click.echo(f"{tag} skip (PDF not in storage: {key})", err=True)
+                n_fail += 1
+                continue
+
+            try:
+                with storage.open(key) as fp:
+                    pdf_bytes = fp.read()
+            except OSError as exc:
+                click.echo(f"{tag} read failed: {exc}", err=True)
+                n_fail += 1
+                continue
+
+            try:
+                pc = int(page_count) if page_count is not None else 0
+            except (TypeError, ValueError):
+                pc = 0
+
+            try:
+                written = rasterize_pdf_bytes_to_preview_dir(
+                    case_id=cid,
+                    pdf_bytes=pdf_bytes,
+                    catalog_page_count=pc,
+                    dest_root=repo_root,
+                )
+            except Exception as exc:
+                click.echo(f"{tag} raster failed: {exc}", err=True)
+                n_fail += 1
+                continue
+
+            maybe_upload_preview_jpegs(
+                dest_root=repo_root,
+                case_id=cid,
+                slug=slug,
+                pages_written=written,
+            )
+            click.echo(f"{tag} wrote {written} JPEG page(s)")
+            n_ok += 1
 
     click.echo(f"\nDone: generated={n_ok} skipped={n_skip} failed={n_fail}")
 

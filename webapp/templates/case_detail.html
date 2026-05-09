@@ -100,8 +100,9 @@
     </div>
 
     {#
-      Previews are static JPEGs from ``output/previews/{id}/`` (see ``main.py generate-previews``).
-      JS loads 2 pages first, then batches of 5 as you scroll — no burst of parallel requests.
+      Previews: local ``/files/cases/{id}/preview/N`` OR public CDN URLs when
+      ``CASE_PREVIEW_PUBLIC_BASE_URL`` + R2 ``pv/<slug>/`` JPEGs exist.
+      JS loads 2 pages first, then 5 per “Load more” click — ``loading=lazy``.
     #}
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
@@ -271,6 +272,9 @@
   var total = parseInt(strip.getAttribute("data-page-count") || "0", 10);
   if (!total || !caseId) return;
 
+  var previewUrls = {{ preview_urls | tojson }};
+  if (!previewUrls.length || previewUrls.length !== total) return;
+
   var BATCH = 5;
   var INITIAL = 2;
   var loaded = 0;
@@ -293,7 +297,7 @@
     img.loading = "lazy";
     img.decoding = "async";
     img.className = "w-full h-auto shadow-sm bg-white border border-slate-200 rounded-sm preview-page-img";
-    img.src = "/files/cases/" + caseId + "/preview/" + pageNum;
+    img.src = previewUrls[pageNum - 1];
     img.onerror = function () {
       fig.replaceWith(placeholderFigure(pageNum));
     };

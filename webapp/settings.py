@@ -23,6 +23,10 @@ class Settings:
     pdf_route_prefix: str
     search_result_limit: int
     admin_emails: frozenset[str]
+    #: HTTPS origin for public preview JPEGs, e.g. https://cases-previews.example.com .
+    #: When set with a non-empty slug on the row, ``/cases/{id}`` uses these URLs instead
+    #: of authenticated ``/files/cases/{id}/preview/…`` (typically R2 custom domain).
+    case_preview_public_base_url: str | None
 
     def is_admin(self, email: str | None) -> bool:
         """True iff `email` is in the admin allowlist (case-insensitive)."""
@@ -47,6 +51,8 @@ def load_settings() -> Settings:
             "DATABASE_URL is not set. Add it to .env or your shell environment."
         )
 
+    preview_base = os.environ.get("CASE_PREVIEW_PUBLIC_BASE_URL", "").strip()
+
     return Settings(
         database_url      = db_url,
         debug             = os.environ.get("WEBAPP_DEBUG", "false").lower() in ("1", "true", "yes"),
@@ -55,4 +61,5 @@ def load_settings() -> Settings:
         pdf_route_prefix  = "/files",
         search_result_limit = int(os.environ.get("WEBAPP_RESULT_LIMIT", "100")),
         admin_emails      = _parse_admin_emails(os.environ.get("ADMIN_EMAILS")),
+        case_preview_public_base_url = preview_base or None,
     )
