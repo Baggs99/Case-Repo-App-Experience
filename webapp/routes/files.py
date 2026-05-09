@@ -12,7 +12,7 @@ Audit logging (``case_access_events``):
 **Does not** log: ``GET /files/cases/{case_id}/preview/{n}`` (authenticated fallback
 JPEGs; files must exist from ``python main.py generate-previews`` —
 no on-demand rasterisation). With ``CASE_PREVIEW_PUBLIC_BASE_URL`` the HTML uses
-opaque public URLs under ``pv/{{slug}}/`` on your CDN/R2 bucket instead.
+opaque public URLs under ``previews/{{slug}}/`` on your CDN/R2 bucket instead.
 
 Legacy ``GET /files/{key}`` has no case id context — no audit rows.
 

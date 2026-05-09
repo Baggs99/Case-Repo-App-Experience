@@ -2,6 +2,18 @@
 {% block title %}{{ case.case_title }} · Case Repo{% endblock %}
 
 {% block content %}
+<script>
+function casePdfNavigate(caseId, action) {
+  var url = action === "download"
+    ? "/api/cases/" + caseId + "/download"
+    : "/api/cases/" + caseId + "/open-pdf";
+  if (action === "open_tab") {
+    window.open(url, "_blank", "noopener,noreferrer");
+  } else if (action === "download") {
+    window.location.assign(url);
+  }
+}
+</script>
 <div class="max-w-6xl mx-auto px-6 py-8">
 
     <a href="javascript:history.back()"
@@ -88,20 +100,21 @@
         </div>
 
         <div class="mt-5 flex flex-wrap gap-2">
-            <a href="/api/cases/{{ case.id }}/open-pdf" target="_blank" rel="noopener"
-               class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800">
+            <button type="button"
+               onclick="casePdfNavigate({{ case.id }}, 'open_tab')"
+               class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800 cursor-pointer">
                 Open PDF in new tab
-            </a>
-            <a href="/api/cases/{{ case.id }}/download"
-               class="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded-md hover:bg-slate-50">
+            </button>
+            <button type="button"
+               onclick="casePdfNavigate({{ case.id }}, 'download')"
+               class="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded-md hover:bg-slate-50 cursor-pointer bg-white">
                 Download
-            </a>
+            </button>
         </div>
     </div>
 
     {#
-      Previews: local ``/files/cases/{id}/preview/N`` OR public CDN URLs when
-      ``CASE_PREVIEW_PUBLIC_BASE_URL`` + R2 ``pv/<slug>/`` JPEGs exist.
+      Previews: ``/files/cases/{id}/preview/N`` OR ``{R2_PUBLIC_BASE_URL}/previews/{slug}/page-NNN.jpg``.
       JS loads 2 pages first, then 5 per “Load more” click — ``loading=lazy``.
     #}
     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
@@ -126,6 +139,40 @@
              class="overflow-auto max-h-[85vh] bg-slate-100 p-4 space-y-4">
         </div>
     </div>
+
+    {% if preview_knit_url %}
+    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden mt-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
+            <p class="text-sm text-slate-600">Full case preview (single stitched image)</p>
+        </div>
+        <div class="p-4 bg-slate-100">
+            <figure class="mx-auto max-w-full">
+                <img id="preview-knit-img"
+                     src="{{ preview_knit_url }}"
+                     alt="Full case preview"
+                     loading="lazy"
+                     decoding="async"
+                     class="w-full h-auto shadow-sm bg-white border border-slate-200 rounded-sm" />
+            </figure>
+            <p id="preview-knit-fallback" class="hidden text-center text-sm text-slate-600 py-8">
+                Stitched preview failed to load — check R2 path in the browser console.
+            </p>
+        </div>
+    </div>
+    <script>
+    (function () {
+      var img = document.getElementById("preview-knit-img");
+      var fb = document.getElementById("preview-knit-fallback");
+      if (!img) return;
+      var u = img.getAttribute("src") || "";
+      img.onerror = function () {
+        console.warn("[preview-knit] failed to load — expected URL:", u);
+        img.classList.add("hidden");
+        if (fb) fb.classList.remove("hidden");
+      };
+    })();
+    </script>
+    {% endif %}
 
 </div>
 
@@ -273,7 +320,10 @@
   if (!total || !caseId) return;
 
   var previewUrls = {{ preview_urls | tojson }};
-  if (!previewUrls.length || previewUrls.length !== total) return;
+  if (!previewUrls.length || previewUrls.length !== total) {
+    console.warn("[preview] URL list mismatch or empty — expected", total, "URLs, got", previewUrls.length);
+    return;
+  }
 
   var BATCH = 5;
   var INITIAL = 2;
@@ -297,8 +347,10 @@
     img.loading = "lazy";
     img.decoding = "async";
     img.className = "w-full h-auto shadow-sm bg-white border border-slate-200 rounded-sm preview-page-img";
-    img.src = previewUrls[pageNum - 1];
+    var expectedUrl = previewUrls[pageNum - 1];
+    img.src = expectedUrl;
     img.onerror = function () {
+      console.warn("[preview] failed page", pageNum, "— expected URL:", expectedUrl);
       fig.replaceWith(placeholderFigure(pageNum));
     };
     fig.appendChild(img);

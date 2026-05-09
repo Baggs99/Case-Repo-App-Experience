@@ -24,7 +24,10 @@ def maybe_upload_preview_jpegs(
 ) -> None:
     """If ``CASE_PREVIEW_PUBLIC_BASE_URL`` is set, push each JPEG to R2."""
 
-    if not os.environ.get("CASE_PREVIEW_PUBLIC_BASE_URL", "").strip():
+    _pub = os.environ.get("CASE_PREVIEW_PUBLIC_BASE_URL", "").strip() or os.environ.get(
+        "R2_PUBLIC_BASE_URL", ""
+    ).strip()
+    if not _pub:
         return
     if pages_written < 1:
         return
@@ -51,4 +54,9 @@ def maybe_upload_preview_jpegs(
         )
         n_ok += 1
 
-    logger.info("[case %s] uploaded %d preview JPEG(s) to R2 under pv/%s/", case_id, n_ok, slug)
+    logger.info(
+        "[case %s] uploaded %d preview JPEG(s) to R2 under previews/%s/",
+        case_id,
+        n_ok,
+        slug,
+    )

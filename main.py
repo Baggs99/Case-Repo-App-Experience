@@ -16,7 +16,7 @@ Commands
   generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline, needs Postgres).
   generate-previews-local  Rasterise from case_catalog.csv — no DB — writes output/previews_local/...
   knit-previews-local     Stitch page-*.jpg into one preview-knit.jpg per case folder (Pillow).
-  bundle-previews-for-upload  Copy local JPEGs to output/.../pv/<slug>/ for manual R2 upload.
+  bundle-previews-for-upload  Copy local JPEGs to output/.../previews/<slug>/ for manual R2 upload.
   sync-pdf-pages Trim local PDF files to match catalog page_count (then upload).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
   verify-storage Walk the cases table and check every PDF resolves in storage.
@@ -651,7 +651,7 @@ def knit_previews_local_cmd(
 @cli.command("bundle-previews-for-upload")
 @click.option("--out", "out_dir", default="output/previews_cloudflare_bundle",
               show_default=True,
-              help="Write pv/<slug>/ here (upload this tree to R2 at bucket root).")
+              help="Write previews/<slug>/ here (upload this tree to R2 at bucket root).")
 @click.option("--database-url", "database_url", default=None,
               help="Postgres connection string. Defaults to $DATABASE_URL from .env.")
 @click.option("--case-id", "case_id_filter", type=int, default=None,
@@ -665,12 +665,12 @@ def bundle_previews_for_upload_cmd(
     clean: bool,
 ):
     """
-    Copy ``output/previews/<case_id>/page-*.jpg`` into ``--out/pv/<preview_public_slug>/``.
+    Copy ``output/previews/<case_id>/page-*.jpg`` into ``--out/previews/<preview_public_slug>/``.
 
     Uses slugs from Postgres — same layout ``generate-previews`` uploads to R2.
-    No Cloudflare credentials required; upload ``pv/`` from the dashboard or wrangler.
+    No Cloudflare credentials required; upload ``previews/`` from the dashboard or ``npm run upload:previews``.
 
-    Run locally after ``generate-previews``. Then set ``CASE_PREVIEW_PUBLIC_BASE_URL``
+    Run locally after ``generate-previews``. Then set ``R2_PUBLIC_BASE_URL`` (or ``CASE_PREVIEW_PUBLIC_BASE_URL``)
     on Render to your public R2/custom-domain origin (that URL is not secret).
 
     \b
@@ -716,15 +716,15 @@ def bundle_previews_for_upload_cmd(
         id_slug_rows=rows,
     )
 
-    click.echo(f"\nBundle written under: {dest / 'pv'}")
+    click.echo(f"\nBundle written under: {dest / 'previews'}")
     click.echo(
         f"  cases with files copied: {n_ok}\n"
         f"  skipped (no local output/previews/<id>/): {n_skip_nf}\n"
         f"  skipped (bad slug): {n_skip_bad}\n"
     )
     click.echo(
-        "Upload the ``pv`` folder to your R2 bucket root, then set "
-        "CASE_PREVIEW_PUBLIC_BASE_URL to your public HTTPS origin.\n"
+        "Upload the ``previews`` folder to your R2 bucket root, then set "
+        "R2_PUBLIC_BASE_URL (or CASE_PREVIEW_PUBLIC_BASE_URL) to your public HTTPS origin.\n"
     )
 
 
@@ -767,7 +767,7 @@ def generate_previews_cmd(
     R2 upload is optional: if ``CASE_PREVIEW_PUBLIC_BASE_URL`` is **unset**,
     JPEGs stay only under ``output/previews/`` (e.g. generate on your laptop).
     If that env var **is** set and R2 credentials are available, each case is
-    also uploaded under ``pv/<slug>/page-NNN.jpg``. For manual upload, use
+    also uploaded under ``previews/<slug>/page-NNN.jpg``. For manual upload, use
     ``bundle-previews-for-upload`` after generating locally.
 
     Example:

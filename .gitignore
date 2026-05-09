@@ -47,6 +47,8 @@ output/previews/
 output/previews_cloudflare_bundle/
 output/previews_local/
 
+node_modules/
+
 # Presentation build artefacts — regenerated from scripts in presentation/
 presentation/screenshots/
 presentation/Case_Repo_Product.pptx

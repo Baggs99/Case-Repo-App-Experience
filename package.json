@@ -1,0 +1,20 @@
+{
+  "name": "cases-repo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "upload:previews": "tsx scripts/upload-previews-to-r2.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.749.0",
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "@types/pg": "^8.11.11",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

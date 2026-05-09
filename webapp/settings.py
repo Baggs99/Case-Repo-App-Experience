@@ -23,9 +23,9 @@ class Settings:
     pdf_route_prefix: str
     search_result_limit: int
     admin_emails: frozenset[str]
-    #: HTTPS origin for public preview JPEGs, e.g. https://cases-previews.example.com .
-    #: When set with a non-empty slug on the row, ``/cases/{id}`` uses these URLs instead
-    #: of authenticated ``/files/cases/{id}/preview/…`` (typically R2 custom domain).
+    #: HTTPS origin (bucket public URL / custom domain) for preview JPEGs — no path suffix.
+    #: Reads ``R2_PUBLIC_BASE_URL`` first, then ``CASE_PREVIEW_PUBLIC_BASE_URL``.
+    #: With ``preview_public_slug``, pages load from ``{base}/previews/{slug}/page-NNN.jpg``.
     case_preview_public_base_url: str | None
 
     def is_admin(self, email: str | None) -> bool:
@@ -51,7 +51,10 @@ def load_settings() -> Settings:
             "DATABASE_URL is not set. Add it to .env or your shell environment."
         )
 
-    preview_base = os.environ.get("CASE_PREVIEW_PUBLIC_BASE_URL", "").strip()
+    preview_base = (
+        os.environ.get("R2_PUBLIC_BASE_URL", "").strip()
+        or os.environ.get("CASE_PREVIEW_PUBLIC_BASE_URL", "").strip()
+    )
 
     return Settings(
         database_url      = db_url,

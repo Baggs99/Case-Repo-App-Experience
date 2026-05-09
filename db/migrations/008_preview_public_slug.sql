@@ -1,5 +1,5 @@
 -- Opaque slug per case for publicly hosted JPEG previews (R2 / custom domain).
--- URLs look like {CASE_PREVIEW_PUBLIC_BASE_URL}/pv/{slug}/page-001.jpg
+-- App URLs: {R2_PUBLIC_BASE_URL}/previews/{slug}/page-001.jpg (slug = preview_public_slug).
 -- Uses gen_random_uuid() (PostgreSQL 13+) — no pgcrypto dependency.
 
 ALTER TABLE cases

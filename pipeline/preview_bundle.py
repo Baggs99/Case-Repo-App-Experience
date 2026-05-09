@@ -1,5 +1,5 @@
 """
-Lay out local ``output/previews/{case_id}/`` JPEGs as ``pv/<slug>/`` for manual R2 upload.
+Lay out local ``output/previews/{case_id}/`` JPEGs as ``previews/<slug>/`` for manual R2 upload.
 
 No network calls — only copies files. Slugs come from Postgres ``preview_public_slug``.
 """
@@ -27,13 +27,13 @@ def bundle_previews_for_manual_upload(
     id_slug_rows: list[tuple[int, str]],
 ) -> tuple[int, int, int]:
     """
-    Copy ``page-*.jpg`` into ``dest_root/pv/<slug>/``.
+    Copy ``page-*.jpg`` and ``preview-knit.jpg`` (if present) into ``dest_root/previews/<slug>/``.
 
     Returns ``(cases_copied, cases_skipped_no_files, cases_skipped_bad_row)``.
     """
     n_ok = n_skip_nf = n_skip_bad = 0
-    pv_root = dest_root / "pv"
-    pv_root.mkdir(parents=True, exist_ok=True)
+    prev_root = dest_root / "previews"
+    prev_root.mkdir(parents=True, exist_ok=True)
 
     for cid, slug in id_slug_rows:
         if not slug or not str(slug).strip():
@@ -48,12 +48,16 @@ def bundle_previews_for_manual_upload(
             n_skip_nf += 1
             continue
 
-        out_dir = pv_root / slug
+        out_dir = prev_root / slug
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for fp in sorted(src_dir.glob("page-*.jpg")):
             dest = out_dir / fp.name
             shutil.copy2(fp, dest)
+
+        knit = src_dir / "preview-knit.jpg"
+        if knit.is_file():
+            shutil.copy2(knit, out_dir / "preview-knit.jpg")
 
         n_ok += 1
 

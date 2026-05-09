@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
-from webapp.preview_urls import preview_page_urls
+from webapp.preview_urls import preview_knit_url, preview_page_urls
 from webapp.repositories.case_votes import get_vote_state_safe
 from webapp.repositories.cases import (
     SearchFilters,
@@ -77,10 +77,13 @@ def case_detail(
 
     vote_state = get_vote_state_safe(case_id, user.id)
 
+    knit_u = preview_knit_url(case_row=dict(case), settings=request.app.state.settings)
+
     return render(request, "case_detail.html", {
         "case": case,
         "preview_page_count": preview_page_count,
         "preview_urls": preview_urls_list,
+        "preview_knit_url": knit_u,
         "vote_state": vote_state,
     })
 
