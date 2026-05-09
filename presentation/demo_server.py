@@ -129,7 +129,7 @@ def _fake_get_filter_options() -> FilterOptions:
     )
 
 
-def _fake_search_cases(filters: SearchFilters, *, limit: int = 100):
+def _fake_search_cases(filters: SearchFilters, *, limit: int = 100, **_kw):
     rows = _df
     if filters.q:
         q = filters.q.lower()
@@ -165,17 +165,20 @@ def _fake_get_case_by_id(case_id: int):
 _cases_repo.get_filter_options = _fake_get_filter_options
 _cases_repo.search_cases = _fake_search_cases
 _cases_repo.get_case_by_id = _fake_get_case_by_id
+# Footer "X cases indexed" pulls from a DB COUNT(*); short-circuit it.
+_cases_repo.count_all_cases = lambda **_kw: len(_df)
 
 # Routes import these by name at module load — patch them there too.
 import webapp.routes.pages as _pages_mod  # noqa: E402
 _pages_mod.search_cases = _fake_search_cases
 _pages_mod.get_filter_options = _fake_get_filter_options
 _pages_mod.get_case_by_id = _fake_get_case_by_id
-# Footer "X cases indexed" pulls from a DB COUNT(*); short-circuit it.
-_pages_mod._count_all_cases = lambda: len(_df)
+_pages_mod.count_all_cases = lambda **_kw: len(_df)
+_pages_mod._count_all_cases = lambda **_kw: len(_df)
 
 import webapp.routes.search as _search_mod  # noqa: E402
 _search_mod.search_cases = _fake_search_cases
+_search_mod.count_all_cases = lambda **_kw: len(_df)
 
 
 # ── Admin repo patches ────────────────────────────────────────────────────────

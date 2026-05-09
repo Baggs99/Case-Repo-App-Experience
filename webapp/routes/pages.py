@@ -18,6 +18,7 @@ from webapp.preview_urls import preview_knit_url
 from webapp.repositories.case_votes import get_vote_state_safe
 from webapp.repositories.cases import (
     SearchFilters,
+    count_all_cases,
     get_case_by_id,
     get_filter_options,
     search_cases,
@@ -39,10 +40,12 @@ def index(
     industry:   str | None = None,
     case_type:  str | None = None,
     school:     str | None = None,
+    include_duplicates: str | None = None,
     user: User = Depends(require_auth),
 ):
     filters = SearchFilters.from_query(
         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
+        include_duplicates=include_duplicates,
     )
     settings = request.app.state.settings
     cases, total = search_cases(filters, limit=settings.search_result_limit)
@@ -53,7 +56,9 @@ def index(
         "options": options,
         "cases":   cases,
         "total":   total,
-        "total_cases": total if filters.is_empty() else _count_all_cases(),
+        "total_cases": total if filters.is_empty() else _count_all_cases(
+            include_duplicates=filters.include_duplicates,
+        ),
         # Mirrors the URL the home page would render at; lets templated case
         # links carry a return_to back to the same filtered view.
         "return_url": filters.to_search_url(),
@@ -91,12 +96,11 @@ def healthcheck():
 
 # ── Internals ──────────────────────────────────────────────────────────────────
 
-def _count_all_cases() -> int:
-    from webapp.db import get_pool
-    with get_pool().connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM cases;")
-            return cur.fetchone()[0]
+def _count_all_cases(*, include_duplicates: bool = False) -> int:
+    """Wrapper kept private to this module so the demo server can monkey-patch
+    the symbol (``presentation/demo_server.py`` overrides this for its CSV-only
+    standalone preview). Real implementation lives in ``cases`` repo."""
+    return count_all_cases(include_duplicates=include_duplicates)
 
 
 def _safe_back_url(candidate: Optional[str]) -> str:

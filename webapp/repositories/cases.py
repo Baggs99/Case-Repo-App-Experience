@@ -10,7 +10,7 @@ Keeping SQL out of route handlers means:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterable, Optional
 from urllib.parse import urlencode
 
 from psycopg.rows import dict_row
@@ -62,6 +62,10 @@ class SearchFilters:
     industry:    Optional[str] = None
     case_type:   Optional[str] = None
     school:      Optional[str] = None
+    # Admin/debug toggle — when False (default), public search hides newer
+    # duplicate copies and only returns the canonical (oldest) row per
+    # normalized_title group. See ``pick_canonical_case_ids`` for the rule.
+    include_duplicates: bool = False
 
     @classmethod
     def from_query(cls, **kwargs) -> "SearchFilters":
@@ -78,9 +82,12 @@ class SearchFilters:
             industry   = _norm(kwargs.get("industry")),
             case_type  = _norm(kwargs.get("case_type")),
             school     = _norm(kwargs.get("school")),
+            include_duplicates = _coerce_bool(kwargs.get("include_duplicates")),
         )
 
     def is_empty(self) -> bool:
+        """True iff no content filter is set. ``include_duplicates`` is a
+        view toggle, not a content filter, so it doesn't count here."""
         return all(v is None for v in (
             self.q, self.difficulty, self.industry, self.case_type, self.school,
         ))
@@ -91,6 +98,9 @@ class SearchFilters:
         ``include_blanks=True`` mirrors the form's submit shape (every field
         present, empty when unset) — keeping the resulting URL stable so it
         round-trips cleanly through ``hx-push-url`` and the browser cache.
+
+        ``include_duplicates`` is appended only when truthy, so the public
+        URL stays clean unless the override has been explicitly set.
         """
         pairs = [
             ("q",          self.q          or ""),
@@ -101,6 +111,8 @@ class SearchFilters:
         ]
         if not include_blanks:
             pairs = [(k, v) for k, v in pairs if v]
+        if self.include_duplicates:
+            pairs.append(("include_duplicates", "1"))
         return urlencode(pairs)
 
     def to_search_url(self) -> str:
@@ -109,51 +121,169 @@ class SearchFilters:
         return f"/search?{qs}" if qs else "/search"
 
 
-# Single SQL string handles every combination of filters: each `IS NULL OR ...`
-# clause short-circuits when the filter wasn't provided. Postgres optimises
-# these at plan time so unused filters don't cost anything at runtime.
-SEARCH_SQL = """
+_TRUTHY = {"1", "true", "yes", "y", "on"}
+
+
+def _coerce_bool(val) -> bool:
+    """Lenient bool parsing for query strings: accepts True, 1, "1", "true", etc."""
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    return str(val).strip().lower() in _TRUTHY
+
+
+# ── Duplicate hiding ───────────────────────────────────────────────────────────
+#
+# The publisher historically left stale rows in `cases` when a casebook
+# re-published the same case under a new (school, year) pair. Public browse
+# should show only the canonical (oldest) row per ``normalized_title`` group;
+# admin pages and direct ``/cases/{id}`` URLs continue to see every row.
+#
+# Tie-break rule (mirrors the catalog's ``unique_case_count_eligible`` logic):
+#   1. Lowest non-NULL ``source_year`` wins (NULL years rank last so we never
+#      promote a year-less RocketBlocks row over a dated school original).
+#   2. Lowest ``id`` breaks remaining ties.
+#
+# The same rule lives in SQL (``ROW_NUMBER`` window in SEARCH_SQL/COUNT_SQL)
+# and in the pure-Python ``pick_canonical_case_ids`` helper used by tests.
+
+def pick_canonical_case_ids(rows: Iterable[dict]) -> set[int]:
+    """Return the set of ``id`` values that should remain visible after dedup.
+
+    Each input row must carry ``id``, ``normalized_title``, and ``source_year``
+    (year may be ``None``). Rows whose ``normalized_title`` is empty / None
+    are treated as their own group (we only collapse exact-match titles, per
+    requirement 2).
+    """
+    canonical: dict[str, dict] = {}
+    standalone: list[int] = []
+
+    for r in rows:
+        nt = (r.get("normalized_title") or "").strip()
+        rid = int(r["id"])
+        year = r.get("source_year")
+
+        if not nt:
+            standalone.append(rid)
+            continue
+
+        prev = canonical.get(nt)
+        if prev is None or _is_better_canonical(r, prev):
+            canonical[nt] = r
+
+    keep: set[int] = {int(r["id"]) for r in canonical.values()}
+    keep.update(standalone)
+    return keep
+
+
+def _is_better_canonical(candidate: dict, current: dict) -> bool:
+    """True iff ``candidate`` should replace ``current`` as the canonical row."""
+    cand_year = candidate.get("source_year")
+    curr_year = current.get("source_year")
+
+    # NULL years rank last; otherwise lower year wins.
+    if cand_year is None and curr_year is None:
+        pass  # fall through to id tie-break
+    elif cand_year is None:
+        return False
+    elif curr_year is None:
+        return True
+    else:
+        if cand_year < curr_year:
+            return True
+        if cand_year > curr_year:
+            return False
+
+    return int(candidate["id"]) < int(current["id"])
+
+
+# Each `IS NULL OR ...` clause short-circuits when the filter wasn't provided
+# — Postgres optimises these at plan time so unused filters cost nothing.
+#
+# The dedup variant wraps `cases` in a CTE that ranks rows per
+# normalized_title (oldest source_year first, lowest id breaks ties), then
+# only the rn=1 row is exposed to the WHERE/filter layer above. This means
+# filters apply to the canonical row only — exactly the behaviour we want
+# (newer copies are invisible to the public search regardless of filter).
+
+_FILTER_WHERE = """
+    (%(q)s::text IS NULL OR case_title ILIKE '%%' || %(q)s || '%%')
+    AND (%(difficulty)s::text IS NULL OR difficulty    = %(difficulty)s)
+    AND (%(industry)s::text   IS NULL OR industry      = %(industry)s)
+    AND (%(case_type)s::text  IS NULL OR case_type     = %(case_type)s)
+    AND (%(school)s::text     IS NULL OR source_school = %(school)s)
+"""
+
+_DEDUP_CTE = """
+    WITH ranked AS (
+        SELECT
+            id, case_title, normalized_title,
+            source_school, source_year,
+            industry, case_type, difficulty, difficulty_score,
+            firm, page_count, pdf_path,
+            ROW_NUMBER() OVER (
+                -- Empty / NULL normalized_title rows must NOT collapse into
+                -- one another; bucket each by a synthetic per-row key so
+                -- they all survive as their own canonical.
+                PARTITION BY COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)
+                ORDER BY source_year ASC NULLS LAST, id ASC
+            ) AS rn
+        FROM cases
+    )
+"""
+
+SEARCH_SQL_ALL = f"""
     SELECT
-        id,
-        case_title,
-        source_school,
-        source_year,
-        industry,
-        case_type,
-        difficulty,
-        difficulty_score,
-        firm,
-        page_count,
-        pdf_path
+        id, case_title, source_school, source_year,
+        industry, case_type, difficulty, difficulty_score,
+        firm, page_count, pdf_path
     FROM cases
-    WHERE
-        (%(q)s::text IS NULL OR case_title ILIKE '%%' || %(q)s || '%%')
-        AND (%(difficulty)s::text IS NULL OR difficulty    = %(difficulty)s)
-        AND (%(industry)s::text   IS NULL OR industry      = %(industry)s)
-        AND (%(case_type)s::text  IS NULL OR case_type     = %(case_type)s)
-        AND (%(school)s::text     IS NULL OR source_school = %(school)s)
-    ORDER BY
-        difficulty_score NULLS LAST,
-        case_title
+    WHERE {_FILTER_WHERE}
+    ORDER BY difficulty_score NULLS LAST, case_title
     LIMIT %(limit)s;
 """
 
-COUNT_SQL = """
+COUNT_SQL_ALL = f"""
     SELECT COUNT(*) AS total
     FROM cases
-    WHERE
-        (%(q)s::text IS NULL OR case_title ILIKE '%%' || %(q)s || '%%')
-        AND (%(difficulty)s::text IS NULL OR difficulty    = %(difficulty)s)
-        AND (%(industry)s::text   IS NULL OR industry      = %(industry)s)
-        AND (%(case_type)s::text  IS NULL OR case_type     = %(case_type)s)
-        AND (%(school)s::text     IS NULL OR source_school = %(school)s);
+    WHERE {_FILTER_WHERE};
 """
+
+SEARCH_SQL_DEDUP = f"""
+    {_DEDUP_CTE}
+    SELECT
+        id, case_title, source_school, source_year,
+        industry, case_type, difficulty, difficulty_score,
+        firm, page_count, pdf_path
+    FROM ranked
+    WHERE rn = 1 AND {_FILTER_WHERE}
+    ORDER BY difficulty_score NULLS LAST, case_title
+    LIMIT %(limit)s;
+"""
+
+COUNT_SQL_DEDUP = f"""
+    {_DEDUP_CTE}
+    SELECT COUNT(*) AS total
+    FROM ranked
+    WHERE rn = 1 AND {_FILTER_WHERE};
+"""
+
+# Kept as aliases so any external imports of SEARCH_SQL / COUNT_SQL still work.
+SEARCH_SQL = SEARCH_SQL_ALL
+COUNT_SQL = COUNT_SQL_ALL
 
 
 def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict], int]:
     """Run the search and return (rows, total_matching).
 
-    `limit` caps how many rows we return for display; `total_matching`
+    Honours ``filters.include_duplicates``: when False (default), the SQL
+    layer collapses each ``normalized_title`` group to its canonical row
+    before applying filters; when True, every row is searchable.
+
+    ``limit`` caps how many rows we return for display; ``total_matching``
     is the unbounded count so the UI can show "showing 100 of 247".
     """
     params = {
@@ -165,15 +295,47 @@ def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict
         "limit":      limit,
     }
 
+    if filters.include_duplicates:
+        search_sql = SEARCH_SQL_ALL
+        count_sql = COUNT_SQL_ALL
+    else:
+        search_sql = SEARCH_SQL_DEDUP
+        count_sql = COUNT_SQL_DEDUP
+
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(SEARCH_SQL, params)
+            cur.execute(search_sql, params)
             rows = list(cur.fetchall())
 
-            cur.execute(COUNT_SQL, params)
+            cur.execute(count_sql, params)
             total = cur.fetchone()["total"]
 
     return rows, total
+
+
+def count_all_cases(*, include_duplicates: bool = False) -> int:
+    """Return total case count for the footer / "showing X of Y" text.
+
+    Mirrors ``search_cases`` dedup behaviour: by default counts canonicals
+    only, so the public-facing total reflects what's actually browsable.
+    """
+    if include_duplicates:
+        sql = "SELECT COUNT(*) FROM cases;"
+    else:
+        # Count distinct normalized_title groups, plus every NULL / empty
+        # title row standing on its own — same rule as the SEARCH_SQL_DEDUP
+        # PARTITION BY clause and ``pick_canonical_case_ids``.
+        sql = """
+            SELECT COUNT(DISTINCT
+                COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)
+            ) AS total
+            FROM cases;
+        """
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+            return int(row[0] or 0)
 
 
 # ── Single-case fetch ──────────────────────────────────────────────────────────
