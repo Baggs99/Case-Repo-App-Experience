@@ -14,6 +14,7 @@ Commands
   publish-cases  Sync case_catalog.csv into the Postgres `cases` table.
   apply-sql-migration  Run a SQL file against Postgres (defaults to preview-public-slug migration).
   generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline).
+  bundle-previews-for-upload  Copy local JPEGs to output/.../pv/<slug>/ for manual R2 upload.
   sync-pdf-pages Trim local PDF files to match catalog page_count (then upload).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
   verify-storage Walk the cases table and check every PDF resolves in storage.
@@ -31,6 +32,7 @@ Examples
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -490,6 +492,88 @@ def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
     click.echo("Done.\n")
 
 
+# ── bundle-previews-for-upload command ─────────────────────────────────────────
+
+@cli.command("bundle-previews-for-upload")
+@click.option("--out", "out_dir", default="output/previews_cloudflare_bundle",
+              show_default=True,
+              help="Write pv/<slug>/ here (upload this tree to R2 at bucket root).")
+@click.option("--database-url", "database_url", default=None,
+              help="Postgres connection string. Defaults to $DATABASE_URL from .env.")
+@click.option("--case-id", "case_id_filter", type=int, default=None,
+              help="Only bundle this case id.")
+@click.option("--clean", is_flag=True, default=False,
+              help="Delete the output directory before writing.")
+def bundle_previews_for_upload_cmd(
+    out_dir: str,
+    database_url: str | None,
+    case_id_filter: int | None,
+    clean: bool,
+):
+    """
+    Copy ``output/previews/<case_id>/page-*.jpg`` into ``--out/pv/<preview_public_slug>/``.
+
+    Uses slugs from Postgres — same layout ``generate-previews`` uploads to R2.
+    No Cloudflare credentials required; upload ``pv/`` from the dashboard or wrangler.
+
+    Run locally after ``generate-previews``. Then set ``CASE_PREVIEW_PUBLIC_BASE_URL``
+    on Render to your public R2/custom-domain origin (that URL is not secret).
+
+    \b
+      python main.py bundle-previews-for-upload
+      python main.py bundle-previews-for-upload --clean
+    """
+    db_url = database_url or os.environ.get("DATABASE_URL")
+    if not db_url:
+        click.echo("ERROR: no database URL. Set DATABASE_URL or --database-url.", err=True)
+        raise SystemExit(1)
+
+    import psycopg
+    from pipeline.preview_bundle import bundle_previews_for_manual_upload
+
+    repo_root = Path(__file__).resolve().parent
+    dest = Path(out_dir)
+    if not dest.is_absolute():
+        dest = (repo_root / dest).resolve()
+
+    if clean and dest.exists():
+        shutil.rmtree(dest)
+
+    with psycopg.connect(db_url) as conn:
+        with conn.cursor() as cur:
+            if case_id_filter is not None:
+                cur.execute(
+                    "SELECT id, preview_public_slug FROM cases WHERE id = %s;",
+                    (case_id_filter,),
+                )
+            else:
+                cur.execute(
+                    "SELECT id, preview_public_slug FROM cases ORDER BY id;",
+                )
+            rows = [(r[0], r[1]) for r in cur.fetchall()]
+
+    if not rows:
+        click.echo("No cases in database.")
+        raise SystemExit(0)
+
+    n_ok, n_skip_nf, n_skip_bad = bundle_previews_for_manual_upload(
+        repo_root=repo_root,
+        dest_root=dest,
+        id_slug_rows=rows,
+    )
+
+    click.echo(f"\nBundle written under: {dest / 'pv'}")
+    click.echo(
+        f"  cases with files copied: {n_ok}\n"
+        f"  skipped (no local output/previews/<id>/): {n_skip_nf}\n"
+        f"  skipped (bad slug): {n_skip_bad}\n"
+    )
+    click.echo(
+        "Upload the ``pv`` folder to your R2 bucket root, then set "
+        "CASE_PREVIEW_PUBLIC_BASE_URL to your public HTTPS origin.\n"
+    )
+
+
 # ── generate-previews command ────────────────────────────────────────────────────
 
 @cli.command("generate-previews")
@@ -526,9 +610,11 @@ def generate_previews_cmd(
 
     Requires PDFs readable via ``pipeline.storage`` (local or R2).
 
-    If ``CASE_PREVIEW_PUBLIC_BASE_URL`` is set (and R2 credentials are available),
-    each generated page is also uploaded to R2 under ``pv/<slug>/page-NNN.jpg``.
-    Serve that bucket (or prefix) from a Cloudflare-connected custom domain.
+    R2 upload is optional: if ``CASE_PREVIEW_PUBLIC_BASE_URL`` is **unset**,
+    JPEGs stay only under ``output/previews/`` (e.g. generate on your laptop).
+    If that env var **is** set and R2 credentials are available, each case is
+    also uploaded under ``pv/<slug>/page-NNN.jpg``. For manual upload, use
+    ``bundle-previews-for-upload`` after generating locally.
 
     Example:
 
