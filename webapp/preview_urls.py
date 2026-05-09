@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pipeline.public_preview_keys import (
@@ -10,6 +11,27 @@ from pipeline.public_preview_keys import (
 )
 
 from webapp.settings import Settings
+
+
+def _preview_version_token(case_row: dict[str, Any]) -> str | None:
+    """
+    Stable cache-busting token for preview image URLs.
+
+    Preference:
+    1) ``updated_at`` (changes when row metadata is updated)
+    2) ``preview_public_slug`` fallback
+    """
+    updated = case_row.get("updated_at")
+    if isinstance(updated, datetime):
+        # Compact UTC-ish timestamp token; stable until next update.
+        return updated.strftime("%Y%m%d%H%M%S")
+    if updated:
+        return str(updated)
+
+    slug = case_row.get("preview_public_slug")
+    if slug:
+        return str(slug)
+    return None
 
 
 def preview_r2_storage_key(slug: str, page_num: int) -> str:
@@ -30,14 +52,16 @@ def preview_page_urls(
 
     slug = case_row.get("preview_public_slug")
     base = settings.case_preview_public_base_url
+    v = _preview_version_token(case_row)
+    q = f"?v={v}" if v else ""
     if base and slug:
         root = base.rstrip("/")
         return [
-            f"{root}/{public_preview_object_key(slug, i)}"
+            f"{root}/{public_preview_object_key(slug, i)}{q}"
             for i in range(1, page_count + 1)
         ]
 
-    return [f"/files/cases/{case_id}/preview/{i}" for i in range(1, page_count + 1)]
+    return [f"/files/cases/{case_id}/preview/{i}{q}" for i in range(1, page_count + 1)]
 
 
 def preview_knit_url(*, case_row: dict[str, Any], settings: Settings) -> str | None:
@@ -47,4 +71,6 @@ def preview_knit_url(*, case_row: dict[str, Any], settings: Settings) -> str | N
     if not base or not slug:
         return None
     root = base.rstrip("/")
-    return f"{root}/{public_preview_knit_object_key(slug)}"
+    v = _preview_version_token(case_row)
+    q = f"?v={v}" if v else ""
+    return f"{root}/{public_preview_knit_object_key(slug)}{q}"
