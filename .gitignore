@@ -45,6 +45,7 @@ output/cases/
 # Rasterized page previews (generated on demand from PDFs)
 output/previews/
 output/previews_cloudflare_bundle/
+output/previews_local/
 
 # Presentation build artefacts — regenerated from scripts in presentation/
 presentation/screenshots/

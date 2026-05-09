@@ -13,7 +13,8 @@ Commands
   classify-industry    Fill missing industry labels via the OpenAI API.
   publish-cases  Sync case_catalog.csv into the Postgres `cases` table.
   apply-sql-migration  Run a SQL file against Postgres (defaults to preview-public-slug migration).
-  generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline).
+  generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline, needs Postgres).
+  generate-previews-local  Rasterise from case_catalog.csv — no DB — writes output/previews_local/...
   bundle-previews-for-upload  Copy local JPEGs to output/.../pv/<slug>/ for manual R2 upload.
   sync-pdf-pages Trim local PDF files to match catalog page_count (then upload).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
@@ -490,6 +491,80 @@ def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
         raise SystemExit(3)
 
     click.echo("Done.\n")
+
+
+# ── generate-previews-local command ─────────────────────────────────────────────
+
+@cli.command("generate-previews-local")
+@click.option("--catalog", "catalog_path", default="output/case_catalog.csv",
+              show_default=True,
+              help="case_catalog.csv or .xlsx with output_pdf_path + page_count.")
+@click.option("--match", "match_substr", default=None,
+              help="Only rows whose case_title contains this substring (case-insensitive).")
+@click.option("--limit", type=int, default=None,
+              help="Process at most N catalog rows after filtering.")
+@click.option("--skip-existing", is_flag=True, default=False,
+              help="Skip if output/previews_local/.../page-001.jpg already exists.")
+@click.option("--verbose", is_flag=True, default=False,
+              help="Enable DEBUG logging.")
+def generate_previews_local_cmd(
+    catalog_path: str,
+    match_substr: str | None,
+    limit: int | None,
+    skip_existing: bool,
+    verbose: bool,
+):
+    """
+    Build JPEG previews from ``case_catalog.csv`` — **no DATABASE_URL**.
+
+    Resolves each ``output_pdf_path`` under this repo's ``output/cases/`` tree and writes::
+
+        output/previews_local/<same-relative-path-as-pdf-without-.pdf>/page-NNN.jpg
+
+    Example (catalog points at ``.../output/cases/Yale/Booth 2021/army-hotel.pdf``)::
+
+        output/previews_local/Yale/Booth 2021/army-hotel/page-001.jpg
+
+    Later you can upload to Cloudflare or map folders to DB ``preview_public_slug`` manually.
+
+    \b
+      python main.py generate-previews-local
+      python main.py generate-previews-local --match \"Army Hotel\" --verbose
+    """
+    setup_logging(verbose=verbose)
+    from pipeline.local_catalog_previews import generate_previews_from_catalog_csv
+
+    repo_root = Path(__file__).resolve().parent
+    cat = Path(catalog_path)
+    if not cat.is_absolute():
+        cat = (repo_root / cat).resolve()
+    if not cat.exists():
+        click.echo(f"ERROR: catalog not found: {cat}", err=True)
+        raise SystemExit(1)
+
+    click.echo(f"Catalog: {cat}")
+    try:
+        stats = generate_previews_from_catalog_csv(
+            catalog_path=cat,
+            repo_root=repo_root,
+            match_substr=match_substr,
+            limit=limit,
+            skip_existing=skip_existing,
+            verbose=verbose,
+        )
+    except Exception as exc:
+        click.echo(f"ERROR: {exc}", err=True)
+        raise SystemExit(2)
+
+    click.echo(
+        "\nDone:\n"
+        f"  rasterised ok:     {stats['ok']}\n"
+        f"  skipped (exists):  {stats['skip_existing']}\n"
+        f"  PDF not on disk:   {stats['skip_missing_pdf']}\n"
+        f"  bad catalog row:   {stats['skip_bad_row']}\n"
+        f"  failed:            {stats['fail']}\n"
+        f"\nJPEG root: {repo_root / 'output' / 'previews_local'}\n"
+    )
 
 
 # ── bundle-previews-for-upload command ─────────────────────────────────────────

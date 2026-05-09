@@ -37,21 +37,16 @@ def _save_pixmap_jpeg_under_budget(pix: fitz.Pixmap, dest: Path, max_bytes: int)
     tmp.replace(dest)
 
 
-def rasterize_pdf_bytes_to_preview_dir(
+def rasterize_pdf_bytes_to_dir(
     *,
-    case_id: int,
+    out_dir: Path,
     pdf_bytes: bytes,
     catalog_page_count: int,
-    dest_root: Path,
     max_width_px: int = PREVIEW_MAX_WIDTH_PX,
     max_bytes_per_page: int = PREVIEW_TARGET_MAX_BYTES,
 ) -> int:
-    """Render each page to ``dest_root/page-NNN.jpg``. Returns pages written.
-
-    Pages are processed **sequentially** with one ``Document`` handle to limit
-    peak memory.
-    """
-    out_dir = preview_dir(dest_root, case_id)
+    """Render each page to ``out_dir/page-NNN.jpg``. Returns pages written."""
+    out_dir.mkdir(parents=True, exist_ok=True)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     written = 0
     try:
@@ -62,7 +57,6 @@ def rasterize_pdf_bytes_to_preview_dir(
             rect = page.rect
             if rect.width <= 0 or rect.height <= 0:
                 continue
-            # Fit max width; never upscale small pages (saves memory vs blowing up tiny PDFs).
             zw = min(max_width_px / rect.width, 1.0)
             mat = fitz.Matrix(zw, zw)
             pix = page.get_pixmap(matrix=mat, alpha=False)
@@ -75,3 +69,27 @@ def rasterize_pdf_bytes_to_preview_dir(
     finally:
         doc.close()
     return written
+
+
+def rasterize_pdf_bytes_to_preview_dir(
+    *,
+    case_id: int,
+    pdf_bytes: bytes,
+    catalog_page_count: int,
+    dest_root: Path,
+    max_width_px: int = PREVIEW_MAX_WIDTH_PX,
+    max_bytes_per_page: int = PREVIEW_TARGET_MAX_BYTES,
+) -> int:
+    """Render each page to ``dest_root/output/previews/{case_id}/page-NNN.jpg``.
+
+    Pages are processed **sequentially** with one ``Document`` handle to limit
+    peak memory.
+    """
+    out_dir = preview_dir(dest_root, case_id)
+    return rasterize_pdf_bytes_to_dir(
+        out_dir=out_dir,
+        pdf_bytes=pdf_bytes,
+        catalog_page_count=catalog_page_count,
+        max_width_px=max_width_px,
+        max_bytes_per_page=max_bytes_per_page,
+    )
