@@ -139,21 +139,52 @@ ADMIN_SORT_SQL = {
 }
 
 
-def list_cases_with_vote_stats(*, sort: str = "title", limit: int = 2000) -> list[dict[str, Any]]:
-    """Return cases with vote aggregates for admin. ``sort`` must be a key in ADMIN_SORT_SQL."""
+def list_cases_with_vote_stats(
+    *,
+    sort: str = "title",
+    limit: int = 2000,
+    include_duplicates: bool = False,
+) -> list[dict[str, Any]]:
+    """Return cases with vote aggregates for admin. ``sort`` must be a key
+    in ``ADMIN_SORT_SQL``.
+
+    When ``include_duplicates`` is False (default), only the canonical row
+    per ``normalized_title`` group is returned — same rule the public
+    search uses (oldest source_year wins, lowest id breaks ties).
+
+    When True, every row is returned and each carries ``is_canonical``
+    (True for the oldest copy in its group) so the admin UI can flag
+    "Duplicate" rows visually without losing them from the listing.
+    """
     order_sql = ADMIN_SORT_SQL.get(sort, ADMIN_SORT_SQL["title"])
+    where_sql = "" if include_duplicates else "WHERE c.rn = 1"
     sql = f"""
+        WITH ranked_cases AS (
+            SELECT
+                cs.id, cs.case_title, cs.normalized_title,
+                cs.source_school, cs.source_year,
+                ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(
+                        NULLIF(cs.normalized_title, ''),
+                        '__id_' || cs.id::text
+                    )
+                    ORDER BY cs.source_year ASC NULLS LAST, cs.id ASC
+                ) AS rn
+            FROM cases cs
+        )
         SELECT
             c.id,
             c.case_title,
             c.source_school,
             c.source_year,
+            (c.rn = 1) AS is_canonical,
             COUNT(*) FILTER (WHERE cv.vote_type = 'useful')::int AS useful_count,
             COUNT(*) FILTER (WHERE cv.vote_type = 'not_useful')::int AS not_useful_count,
             COUNT(cv.id)::int AS total_votes
-        FROM cases c
+        FROM ranked_cases c
         LEFT JOIN case_votes cv ON cv.case_id = c.id
-        GROUP BY c.id
+        {where_sql}
+        GROUP BY c.id, c.case_title, c.source_school, c.source_year, c.rn
         ORDER BY {order_sql}
         LIMIT %(limit)s;
     """
@@ -169,16 +200,52 @@ def list_cases_with_vote_stats(*, sort: str = "title", limit: int = 2000) -> lis
     return rows
 
 
-def list_cases_with_vote_stats_safe(*, sort: str = "title", limit: int = 2000) -> list[dict[str, Any]]:
+def list_cases_with_vote_stats_safe(
+    *,
+    sort: str = "title",
+    limit: int = 2000,
+    include_duplicates: bool = False,
+) -> list[dict[str, Any]]:
     """Same as ``list_cases_with_vote_stats`` but returns [] if ``case_votes`` is missing."""
     try:
-        return list_cases_with_vote_stats(sort=sort, limit=limit)
+        return list_cases_with_vote_stats(
+            sort=sort, limit=limit, include_duplicates=include_duplicates,
+        )
     except UndefinedTable:
         logger.warning(
             "case_votes table missing — apply db/migrations/007_case_votes.sql "
             "(admin case list empty)"
         )
         return []
+
+
+def get_admin_case_counts() -> dict[str, int]:
+    """Return ``{canonical, all, duplicates}`` counts for the admin header.
+
+    Helpful both for displaying "X canonical / Y total" in the page header
+    and for showing a hint that hidden duplicates exist when the toggle
+    is off.
+    """
+    sql = """
+        SELECT
+            COUNT(DISTINCT
+                COALESCE(NULLIF(normalized_title, ''), '__id_' || id::text)
+            ) AS canonical_count,
+            COUNT(*) AS all_count
+        FROM cases;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql)
+            row = cur.fetchone() or {}
+
+    canonical = int(row.get("canonical_count") or 0)
+    total = int(row.get("all_count") or 0)
+    return {
+        "canonical":  canonical,
+        "all":        total,
+        "duplicates": max(total - canonical, 0),
+    }
 
 
 # ── Per-user vote views (admin) ────────────────────────────────────────────────
