@@ -5,15 +5,19 @@
  *   previews/<preview_public_slug>/page-001.jpg
  *   previews/<preview_public_slug>/preview-knit.jpg   (optional)
  *
- * Matching: local folder ``School/Book/case-slug`` ↔ DB ``pdf_path`` ``School/Book/case-slug.pdf``
+ * Matching: local folder ``School/Book/case-slug`` ↔ ``pdf_path`` ``School/Book/case-slug.pdf``
+ *
+ * Slug ↔ pdf mapping (first match wins):
+ *   1. If ``output/preview_slug_map.csv`` exists (override: PREVIEW_SLUG_MAP_CSV), load it — **no Postgres**.
+ *   2. Else query ``DATABASE_URL`` (cases table).
  *
  * Env:
- *   DATABASE_URL           — Postgres (same as production cases table)
+ *   DATABASE_URL           — Postgres (when CSV missing)
  *   R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
  *   R2_BUCKET_NAME         — default case-repo-pdfs
  *   R2_ENDPOINT            — OR build from R2_ACCOUNT_ID
- *   R2_ACCOUNT_ID          — optional if R2_ENDPOINT set
- *   PREVIEWS_LOCAL_ROOT    — optional, default output/previews_local (relative to repo root)
+ *   PREVIEWS_LOCAL_ROOT    — optional, default output/previews_local
+ *   PREVIEW_SLUG_MAP_CSV   — optional path to slug map CSV (repo-relative or absolute)
  *
  * Usage:
  *   npm run upload:previews -- --dry-run
@@ -26,6 +30,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
+import { parseSlugMapCsv } from "./csv_slug_map.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..");
@@ -33,6 +38,16 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 dotenv.config({ path: path.join(REPO_ROOT, ".env") });
 
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+const DEFAULT_MAP_REL = path.join("output", "preview_slug_map.csv");
+
+function resolveSlugMapCsvPath(): string {
+  const env = process.env.PREVIEW_SLUG_MAP_CSV?.trim();
+  if (env) {
+    return path.isAbsolute(env) ? env : path.join(REPO_ROOT, env);
+  }
+  return path.join(REPO_ROOT, DEFAULT_MAP_REL);
+}
 
 function normPdfKey(p: string): string {
   return p.replace(/\\/g, "/").trim();
@@ -95,6 +110,48 @@ function r2Endpoint(): string {
   return `https://${aid}.r2.cloudflarestorage.com`;
 }
 
+async function loadPdfToSlugMap(): Promise<{ map: Map<string, string>; source: "csv" | "db" }> {
+  const csvPath = resolveSlugMapCsvPath();
+  try {
+    await stat(csvPath);
+    const content = await readFile(csvPath, "utf-8");
+    console.log(`Using slug map CSV (no Postgres): ${csvPath}`);
+    return { map: parseSlugMapCsv(content), source: "csv" };
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+
+  const dbUrl = process.env.DATABASE_URL?.trim();
+  if (!dbUrl) {
+    console.error(
+      "No slug map CSV found and DATABASE_URL is not set.\n" +
+        `  Expected CSV at: ${csvPath}\n` +
+        "  Or export on Render: npm run export:preview-slugs → copy CSV locally.",
+    );
+    process.exit(1);
+  }
+
+  console.log(`Using Postgres DATABASE_URL slug map`);
+
+  const pool = new Pool({ connectionString: dbUrl });
+  try {
+    const { rows } = await pool.query<{
+      pdf_path: string;
+      preview_public_slug: string;
+    }>(
+      `SELECT pdf_path, preview_public_slug FROM cases
+       WHERE pdf_path IS NOT NULL AND preview_public_slug IS NOT NULL`,
+    );
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      map.set(normPdfKey(row.pdf_path), row.preview_public_slug);
+    }
+    return { map, source: "db" };
+  } finally {
+    await pool.end();
+  }
+}
+
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
 
@@ -102,12 +159,6 @@ async function main(): Promise<void> {
   const previewsRoot = path.isAbsolute(previewsRel)
     ? previewsRel
     : path.join(REPO_ROOT, previewsRel);
-
-  const dbUrl = process.env.DATABASE_URL?.trim();
-  if (!dbUrl) {
-    console.error("DATABASE_URL is required for slug ↔ pdf_path matching.");
-    process.exit(1);
-  }
 
   try {
     await stat(previewsRoot);
@@ -125,88 +176,73 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const pool = new Pool({ connectionString: dbUrl });
-  let client: S3Client | null = null;
-  if (!dryRun) {
-    client = new S3Client({
-      region: "auto",
-      endpoint: r2Endpoint(),
-      credentials: {
-        accessKeyId: accessKeyId!,
-        secretAccessKey: secretAccessKey!,
-      },
-    });
-  }
+  const { map: pdfToSlug, source: mapSource } = await loadPdfToSlugMap();
+
+  const client =
+    dryRun ?
+      null
+    : new S3Client({
+        region: "auto",
+        endpoint: r2Endpoint(),
+        credentials: {
+          accessKeyId: accessKeyId!,
+          secretAccessKey: secretAccessKey!,
+        },
+      });
 
   let matched = 0;
   let filesUploaded = 0;
   const unmatchedLocal: string[] = [];
   const matchedPdfPaths = new Set<string>();
-  let unmatchedDb: string[] = [];
+  let unmatchedMapped: string[] = [];
 
-  try {
-    const { rows } = await pool.query<{
-      pdf_path: string;
-      preview_public_slug: string;
-    }>(
-      `SELECT pdf_path, preview_public_slug FROM cases
-       WHERE pdf_path IS NOT NULL AND preview_public_slug IS NOT NULL`,
-    );
+  const folders = await collectCaseFolders(previewsRoot);
 
-    const pdfToSlug = new Map<string, string>();
-    for (const row of rows) {
-      pdfToSlug.set(normPdfKey(row.pdf_path), row.preview_public_slug);
+  for (const folderRel of folders) {
+    if (!folderRel) continue;
+    const pdfPathKey = normPdfKey(`${folderRel}.pdf`);
+    const slug = pdfToSlug.get(pdfPathKey);
+    if (!slug) {
+      unmatchedLocal.push(folderRel);
+      continue;
     }
+    matched++;
+    matchedPdfPaths.add(pdfPathKey);
 
-    const folders = await collectCaseFolders(previewsRoot);
+    const absCaseDir = path.join(previewsRoot, folderRel.split("/").join(path.sep));
+    const files = await collectUploadFiles(absCaseDir);
 
-    for (const folderRel of folders) {
-      if (!folderRel) continue;
-      const pdfPathKey = normPdfKey(`${folderRel}.pdf`);
-      const slug = pdfToSlug.get(pdfPathKey);
-      if (!slug) {
-        unmatchedLocal.push(folderRel);
-        continue;
+    for (const fname of files) {
+      const objectKey = `previews/${slug}/${fname}`;
+      const absFile = path.join(absCaseDir, fname);
+      const body = await readFile(absFile);
+
+      if (dryRun) {
+        console.log(`[dry-run] ${objectKey} (${body.length} bytes)`);
+      } else {
+        await client!.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: objectKey,
+            Body: body,
+            ContentType: "image/jpeg",
+            CacheControl: CACHE_CONTROL,
+          }),
+        );
+        console.log(`uploaded ${objectKey}`);
       }
-      matched++;
-      matchedPdfPaths.add(pdfPathKey);
-
-      const absCaseDir = path.join(previewsRoot, folderRel.split("/").join(path.sep));
-      const files = await collectUploadFiles(absCaseDir);
-
-      for (const fname of files) {
-        const objectKey = `previews/${slug}/${fname}`;
-        const absFile = path.join(absCaseDir, fname);
-        const body = await readFile(absFile);
-
-        if (dryRun) {
-          console.log(`[dry-run] ${objectKey} (${body.length} bytes)`);
-        } else {
-          await client!.send(
-            new PutObjectCommand({
-              Bucket: bucket,
-              Key: objectKey,
-              Body: body,
-              ContentType: "image/jpeg",
-              CacheControl: CACHE_CONTROL,
-            }),
-          );
-          console.log(`uploaded ${objectKey}`);
-        }
-        filesUploaded++;
-      }
+      filesUploaded++;
     }
+  }
 
-    for (const [pdfPath, slug] of pdfToSlug) {
-      if (!matchedPdfPaths.has(pdfPath)) {
-        unmatchedDb.push(`${pdfPath} → ${slug}`);
-      }
+  for (const pdfPath of pdfToSlug.keys()) {
+    if (!matchedPdfPaths.has(pdfPath)) {
+      unmatchedMapped.push(`${pdfPath} → ${pdfToSlug.get(pdfPath)}`);
     }
-  } finally {
-    await pool.end();
   }
 
   console.log("\n=== summary ===");
+  console.log("slug map source:", mapSource);
   console.log("cases matched & processed:", matched);
   console.log("files " + (dryRun ? "would upload" : "uploaded") + ":", filesUploaded);
   console.log("unmatched local folders:", unmatchedLocal.length);
@@ -215,11 +251,13 @@ async function main(): Promise<void> {
       unmatchedLocal.slice(0, 40).join("\n") + (unmatchedLocal.length > 40 ? "\n…" : ""),
     );
   }
-  console.log("DB pdf_paths with no local previews folder:", unmatchedDb.length);
-  if (unmatchedDb.length && unmatchedDb.length <= 30) {
-    console.log(unmatchedDb.join("\n"));
-  } else if (unmatchedDb.length > 30) {
-    console.log(unmatchedDb.slice(0, 30).join("\n") + "\n…");
+  const orphanLabel =
+    mapSource === "csv" ? "CSV rows with no local previews folder" : "DB pdf_paths with no local previews folder";
+  console.log(`${orphanLabel}:`, unmatchedMapped.length);
+  if (unmatchedMapped.length && unmatchedMapped.length <= 30) {
+    console.log(unmatchedMapped.join("\n"));
+  } else if (unmatchedMapped.length > 30) {
+    console.log(unmatchedMapped.slice(0, 30).join("\n") + "\n…");
   }
 }
 

@@ -46,6 +46,7 @@ output/cases/
 output/previews/
 output/previews_cloudflare_bundle/
 output/previews_local/
+output/preview_slug_map.csv
 
 node_modules/
 

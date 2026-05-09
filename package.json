@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "upload:previews": "tsx scripts/upload-previews-to-r2.ts"
+    "upload:previews": "tsx scripts/upload-previews-to-r2.ts",
+    "export:preview-slugs": "tsx scripts/export-preview-slugs.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.749.0",
