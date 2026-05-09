@@ -28,7 +28,6 @@
                 {% elif c.difficulty == 'Medium' %}bg-amber-50 text-amber-700 border border-amber-200
                 {% else %}bg-rose-50 text-rose-700 border border-rose-200{% endif %}">
                 {{ c.difficulty }}
-                {% if c.difficulty_score %}· {{ "%.1f"|format(c.difficulty_score) }}{% endif %}
             </span>
             {% endif %}
         </div>

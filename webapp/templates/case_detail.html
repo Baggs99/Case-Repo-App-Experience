@@ -34,7 +34,7 @@ function casePdfNavigate(caseId, action) {
                 {% if case.difficulty == 'Easy' %}bg-emerald-50 text-emerald-700 border border-emerald-200
                 {% elif case.difficulty == 'Medium' %}bg-amber-50 text-amber-700 border border-amber-200
                 {% else %}bg-rose-50 text-rose-700 border border-rose-200{% endif %}">
-                {{ case.difficulty }}{% if case.difficulty_score %} · {{ "%.1f"|format(case.difficulty_score) }}/10{% endif %}
+                {{ case.difficulty }}
             </span>
             {% endif %}
         </div>
