@@ -113,49 +113,22 @@ function casePdfNavigate(caseId, action) {
         </div>
     </div>
 
-    {#
-      Previews: ``/files/cases/{id}/preview/N`` OR ``{R2_PUBLIC_BASE_URL}/previews/{slug}/page-NNN.jpg``.
-      JS loads 2 pages first, then 5 per “Load more” click — ``loading=lazy``.
-    #}
-    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-            <p id="preview-status" class="text-sm text-slate-600">
-                {% if preview_page_count > 0 %}
-                Loading page previews…
-                {% else %}
-                Preview unavailable. Use Open PDF in new tab or Download. Run <code class="text-xs bg-slate-100 px-1 rounded">python main.py generate-previews</code> to build images.
-                {% endif %}
-            </p>
-            {% if preview_page_count > 0 %}
-            <button type="button" id="preview-load-more"
-                    class="hidden text-sm px-3 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50">
-                Load more pages
-            </button>
-            {% endif %}
-        </div>
-        <div id="preview-strip"
-             data-case-id="{{ case.id }}"
-             data-page-count="{{ preview_page_count }}"
-             class="overflow-auto max-h-[85vh] bg-slate-100 p-4 space-y-4">
-        </div>
-    </div>
-
     {% if preview_knit_url %}
-    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden mt-6">
-        <div class="px-4 py-3 border-b border-slate-200 bg-slate-50">
-            <p class="text-sm text-slate-600">Full case preview (single stitched image)</p>
+    <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
+        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
+            <h2 class="text-sm font-medium text-slate-800">Case Preview</h2>
         </div>
-        <div class="p-4 bg-slate-100">
-            <figure class="mx-auto max-w-full">
+        <div class="p-4 sm:p-6">
+            <figure class="w-full m-0">
                 <img id="preview-knit-img"
                      src="{{ preview_knit_url }}"
-                     alt="Full case preview"
+                     alt="Case preview"
                      loading="lazy"
                      decoding="async"
-                     class="w-full h-auto shadow-sm bg-white border border-slate-200 rounded-sm" />
+                     class="block w-full max-w-full h-auto rounded-sm border border-slate-200 bg-white shadow-sm" />
             </figure>
             <p id="preview-knit-fallback" class="hidden text-center text-sm text-slate-600 py-8">
-                Stitched preview failed to load — check R2 path in the browser console.
+                Preview failed to load — check R2 path in the browser console.
             </p>
         </div>
     </div>
@@ -307,77 +280,4 @@ function casePdfNavigate(caseId, action) {
   render(u, n, cur);
 })();
 </script>
-{% if preview_page_count > 0 %}
-<script>
-(function () {
-  var strip = document.getElementById("preview-strip");
-  var statusEl = document.getElementById("preview-status");
-  var btn = document.getElementById("preview-load-more");
-  if (!strip) return;
-
-  var caseId = strip.getAttribute("data-case-id");
-  var total = parseInt(strip.getAttribute("data-page-count") || "0", 10);
-  if (!total || !caseId) return;
-
-  var previewUrls = {{ preview_urls | tojson }};
-  if (!previewUrls.length || previewUrls.length !== total) {
-    console.warn("[preview] URL list mismatch or empty — expected", total, "URLs, got", previewUrls.length);
-    return;
-  }
-
-  var BATCH = 5;
-  var INITIAL = 2;
-  var loaded = 0;
-
-  function placeholderFigure(pageNum) {
-    var fig = document.createElement("figure");
-    fig.className = "mx-auto max-w-full";
-    var div = document.createElement("div");
-    div.className = "preview-placeholder bg-slate-200 border border-slate-300 rounded-sm text-center py-12 px-4 text-sm text-slate-600";
-    div.textContent = "Preview not generated for page " + pageNum + ". Run generate-previews on the server.";
-    fig.appendChild(div);
-    return fig;
-  }
-
-  function addFigureForPage(pageNum) {
-    var fig = document.createElement("figure");
-    fig.className = "mx-auto max-w-full preview-figure";
-    var img = document.createElement("img");
-    img.alt = "Case page " + pageNum;
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.className = "w-full h-auto shadow-sm bg-white border border-slate-200 rounded-sm preview-page-img";
-    var expectedUrl = previewUrls[pageNum - 1];
-    img.src = expectedUrl;
-    img.onerror = function () {
-      console.warn("[preview] failed page", pageNum, "— expected URL:", expectedUrl);
-      fig.replaceWith(placeholderFigure(pageNum));
-    };
-    fig.appendChild(img);
-    strip.appendChild(fig);
-  }
-
-  function appendBatch(n) {
-    var end = Math.min(loaded + n, total);
-    for (var p = loaded + 1; p <= end; p++) addFigureForPage(p);
-    loaded = end;
-    if (btn) {
-      var more = loaded < total;
-      btn.classList.toggle("hidden", !more);
-      btn.disabled = !more;
-    }
-    if (loaded >= total && statusEl) statusEl.classList.add("hidden");
-  }
-
-  appendBatch(INITIAL);
-
-  if (btn) {
-    btn.classList.toggle("hidden", loaded >= total);
-    btn.addEventListener("click", function () {
-      appendBatch(BATCH);
-    });
-  }
-})();
-</script>
-{% endif %}
 {% endblock %}

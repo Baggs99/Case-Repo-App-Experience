@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
-from webapp.preview_urls import preview_knit_url, preview_page_urls
+from webapp.preview_urls import preview_knit_url
 from webapp.repositories.case_votes import get_vote_state_safe
 from webapp.repositories.cases import (
     SearchFilters,
@@ -62,27 +62,12 @@ def case_detail(
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    raw_pc = case.get("page_count")
-    try:
-        preview_page_count = int(raw_pc) if raw_pc is not None else 0
-    except (TypeError, ValueError):
-        preview_page_count = 0
-
-    preview_urls_list = preview_page_urls(
-        case_id=case_id,
-        case_row=dict(case),
-        page_count=preview_page_count,
-        settings=request.app.state.settings,
-    ) if preview_page_count > 0 else []
-
     vote_state = get_vote_state_safe(case_id, user.id)
 
     knit_u = preview_knit_url(case_row=dict(case), settings=request.app.state.settings)
 
     return render(request, "case_detail.html", {
         "case": case,
-        "preview_page_count": preview_page_count,
-        "preview_urls": preview_urls_list,
         "preview_knit_url": knit_u,
         "vote_state": vote_state,
     })
