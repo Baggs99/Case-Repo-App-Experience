@@ -15,6 +15,7 @@ Commands
   apply-sql-migration  Run a SQL file against Postgres (defaults to preview-public-slug migration).
   generate-previews  Rasterise PDFs to output/previews/{id}/page-NNN.jpg (offline, needs Postgres).
   generate-previews-local  Rasterise from case_catalog.csv — no DB — writes output/previews_local/...
+  knit-previews-local     Stitch page-*.jpg into one preview-knit.jpg per case folder (Pillow).
   bundle-previews-for-upload  Copy local JPEGs to output/.../pv/<slug>/ for manual R2 upload.
   sync-pdf-pages Trim local PDF files to match catalog page_count (then upload).
   upload-pdfs    Bulk-upload every catalog PDF to Cloudflare R2.
@@ -564,6 +565,84 @@ def generate_previews_local_cmd(
         f"  bad catalog row:   {stats['skip_bad_row']}\n"
         f"  failed:            {stats['fail']}\n"
         f"\nJPEG root: {repo_root / 'output' / 'previews_local'}\n"
+    )
+
+
+# ── knit-previews-local command ─────────────────────────────────────────────────
+
+@cli.command("knit-previews-local")
+@click.option("--root", "previews_root", default="output/previews_local",
+              show_default=True,
+              help="Folder tree containing case subdirs with page-*.jpg.")
+@click.option("--filename", "out_filename", default="preview-knit.jpg",
+              show_default=True,
+              help="Written beside page-001.jpg in each case folder.")
+@click.option("--gap", "gap_px", type=int, default=6,
+              show_default=True,
+              help="Pixels between stacked pages.")
+@click.option("--skip-existing", is_flag=True, default=False,
+              help="Skip if dest JPEG already exists.")
+@click.option("--verbose", is_flag=True, default=False,
+              help="Enable DEBUG logging.")
+def knit_previews_local_cmd(
+    previews_root: str,
+    out_filename: str,
+    gap_px: int,
+    skip_existing: bool,
+    verbose: bool,
+):
+    """
+    Vertically stack ``page-NNN.jpg`` into ``preview-knit.jpg`` per case folder.
+
+    Requires Pillow (``pip install Pillow``). Output sits next to the page JPEGs.
+
+    \b
+      python main.py knit-previews-local
+      python main.py knit-previews-local --skip-existing
+    """
+    setup_logging(verbose=verbose)
+    from pipeline.preview_knit import (
+        find_case_preview_directories,
+        knit_preview_folder_to_jpeg,
+    )
+
+    repo_root = Path(__file__).resolve().parent
+    root = Path(previews_root)
+    if not root.is_absolute():
+        root = (repo_root / root).resolve()
+
+    dirs = find_case_preview_directories(root)
+    if not dirs:
+        click.echo(f"No case folders with page-001.jpg under {root}", err=True)
+        raise SystemExit(1)
+
+    ok = skip = fail = 0
+    dest_name = out_filename.strip() or "preview-knit.jpg"
+
+    for folder in dirs:
+        dest = folder / dest_name
+        if skip_existing and dest.is_file():
+            skip += 1
+            continue
+        try:
+            wrote = knit_preview_folder_to_jpeg(
+                folder,
+                dest,
+                gap_px=gap_px,
+            )
+            if wrote:
+                ok += 1
+                if verbose:
+                    click.echo(f"  {folder.relative_to(root)} → {dest_name}")
+            else:
+                skip += 1
+        except Exception as exc:
+            click.echo(f"ERROR {folder}: {exc}", err=True)
+            fail += 1
+
+    click.echo(
+        f"\nDone: knitted={ok} skipped={skip} failed={fail}\n"
+        f"Root: {root}\n"
     )
 
 
