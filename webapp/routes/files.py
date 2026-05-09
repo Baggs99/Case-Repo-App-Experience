@@ -34,6 +34,7 @@ from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
 from webapp.previews import existing_preview_file, preview_media_type
 from webapp.preview_urls import preview_page_urls
+from webapp.repositories.case_access import record_case_access
 from webapp.repositories.cases import get_case_by_id
 
 

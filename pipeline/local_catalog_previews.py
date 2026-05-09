@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ import pandas as pd
 from pipeline.preview_generation import rasterize_pdf_bytes_to_dir
 
 logger = logging.getLogger(__name__)
+_PAGE_JPEG_RE = re.compile(r"^page-\d+\.jpg$", re.IGNORECASE)
 
 
 def norm_only_source_prefix(s: str) -> str:
@@ -81,6 +83,28 @@ def previews_local_out_dir(pdf_path: Path, repo_root: Path) -> Path:
 
     key = rel.with_suffix("")
     return repo_root / "output" / "previews_local" / key
+
+
+def remove_stale_page_jpegs(out_dir: Path) -> int:
+    """
+    Delete existing ``page-*.jpg`` files in *out_dir* before re-rendering.
+
+    This prevents old trailing pages from surviving when page_count shrinks
+    (e.g., corrected split ranges).
+    """
+    if not out_dir.is_dir():
+        return 0
+    removed = 0
+    for p in out_dir.iterdir():
+        if not p.is_file():
+            continue
+        if _PAGE_JPEG_RE.match(p.name):
+            try:
+                p.unlink()
+                removed += 1
+            except OSError as exc:
+                logger.warning("could not remove stale preview %s: %s", p, exc)
+    return removed
 
 
 def generate_previews_from_catalog_csv(
@@ -150,6 +174,10 @@ def generate_previews_from_catalog_csv(
         if skip_existing and first_jpg.is_file():
             skip_ex += 1
             continue
+
+        # We are regenerating this case (not --skip-existing): clear old page JPEGs
+        # so corrected shorter ranges don't keep stale trailing pages.
+        remove_stale_page_jpegs(out_dir)
 
         try:
             pdf_bytes = pdf_path.read_bytes()
