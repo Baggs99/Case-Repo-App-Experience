@@ -8,6 +8,8 @@ live in routes/auth.py and are public.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from webapp.auth.dependencies import require_auth
@@ -24,6 +26,9 @@ from webapp.templating import render
 
 
 router = APIRouter()
+
+# Default destination for "← Back to results" when no return_to is provided.
+DEFAULT_BACK_URL = "/search"
 
 
 @router.get("/")
@@ -49,6 +54,9 @@ def index(
         "cases":   cases,
         "total":   total,
         "total_cases": total if filters.is_empty() else _count_all_cases(),
+        # Mirrors the URL the home page would render at; lets templated case
+        # links carry a return_to back to the same filtered view.
+        "return_url": filters.to_search_url(),
     })
 
 
@@ -56,6 +64,7 @@ def index(
 def case_detail(
     request: Request,
     case_id: int,
+    return_to: Optional[str] = None,
     user: User = Depends(require_auth),
 ):
     case = get_case_by_id(case_id)
@@ -70,6 +79,7 @@ def case_detail(
         "case": case,
         "preview_knit_url": knit_u,
         "vote_state": vote_state,
+        "back_url": _safe_back_url(return_to),
     })
 
 
@@ -87,3 +97,17 @@ def _count_all_cases() -> int:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM cases;")
             return cur.fetchone()[0]
+
+
+def _safe_back_url(candidate: Optional[str]) -> str:
+    """Accept only same-origin paths; otherwise fall back to DEFAULT_BACK_URL.
+
+    Rejects ``//evil.example`` (protocol-relative), absolute URLs, and any
+    value that doesn't start with a single ``/``. This keeps the link from
+    being abused as an open-redirect vector.
+    """
+    if not candidate:
+        return DEFAULT_BACK_URL
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return DEFAULT_BACK_URL
+    return candidate

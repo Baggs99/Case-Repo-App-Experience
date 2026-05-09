@@ -14,9 +14,10 @@
 </div>
 
 {% if cases %}
+{% set _return_to = return_url or "/search" %}
 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     {% for c in cases %}
-    <a href="/cases/{{ c.id }}"
+    <a href="/cases/{{ c.id }}?return_to={{ _return_to|urlencode }}"
        class="block bg-white rounded-lg border border-slate-200 hover:border-slate-400 hover:shadow-sm transition p-4">
 
         <div class="flex items-start justify-between gap-3">

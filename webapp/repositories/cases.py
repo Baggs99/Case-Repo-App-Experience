@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlencode
 
 from psycopg.rows import dict_row
 
@@ -83,6 +84,29 @@ class SearchFilters:
         return all(v is None for v in (
             self.q, self.difficulty, self.industry, self.case_type, self.school,
         ))
+
+    def to_query_string(self, *, include_blanks: bool = True) -> str:
+        """Encode the filters as a ``key=value&...`` query string.
+
+        ``include_blanks=True`` mirrors the form's submit shape (every field
+        present, empty when unset) — keeping the resulting URL stable so it
+        round-trips cleanly through ``hx-push-url`` and the browser cache.
+        """
+        pairs = [
+            ("q",          self.q          or ""),
+            ("difficulty", self.difficulty or ""),
+            ("industry",   self.industry   or ""),
+            ("case_type",  self.case_type  or ""),
+            ("school",     self.school     or ""),
+        ]
+        if not include_blanks:
+            pairs = [(k, v) for k, v in pairs if v]
+        return urlencode(pairs)
+
+    def to_search_url(self) -> str:
+        """``/search?...`` URL that re-renders this filter set as a full page."""
+        qs = self.to_query_string()
+        return f"/search?{qs}" if qs else "/search"
 
 
 # Single SQL string handles every combination of filters: each `IS NULL OR ...`

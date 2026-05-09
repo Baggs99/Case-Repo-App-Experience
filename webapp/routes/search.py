@@ -46,17 +46,32 @@ def search(
     )
     settings = request.app.state.settings
     cases, total = search_cases(filters, limit=settings.search_result_limit)
+    return_url = filters.to_search_url()
 
     if not _is_htmx(request):
         options = get_filter_options()
-        return render(request, "index.html", {
+        response = render(request, "index.html", {
             "filters": filters,
             "options": options,
             "cases": cases,
             "total": total,
             "total_cases": total if filters.is_empty() else _count_all_cases(),
+            "return_url": return_url,
         })
+        # Vary on both branches so any HTTP cache keys the layout-less
+        # fragment separately from the full page at the same URL.
+        response.headers["Vary"] = "HX-Request"
+        return response
 
-    return render(request, "_search_results.html", {
+    response = render(request, "_search_results.html", {
         "cases": cases, "total": total, "filters": filters,
+        "return_url": return_url,
     })
+    # Browsers must not serve this layout-less fragment when the user later
+    # navigates back to /search?... as a full document — that's what produced
+    # the "unstyled page after Back" bug. Vary tells caches the fragment is
+    # specific to HTMX requests; no-store skips the cache entirely as belt
+    # and suspenders against intermediaries that ignore Vary.
+    response.headers["Vary"] = "HX-Request"
+    response.headers["Cache-Control"] = "no-store"
+    return response
