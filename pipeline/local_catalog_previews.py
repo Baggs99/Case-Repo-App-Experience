@@ -18,6 +18,25 @@ from pipeline.preview_generation import rasterize_pdf_bytes_to_dir
 logger = logging.getLogger(__name__)
 
 
+def norm_only_source_prefix(s: str) -> str:
+    """Normalize ``--only-source`` for prefix matching (POSIX, no leading slash)."""
+    return s.replace("\\", "/").strip().strip("/")
+
+
+def pdf_matches_only_source(pdf_path: Path, repo_root: Path, prefix: str | None) -> bool:
+    """True if *pdf_path* lives under ``output/cases/<prefix>/``."""
+    if not prefix:
+        return True
+    p = norm_only_source_prefix(prefix)
+    cases_root = (repo_root / "output" / "cases").resolve()
+    try:
+        rel = pdf_path.resolve().relative_to(cases_root)
+    except ValueError:
+        return False
+    key = rel.as_posix()
+    return key == p or key.startswith(f"{p}/")
+
+
 def _is_blank(val: Any) -> bool:
     if val is None:
         return True
@@ -72,11 +91,13 @@ def generate_previews_from_catalog_csv(
     limit: int | None,
     skip_existing: bool,
     verbose: bool,
-) -> dict[str, int]:
+    only_source: str | None = None,
+) -> dict[str, int | list[tuple[str, str, int]]]:
     """
     Read catalog rows; rasterise each ``output_pdf_path`` PDF.
 
-    Returns counts: ok, skip_existing, skip_missing_pdf, skip_bad_row, fail.
+    Returns counts: ok, skip_existing, skip_only_source, skip_missing_pdf,
+    skip_bad_row, fail.
     """
     if catalog_path.suffix.lower() in {".xlsx", ".xlsm"}:
         df = pd.read_excel(catalog_path)
@@ -97,7 +118,9 @@ def generate_previews_from_catalog_csv(
     if limit is not None:
         rows = rows.head(max(0, int(limit)))
 
-    ok = skip_ex = skip_pdf = skip_bad = fail = 0
+    ok = skip_ex = skip_pdf = skip_bad = fail = skip_source = 0
+    processed: list[tuple[str, str, int]] = []
+    previews_root = (repo_root / "output" / "previews_local").resolve()
 
     for _, raw in rows.iterrows():
         title = raw.get("case_title")
@@ -116,6 +139,10 @@ def generate_previews_from_catalog_csv(
         if pdf_path is None:
             logger.warning("PDF not found for %r — catalog path %r", title, pdf_cell)
             skip_pdf += 1
+            continue
+
+        if only_source and not pdf_matches_only_source(pdf_path, repo_root, only_source):
+            skip_source += 1
             continue
 
         out_dir = previews_local_out_dir(pdf_path, repo_root)
@@ -142,14 +169,26 @@ def generate_previews_from_catalog_csv(
             fail += 1
             continue
 
+        try:
+            rel_prev = out_dir.resolve().relative_to(previews_root).as_posix()
+        except ValueError:
+            rel_prev = out_dir.resolve().relative_to(repo_root).as_posix()
+        title_s = str(title).strip() if title is not None and not _is_blank(title) else pdf_path.name
+        processed.append((title_s, rel_prev, written))
+
         if verbose:
             logger.info("%s → %d page(s) → %s", title, written, out_dir.relative_to(repo_root))
         ok += 1
+
+    total_jpegs = sum(p[2] for p in processed)
 
     return {
         "ok": ok,
         "skip_existing": skip_ex,
         "skip_missing_pdf": skip_pdf,
         "skip_bad_row": skip_bad,
+        "skip_only_source": skip_source,
         "fail": fail,
+        "processed": processed,
+        "total_page_jpegs_written": total_jpegs,
     }

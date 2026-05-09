@@ -15,6 +15,43 @@ from models.case import CaseMetadata
 logger = logging.getLogger(__name__)
 
 
+def norm_manifest_source_pdf(raw: str) -> str:
+    return raw.replace("\\", "/").strip()
+
+
+def merge_manifest_replace_sources(
+    *,
+    baseline_path: Path,
+    processed_source_pdfs: set[str],
+    new_cases: List[CaseMetadata],
+) -> List[CaseMetadata]:
+    """
+    Starting from *baseline_path*, remove every entry whose ``source_pdf`` is in
+    *processed_source_pdfs*, then splice in *new_cases* where the first removed
+    block was (manifest order preserved for all other rows).
+    """
+    with open(baseline_path, encoding="utf-8") as f:
+        old: list[dict] = json.load(f)
+
+    repl = {norm_manifest_source_pdf(s) for s in processed_source_pdfs}
+    out: List[CaseMetadata] = []
+    inserted = False
+
+    for entry in old:
+        sp = norm_manifest_source_pdf(entry.get("source_pdf") or "")
+        if sp in repl:
+            if not inserted:
+                out.extend(new_cases)
+                inserted = True
+            continue
+        out.append(CaseMetadata.from_manifest_dict(entry))
+
+    if repl and not inserted:
+        out.extend(new_cases)
+
+    return out
+
+
 def write_manifest(cases: List[CaseMetadata], output_root: Path) -> None:
     """Write manifest.json and manifest.csv into output_root."""
     output_root.mkdir(parents=True, exist_ok=True)

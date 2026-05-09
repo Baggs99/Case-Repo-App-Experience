@@ -40,7 +40,7 @@ def determine_output_path(
     """
     folder = make_safe_dirname(doc_record.source_folder)
     stem   = make_safe_dirname(doc_record.stem)
-    slug   = make_case_slug(boundary.title)
+    slug   = boundary.file_slug if boundary.file_slug else make_case_slug(boundary.title)
     return output_root / "cases" / folder / stem / f"{slug}.pdf"
 
 

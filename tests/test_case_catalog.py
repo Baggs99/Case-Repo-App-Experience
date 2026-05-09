@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline.exporters.case_catalog import (
     CATALOG_COLUMNS,
+    CSV_CATALOG_COLUMNS,
     build_catalog,
     normalize_title,
     write_catalog,
@@ -96,6 +97,16 @@ class TestBuildRow:
     def test_manifest_industry_used_when_no_enrichment(self):
         row = _build_row(_make_entry(industry="Technology"))
         assert row["industry"] == "Technology"
+
+    def test_difficulty_score_maps_normalized_bucket(self):
+        row = _build_row(_make_entry(difficulty_overall="Hard"))
+        assert row["difficulty_normalized"] == "Hard"
+        assert row["difficulty_score"] == 3.0
+
+    def test_difficulty_score_null_when_unknown(self):
+        row = _build_row(_make_entry())
+        assert row["difficulty_normalized"] is None
+        assert row["difficulty_score"] is None
 
     def test_enrichment_overrides_manifest_for_columbia_2021(self):
         entry = _make_entry(
@@ -267,7 +278,7 @@ class TestWriteCatalog:
         with open(csv_p, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             headers = reader.fieldnames
-        assert headers == CATALOG_COLUMNS
+        assert headers == CSV_CATALOG_COLUMNS
 
     def test_csv_row_count(self, tmp_path, tmp_manifest):
         import csv
@@ -306,6 +317,6 @@ class TestWriteCatalog:
         import csv, openpyxl
         with open(csv_p, encoding="utf-8-sig") as f:
             headers = next(csv.reader(f))
-        assert headers == CATALOG_COLUMNS
+        assert headers == CSV_CATALOG_COLUMNS
         wb = openpyxl.load_workbook(str(xlsx_p))
         assert wb["Cases"].max_row == 1

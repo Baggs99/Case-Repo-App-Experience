@@ -51,6 +51,9 @@ class CaseBoundary:
     # Short tokens like "too_few_pages", "title_mismatch_on_start_page", …
     review_flags: List[str] = field(default_factory=list)
 
+    # Optional filesystem slug for output PDF (when slugify(title) is not desired).
+    file_slug: Optional[str] = None
+
     # ── Derived ──────────────────────────────────────────────────────────────
     @property
     def page_count(self) -> int:
@@ -74,6 +77,7 @@ class CaseBoundary:
             confidence_notes=list(self.confidence_notes),
             needs_manual_review=self.needs_manual_review,
             review_flags=list(self.review_flags),
+            file_slug=self.file_slug,
         )
 
 
@@ -130,6 +134,37 @@ class CaseMetadata:
     @classmethod
     def new_id(cls) -> str:
         return str(uuid.uuid4())
+
+    @classmethod
+    def from_manifest_dict(cls, d: dict) -> CaseMetadata:
+        """Rehydrate from a manifest.json entry (lists, not semicolon-joined)."""
+        return cls(
+            id=d["id"],
+            case_title=d["case_title"],
+            source_pdf=d["source_pdf"],
+            source_folder=d["source_folder"],
+            source_school=d["source_school"],
+            source_year=d.get("source_year"),
+            page_start=int(d["page_start"]),
+            page_end=int(d["page_end"]),
+            page_count=int(d["page_count"]),
+            output_pdf_path=d["output_pdf_path"],
+            extraction_confidence=float(d["extraction_confidence"]),
+            detection_method=d["detection_method"],
+            needs_manual_review=bool(d["needs_manual_review"]),
+            industry=d.get("industry"),
+            case_type=d.get("case_type"),
+            difficulty_overall=d.get("difficulty_overall"),
+            difficulty_quant=d.get("difficulty_quant"),
+            difficulty_qual=d.get("difficulty_qual"),
+            interviewer_style=d.get("interviewer_style"),
+            prompt_excerpt=d.get("prompt_excerpt"),
+            matched_toc_title=d.get("matched_toc_title"),
+            matched_start_page_text=d.get("matched_start_page_text"),
+            matched_patterns=list(d.get("matched_patterns") or []),
+            confidence_notes=list(d.get("confidence_notes") or []),
+            review_flags=list(d.get("review_flags") or []),
+        )
 
     # ── Serialisation ─────────────────────────────────────────────────────────
 

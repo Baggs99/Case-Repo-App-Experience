@@ -25,11 +25,11 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
-from pipeline.exporters.enrichment import booth_2021, booth_2026, columbia_2017, columbia_2021, darden_2017, darden_2018_2019, darden_2021, darden_2024, fuqua_2026, harvard_2002, kellogg_2016, kellogg_2023, kellogg_2024, mit_2011, ross_2019, ross_2022, ross_2024, stern_2021, stern_2025, tuck_2024, wharton_2017, yale_2024, yale_2025
+from pipeline.exporters.enrichment import booth_2021, booth_2026, columbia_2017, columbia_2021, darden_2017, darden_2018_2019, darden_2021, darden_2024, fuqua_2017, fuqua_2026, harvard_2002, kellogg_2016, kellogg_2023, kellogg_2024, mit_2011, ross_2019, ross_2022, ross_2024, stern_2021, stern_2025, tuck_2024, wharton_2017, yale_2024, yale_2025
 from pipeline.exporters.enrichment.source_school_resolver import resolve_source_school, infer_from_filename
 from pipeline.exporters.enrichment.source_year_resolver import resolve_source_year, is_valid_year
 from pipeline.exporters.enrichment.case_type_normalizer import normalize_case_type, ALLOWED_CASE_TYPES
@@ -58,6 +58,7 @@ CATALOG_COLUMNS = [
     "difficulty",
     "difficulty_raw",
     "difficulty_normalized",
+    "difficulty_score",
     "difficulty_quant",
     "difficulty_qual",
     "difficulty_math",
@@ -101,6 +102,7 @@ _COL_WIDTHS: dict[str, int] = {
     "difficulty":            13,
     "difficulty_raw":        28,
     "difficulty_normalized": 16,
+    "difficulty_score":      14,
     "difficulty_quant":      17,
     "difficulty_qual":       15,
     "difficulty_math":       17,
@@ -125,6 +127,9 @@ _COL_WIDTHS: dict[str, int] = {
     "output_pdf_path":             52,
 }
 
+# CSV mirrors CATALOG_COLUMNS but drops XLSX-only hyperlink placeholders.
+CSV_CATALOG_COLUMNS = [c for c in CATALOG_COLUMNS if c != "open_case"]
+
 
 # ── Enrichment registry ────────────────────────────────────────────────────────
 
@@ -143,6 +148,7 @@ _ENRICHMENT_REGISTRY: list[tuple] = [
     (lambda pdf: _matches(pdf, darden_2018_2019.PDF_MATCH),  darden_2018_2019.ENRICHMENT),
     (lambda pdf: _matches(pdf, darden_2021.PDF_MATCH),       darden_2021.ENRICHMENT),
     (lambda pdf: _matches(pdf, darden_2024.PDF_MATCH),       darden_2024.ENRICHMENT),
+    (lambda pdf: _matches(pdf, fuqua_2017.PDF_MATCH),        fuqua_2017.ENRICHMENT),
     (lambda pdf: _matches(pdf, fuqua_2026.PDF_MATCH),        fuqua_2026.ENRICHMENT),
     (lambda pdf: _matches(pdf, harvard_2002.PDF_MATCH),      harvard_2002.ENRICHMENT),
     (lambda pdf: _matches(pdf, mit_2011.PDF_MATCH),          mit_2011.ENRICHMENT),
@@ -186,6 +192,25 @@ def normalize_title(title: str) -> str:
     t = re.sub(r"[^\w\s]", " ", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+def difficulty_bucket_to_score(bucket: Optional[str]) -> Optional[float]:
+    """
+    Map normalized difficulty to a 1–3 score for publishing / sorting.
+
+    Aligns with ``postgres.publish_catalog`` expectations (numeric 0–10 allowed;
+    we use 1 / 2 / 3 for Easy / Medium / Hard). Unknown or blank → None.
+    """
+    if bucket is None or bucket == "":
+        return None
+    b = str(bucket).strip()
+    if b == "Easy":
+        return 1.0
+    if b == "Medium":
+        return 2.0
+    if b == "Hard":
+        return 3.0
+    return None
 
 
 # ── Core builder ──────────────────────────────────────────────────────────────
@@ -353,6 +378,8 @@ def _build_row(entry: dict) -> dict[str, Any]:
         _case_type, source_school=resolved_source_school, industry=_industry
     )
 
+    diff_score = difficulty_bucket_to_score(diff_norm)
+
     return {
         "case_title":            title,   # becomes HYPERLINK in XLSX; plain text in CSV
         "case_title_raw":        title,   # always plain text
@@ -373,6 +400,7 @@ def _build_row(entry: dict) -> dict[str, Any]:
         "difficulty":            _pre_row_for_difficulty["difficulty"],
         "difficulty_raw":        diff_raw,
         "difficulty_normalized": diff_norm,
+        "difficulty_score":      diff_score,
         "difficulty_quant":      _pick("difficulty_quant"),
         "difficulty_qual":       _pick("difficulty_qual"),
         "difficulty_math":       _pick("difficulty_quant",  "difficulty_math"),
@@ -485,8 +513,7 @@ def write_catalog(
     xlsx_path = output_dir / "case_catalog.xlsx"
 
     # ── CSV — plain text, no formulas, drop open_case placeholder ────────────
-    csv_cols = [c for c in CATALOG_COLUMNS if c != "open_case"]
-    df[csv_cols].to_csv(csv_path, index=False, encoding="utf-8-sig")
+    df[CSV_CATALOG_COLUMNS].to_csv(csv_path, index=False, encoding="utf-8-sig")
     logger.info("Wrote CSV catalog: %s (%d rows)", csv_path, len(df))
 
     # ── XLSX — includes clickable hyperlink formulas ──────────────────────────

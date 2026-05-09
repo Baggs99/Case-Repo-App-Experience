@@ -27,7 +27,7 @@ from models.case import CaseBoundary, CaseMetadata
 from models.document import PDFDocument
 from pipeline.classifier import classify_document
 from pipeline.metadata_extractor import build_case_metadata
-from pipeline.manifest import write_manifest, write_review_queue
+from pipeline.manifest import merge_manifest_replace_sources, write_manifest, write_review_queue
 from pipeline.parsers.header_pattern import HeaderPatternParser
 from pipeline.parsers.profiles import get_profile, apply_config_overrides
 from pipeline.parsers.profiles.columbia_2017 import Columbia2017Parser
@@ -49,6 +49,7 @@ from pipeline.parsers.profiles.yale_2025 import Yale2025Parser
 from pipeline.parsers.profiles.booth_2021 import Booth2021Parser
 from pipeline.parsers.profiles.booth_2026 import Booth2026Parser
 from pipeline.parsers.profiles.darden_2024 import Darden2024Parser
+from pipeline.parsers.profiles.fuqua_2017 import Fuqua2017Parser
 from pipeline.parsers.profiles.fuqua_2026 import Fuqua2026Parser
 from pipeline.parsers.profiles.harvard_2002 import Harvard2002Parser
 from pipeline.parsers.profiles.mit_2011 import MIT2011Parser
@@ -69,11 +70,16 @@ def run_pipeline(
     output_root: Path,
     config,
     dry_run: bool = False,
+    merge_manifest_path: Optional[Path] = None,
 ) -> List[CaseMetadata]:
     """
     Process every document and return the complete list of CaseMetadata.
 
     When dry_run=True no files are written (PDFs, manifests, or review queue).
+
+    When *merge_manifest_path* points to an existing manifest, the written
+    manifest is the merge of that file with the cases produced in this run
+    (old rows for any processed ``source_pdf`` are replaced by the new rows).
     """
     all_cases: List[CaseMetadata] = []
 
@@ -96,15 +102,30 @@ def run_pipeline(
     logger.info("Running QA checks on %d cases…", len(all_cases))
     all_cases = run_qa(all_cases, documents, config)
 
+    manifest_cases = all_cases
+    if merge_manifest_path and merge_manifest_path.is_file() and documents:
+        processed_sources = {d.relative_path.replace("\\", "/") for d in documents}
+        manifest_cases = merge_manifest_replace_sources(
+            baseline_path=merge_manifest_path,
+            processed_source_pdfs=processed_sources,
+            new_cases=all_cases,
+        )
+        logger.info(
+            "Merged manifest: %d cases this run → %d total rows (baseline %s)",
+            len(all_cases),
+            len(manifest_cases),
+            merge_manifest_path,
+        )
+
     # ── Write outputs ─────────────────────────────────────────────────────────
     if not dry_run:
-        write_manifest(all_cases, output_root)
-        write_review_queue(all_cases, output_root)
+        write_manifest(manifest_cases, output_root)
+        write_review_queue(manifest_cases, output_root)
     else:
-        n_review = sum(1 for c in all_cases if c.needs_manual_review)
+        n_review = sum(1 for c in manifest_cases if c.needs_manual_review)
         logger.info(
             "[DRY-RUN] would write %d manifest entries, %d review items",
-            len(all_cases), n_review,
+            len(manifest_cases), n_review,
         )
 
     # ── Summary ───────────────────────────────────────────────────────────────
@@ -277,6 +298,12 @@ def _is_darden_2024(doc_record: PDFDocument) -> bool:
     return "Darden 2024" in doc_record.filename or "Darden 2023-24 Casebook" in doc_record.filename
 
 
+def _is_fuqua_2017(doc_record: PDFDocument) -> bool:
+    """True when the source PDF is the Duke Fuqua Case Book 2017."""
+    name = doc_record.filename
+    return "Fuqua 2017" in name and "Fuqua 2026" not in name
+
+
 def _is_fuqua_2026(doc_record: PDFDocument) -> bool:
     """True when the source PDF is the Duke Fuqua Case Book 2026."""
     return "Fuqua 2026" in doc_record.filename
@@ -352,6 +379,8 @@ def _detect_boundaries(
         return Booth2026Parser().parse(doc, config)
     if _is_darden_2024(doc_record):
         return Darden2024Parser().parse(doc, config)
+    if _is_fuqua_2017(doc_record):
+        return Fuqua2017Parser().parse(doc, config)
     if _is_fuqua_2026(doc_record):
         return Fuqua2026Parser().parse(doc, config)
     if _is_harvard_2002(doc_record):

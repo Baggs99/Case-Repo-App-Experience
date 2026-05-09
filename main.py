@@ -254,6 +254,13 @@ def scan(input_dir: str, config_path: str, verbose: bool):
               help="Enable DEBUG-level logging.")
 @click.option("--log-file", "log_file", default=None,
               help="Optional file path for full DEBUG log.")
+@click.option("--only-source", "only_source", default=None,
+              help="Only split PDFs whose path relative to --input matches this "
+                   "POSIX prefix or exact relative file (example: Yale/Fuqua 2017.pdf).")
+@click.option("--merge-manifest", "merge_manifest_file", default=None,
+              help="After splitting, rebuild manifest.json & manifest.csv by replacing "
+                   "rows for any processed source_pdf in this baseline file; keeps all "
+                   "other rows.")
 def split(
     input_dir: str,
     output_dir: str,
@@ -262,6 +269,8 @@ def split(
     clean: bool,
     verbose: bool,
     log_file: str | None,
+    only_source: str | None,
+    merge_manifest_file: str | None,
 ):
     """
     Full pipeline: scan → classify → parse boundaries → split PDFs → manifest.
@@ -273,6 +282,10 @@ def split(
       {output}/review_queue.csv
 
     Use --clean to wipe stale files from previous runs before writing.
+
+    To re-split a single casebook without dropping other manifest rows, pass
+    ``--only-source Yale/Fuqua 2017.pdf`` and ``--merge-manifest output/manifest.json``
+    (path to the current manifest under the same ``--output`` tree).
     """
     import shutil
 
@@ -300,7 +313,41 @@ def split(
         click.echo("No PDFs found. Check your --input path.")
         raise SystemExit(0)
 
-    run_pipeline(documents, out, config, dry_run=dry_run)
+    def _norm_only_src(s: str) -> str:
+        return s.replace("\\", "/").strip().strip("/")
+
+    if only_source:
+        pfx = _norm_only_src(only_source)
+        before = len(documents)
+        documents = [
+            d for d in documents
+            if (rp := d.relative_path.replace("\\", "/")) == pfx
+            or rp.startswith(f"{pfx}/")
+        ]
+        click.echo(
+            f"  Filter (--only-source): {len(documents)} of {before} PDF(s) "
+            f"(prefix {only_source!r})"
+        )
+        if not documents:
+            click.echo("No PDFs matched --only-source.", err=True)
+            raise SystemExit(1)
+
+    merge_path: Path | None = None
+    if merge_manifest_file:
+        merge_path = Path(merge_manifest_file)
+        if not merge_path.is_absolute():
+            merge_path = out / merge_path
+        if not merge_path.is_file():
+            click.echo(f"ERROR: --merge-manifest not found: {merge_path}", err=True)
+            raise SystemExit(2)
+
+    run_pipeline(
+        documents,
+        out,
+        config,
+        dry_run=dry_run,
+        merge_manifest_path=merge_path,
+    )
 
     if not dry_run:
         click.echo(f"\nManifest: {out / 'manifest.json'}")
@@ -502,6 +549,8 @@ def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
               help="case_catalog.csv or .xlsx with output_pdf_path + page_count.")
 @click.option("--match", "match_substr", default=None,
               help="Only rows whose case_title contains this substring (case-insensitive).")
+@click.option("--only-source", "only_source", default=None,
+              help="Only PDFs under output/cases/<prefix>/ (e.g. Yale/Fuqua 2017). Forward slashes.")
 @click.option("--limit", type=int, default=None,
               help="Process at most N catalog rows after filtering.")
 @click.option("--skip-existing", is_flag=True, default=False,
@@ -511,6 +560,7 @@ def apply_sql_migration_cmd(relative_sql_path: str, database_url: str | None):
 def generate_previews_local_cmd(
     catalog_path: str,
     match_substr: str | None,
+    only_source: str | None,
     limit: int | None,
     skip_existing: bool,
     verbose: bool,
@@ -552,18 +602,32 @@ def generate_previews_local_cmd(
             limit=limit,
             skip_existing=skip_existing,
             verbose=verbose,
+            only_source=only_source,
         )
     except Exception as exc:
         click.echo(f"ERROR: {exc}", err=True)
         raise SystemExit(2)
 
+    processed = stats.get("processed") or []
+    total_jpegs = stats.get("total_page_jpegs_written", 0)
+
+    click.echo("\nSummary — cases rasterised (new / updated page JPEGs this run):")
+    if processed:
+        for title, rel_prev, n_pages in processed:
+            click.echo(f"  • {title}")
+            click.echo(f"      → {n_pages} page JPEG(s) under output/previews_local/{rel_prev}/")
+    else:
+        click.echo("  (none)")
+
     click.echo(
         "\nDone:\n"
-        f"  rasterised ok:     {stats['ok']}\n"
-        f"  skipped (exists):  {stats['skip_existing']}\n"
-        f"  PDF not on disk:   {stats['skip_missing_pdf']}\n"
-        f"  bad catalog row:   {stats['skip_bad_row']}\n"
-        f"  failed:            {stats['fail']}\n"
+        f"  cases rasterised ok:      {stats['ok']}\n"
+        f"  page JPEG files written:  {total_jpegs}\n"
+        f"  skipped (exists):        {stats['skip_existing']}\n"
+        f"  skipped (--only-source): {stats['skip_only_source']}\n"
+        f"  PDF not on disk:        {stats['skip_missing_pdf']}\n"
+        f"  bad catalog row:        {stats['skip_bad_row']}\n"
+        f"  failed:                  {stats['fail']}\n"
         f"\nJPEG root: {repo_root / 'output' / 'previews_local'}\n"
     )
 
@@ -582,6 +646,8 @@ def generate_previews_local_cmd(
               help="Pixels between stacked pages.")
 @click.option("--skip-existing", is_flag=True, default=False,
               help="Skip if dest JPEG already exists.")
+@click.option("--only-source", "only_source", default=None,
+              help="Only folders under previews_root/<prefix>/ (e.g. Yale/Fuqua 2017). Forward slashes.")
 @click.option("--verbose", is_flag=True, default=False,
               help="Enable DEBUG logging.")
 def knit_previews_local_cmd(
@@ -589,6 +655,7 @@ def knit_previews_local_cmd(
     out_filename: str,
     gap_px: int,
     skip_existing: bool,
+    only_source: str | None,
     verbose: bool,
 ):
     """
@@ -604,6 +671,7 @@ def knit_previews_local_cmd(
     from pipeline.preview_knit import (
         find_case_preview_directories,
         knit_preview_folder_to_jpeg,
+        preview_folder_matches_only_source,
     )
 
     repo_root = Path(__file__).resolve().parent
@@ -612,12 +680,19 @@ def knit_previews_local_cmd(
         root = (repo_root / root).resolve()
 
     dirs = find_case_preview_directories(root)
+    if only_source:
+        dirs = [d for d in dirs if preview_folder_matches_only_source(d, root, only_source)]
     if not dirs:
-        click.echo(f"No case folders with page-001.jpg under {root}", err=True)
+        msg = (
+            f"No case folders with page-001.jpg under {root}"
+            + (f" matching --only-source {only_source!r}" if only_source else "")
+        )
+        click.echo(msg, err=True)
         raise SystemExit(1)
 
     ok = skip = fail = 0
     dest_name = out_filename.strip() or "preview-knit.jpg"
+    knitted_paths: list[str] = []
 
     for folder in dirs:
         dest = folder / dest_name
@@ -632,6 +707,8 @@ def knit_previews_local_cmd(
             )
             if wrote:
                 ok += 1
+                rel = folder.relative_to(root).as_posix()
+                knitted_paths.append(f"{rel}/{dest_name}")
                 if verbose:
                     click.echo(f"  {folder.relative_to(root)} → {dest_name}")
             else:
@@ -640,9 +717,18 @@ def knit_previews_local_cmd(
             click.echo(f"ERROR {folder}: {exc}", err=True)
             fail += 1
 
+    click.echo("\nSummary — preview-knit.jpg written:")
+    if knitted_paths:
+        for line in sorted(knitted_paths):
+            click.echo(f"  • output/previews_local/{line}")
+    else:
+        click.echo("  (none this run)")
+
     click.echo(
-        f"\nDone: knitted={ok} skipped={skip} failed={fail}\n"
+        f"\nDone: case folders scanned: {len(dirs)}; "
+        f"preview-knit.jpg created: {ok}; skipped: {skip}; failed: {fail}\n"
         f"Root: {root}\n"
+        + (f"only-source: {only_source!r}\n" if only_source else "")
     )
 
 

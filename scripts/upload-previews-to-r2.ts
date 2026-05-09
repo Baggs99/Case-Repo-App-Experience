@@ -22,6 +22,7 @@
  * Usage:
  *   npm run upload:previews -- --dry-run
  *   npm run upload:previews
+ *   npm run upload:previews -- --only-source "Yale/Fuqua 2017"
  */
 
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -55,6 +56,29 @@ function normPdfKey(p: string): string {
 
 function relPosix(absDir: string, previewsRoot: string): string {
   return path.relative(previewsRoot, absDir).split(path.sep).join("/");
+}
+
+function normPrefix(s: string): string {
+  return s.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function folderMatchesOnlySource(folderRel: string, prefix: string): boolean {
+  const p = prefix.replace(/\/+$/, "");
+  return folderRel === p || folderRel.startsWith(`${p}/`);
+}
+
+function parseOnlySource(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--only-source") {
+      const v = argv[++i];
+      if (!v || v.startsWith("--")) {
+        console.error("--only-source requires a path prefix value.");
+        process.exit(1);
+      }
+      return normPrefix(v);
+    }
+  }
+  return undefined;
 }
 
 async function collectCaseFolders(previewsRoot: string): Promise<string[]> {
@@ -153,7 +177,9 @@ async function loadPdfToSlugMap(): Promise<{ map: Map<string, string>; source: "
 }
 
 async function main(): Promise<void> {
-  const dryRun = process.argv.includes("--dry-run");
+  const argv = process.argv.slice(2);
+  const dryRun = argv.includes("--dry-run");
+  const onlySource = parseOnlySource(argv);
 
   const previewsRel = process.env.PREVIEWS_LOCAL_ROOT?.trim() || "output/previews_local";
   const previewsRoot = path.isAbsolute(previewsRel)
@@ -197,9 +223,14 @@ async function main(): Promise<void> {
   let unmatchedMapped: string[] = [];
 
   const folders = await collectCaseFolders(previewsRoot);
+  let skippedFilter = 0;
 
   for (const folderRel of folders) {
     if (!folderRel) continue;
+    if (onlySource && !folderMatchesOnlySource(folderRel, onlySource)) {
+      skippedFilter++;
+      continue;
+    }
     const pdfPathKey = normPdfKey(`${folderRel}.pdf`);
     const slug = pdfToSlug.get(pdfPathKey);
     if (!slug) {
@@ -242,8 +273,10 @@ async function main(): Promise<void> {
   }
 
   console.log("\n=== summary ===");
+  if (onlySource) console.log("--only-source:", onlySource);
   console.log("slug map source:", mapSource);
   console.log("cases matched & processed:", matched);
+  if (onlySource) console.log("skipped (outside --only-source):", skippedFilter);
   console.log("files " + (dryRun ? "would upload" : "uploaded") + ":", filesUploaded);
   console.log("unmatched local folders:", unmatchedLocal.length);
   if (unmatchedLocal.length) {

@@ -12,6 +12,25 @@ from pathlib import Path
 _PAGE_RE = re.compile(r"^page-(\d+)\.jpg$", re.IGNORECASE)
 
 
+def _norm_only_source_prefix(s: str) -> str:
+    return s.replace("\\", "/").strip().strip("/")
+
+
+def preview_folder_matches_only_source(
+    folder: Path, previews_root: Path, only_source: str | None
+) -> bool:
+    """True if *folder* is under ``previews_root/<only_source>/``."""
+    if not only_source:
+        return True
+    p = _norm_only_source_prefix(only_source)
+    try:
+        rel = folder.resolve().relative_to(previews_root.resolve())
+    except ValueError:
+        return False
+    key = rel.as_posix()
+    return key == p or key.startswith(f"{p}/")
+
+
 def _sorted_page_jpegs(folder: Path) -> list[Path]:
     pairs: list[tuple[int, Path]] = []
     for p in folder.iterdir():

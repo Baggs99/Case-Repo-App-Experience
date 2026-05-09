@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "generate-previews-local": "tsx scripts/generate-previews-local.ts",
+    "knit-previews-local": "tsx scripts/knit-previews-local.ts",
+    "upload:cases": "tsx scripts/upload-cases-to-r2.ts",
     "upload:previews": "tsx scripts/upload-previews-to-r2.ts",
     "export:preview-slugs": "tsx scripts/export-preview-slugs.ts"
   },
