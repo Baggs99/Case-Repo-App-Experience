@@ -14,121 +14,152 @@ function casePdfNavigate(caseId, action) {
   }
 }
 </script>
-<div class="max-w-6xl mx-auto px-6 py-8">
+
+<style type="text/tailwindcss">
+  @layer components {
+    .vote-btn {
+      @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition
+             border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300
+             dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800;
+    }
+    .vote-btn[data-state="useful"] {
+      @apply border-emerald-300 bg-emerald-50 text-emerald-800
+             dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300;
+    }
+    .vote-btn[data-state="not_useful"] {
+      @apply border-rose-300 bg-rose-50 text-rose-800
+             dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300;
+    }
+  }
+</style>
+
+<div class="max-w-5xl mx-auto px-5 sm:px-6 pt-5 sm:pt-6 pb-12 animate-fade-up">
 
     <a href="{{ back_url }}"
-       class="text-sm text-slate-500 hover:text-slate-900 mb-4 inline-flex items-center gap-1">
-        ← Back to results
+       class="btn-ghost mb-4 text-[13px]">
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Back to results
     </a>
 
-    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6 mb-6">
-        <div class="flex items-start justify-between gap-4 mb-4">
-            <div>
-                <h1 class="text-2xl font-semibold tracking-tight">{{ case.case_title }}</h1>
-                <p class="text-sm text-slate-500 mt-1">
-                    {{ case.source_school }}{% if case.source_year %} · {{ case.source_year }}{% endif %}
-                </p>
+    {# ── Header card ─────────────────────────────────────────────────────── #}
+    <div class="surface rounded-2xl shadow-card p-5 sm:p-6 mb-5">
+        <div class="flex items-start justify-between gap-4">
+            <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2 text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500">
+                    <span>{{ case.source_school }}</span>
+                    {% if case.source_year %}<span class="text-slate-300 dark:text-slate-700">/</span><span>{{ case.source_year }}</span>{% endif %}
+                </div>
+                <h1 class="mt-1.5 text-2xl sm:text-[28px] font-semibold tracking-tight leading-[1.15] text-slate-900 dark:text-slate-50">
+                    {{ case.case_title }}
+                </h1>
             </div>
             {% if case.difficulty %}
-            <span class="shrink-0 text-sm px-3 py-1 rounded-md
-                {% if case.difficulty == 'Easy' %}bg-emerald-50 text-emerald-700 border border-emerald-200
-                {% elif case.difficulty == 'Medium' %}bg-amber-50 text-amber-700 border border-amber-200
-                {% else %}bg-rose-50 text-rose-700 border border-rose-200{% endif %}">
+            <span class="badge !text-[11px] !px-2 !py-0.5 shrink-0
+                {% if case.difficulty == 'Easy' %}badge-easy
+                {% elif case.difficulty == 'Medium' %}badge-medium
+                {% else %}badge-hard{% endif %}">
                 {{ case.difficulty }}
             </span>
             {% endif %}
         </div>
 
-        <dl class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            {% if case.industry %}
+        <dl class="mt-5 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 text-[13px] border-t border-slate-200/70 dark:border-slate-800 pt-4">
+            {% if case.industry_display %}
             <div>
-                <dt class="text-xs text-slate-500 uppercase tracking-wide">Industry</dt>
-                <dd class="text-slate-900 mt-0.5">{{ case.industry }}</dd>
+                <dt class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500">Industry</dt>
+                <dd class="mt-0.5 text-slate-900 dark:text-slate-100"
+                    {% if case.industry_raw and case.industry_raw|string != case.industry_display|string %}title="{{ case.industry_raw }}"{% endif %}>
+                    {{ case.industry_display }}
+                </dd>
             </div>
             {% endif %}
 
             {% if case.case_type %}
             <div>
-                <dt class="text-xs text-slate-500 uppercase tracking-wide">Case type</dt>
-                <dd class="text-slate-900 mt-0.5">{{ case.case_type }}</dd>
+                <dt class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500">Case type</dt>
+                <dd class="mt-0.5 text-slate-900 dark:text-slate-100">{{ case.case_type }}</dd>
             </div>
             {% endif %}
 
             {% if case.firm %}
             <div>
-                <dt class="text-xs text-slate-500 uppercase tracking-wide">Firm</dt>
-                <dd class="text-slate-900 mt-0.5">{{ case.firm }}</dd>
+                <dt class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500">Firm</dt>
+                <dd class="mt-0.5 text-slate-900 dark:text-slate-100">{{ case.firm }}</dd>
             </div>
             {% endif %}
 
             {% if case.page_count %}
             <div>
-                <dt class="text-xs text-slate-500 uppercase tracking-wide">Pages</dt>
-                <dd class="text-slate-900 mt-0.5">{{ case.page_count }}</dd>
+                <dt class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500">Pages</dt>
+                <dd class="mt-0.5 text-slate-900 dark:text-slate-100 tabular-nums">{{ case.page_count }}</dd>
             </div>
             {% endif %}
         </dl>
 
+        {# ── Vote bar ─────────────────────────────────────────────────────── #}
         <div id="case-vote-root"
-             class="mt-5 pt-5 border-t border-slate-100"
+             class="mt-5 pt-4 border-t border-slate-200/70 dark:border-slate-800"
              data-case-id="{{ case.id }}"
              data-current-vote="{{ vote_state.vote or '' }}"
              data-useful="{{ vote_state.useful_count }}"
              data-not="{{ vote_state.not_useful_count }}"
              data-pct="{{ vote_state.useful_percentage if vote_state.useful_percentage is not none else '' }}">
-            <p class="text-xs text-slate-500 uppercase tracking-wide mb-2">Prep feedback</p>
-            <div class="flex flex-wrap items-center gap-3">
-                <button type="button" id="vote-useful"
-                        class="vote-useful-btn inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition border-slate-200 bg-white text-slate-800 hover:bg-slate-50">
-                    <span aria-hidden="true">👍</span> Useful
-                    <span class="vote-count-useful tabular-nums text-slate-500">({{ vote_state.useful_count }})</span>
+            <p class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-2">Prep feedback</p>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" id="vote-useful" class="vote-btn"
+                        data-state="{% if vote_state.vote == 'useful' %}useful{% endif %}">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 22V11M14 5.5V3a2 2 0 0 0-4 0c0 4-3 5-3 8h12.5a2.5 2.5 0 0 1 2.45 3L19.5 19a2.5 2.5 0 0 1-2.45 2H7"/></svg>
+                    Useful
+                    <span class="vote-count-useful tabular-nums text-slate-500 dark:text-slate-500">({{ vote_state.useful_count }})</span>
                 </button>
-                <button type="button" id="vote-not"
-                        class="vote-not-btn inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border transition border-slate-200 bg-white text-slate-800 hover:bg-slate-50">
-                    <span aria-hidden="true">👎</span> Not useful
-                    <span class="vote-count-not tabular-nums text-slate-500">({{ vote_state.not_useful_count }})</span>
+                <button type="button" id="vote-not" class="vote-btn"
+                        data-state="{% if vote_state.vote == 'not_useful' %}not_useful{% endif %}">
+                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2v11M10 18.5V21a2 2 0 0 0 4 0c0-4 3-5 3-8H4.5A2.5 2.5 0 0 1 2.05 10L4.5 5A2.5 2.5 0 0 1 6.95 3H17"/></svg>
+                    Not useful
+                    <span class="vote-count-not tabular-nums text-slate-500 dark:text-slate-500">({{ vote_state.not_useful_count }})</span>
                 </button>
                 {% if vote_state.useful_percentage is not none %}
-                <span id="vote-pct-wrap" class="text-xs text-slate-500">
-                    <span class="tabular-nums">{{ "%.0f"|format(vote_state.useful_percentage) }}%</span> found this useful
+                <span id="vote-pct-wrap" class="text-xs text-slate-500 dark:text-slate-400">
+                    <span class="tabular-nums font-medium text-slate-700 dark:text-slate-300">{{ "%.0f"|format(vote_state.useful_percentage) }}%</span> found this useful
                 </span>
                 {% else %}
-                <span id="vote-pct-wrap" class="text-xs text-slate-400 hidden">—</span>
+                <span id="vote-pct-wrap" class="text-xs text-slate-500 dark:text-slate-400 hidden"></span>
                 {% endif %}
             </div>
-            <p id="vote-error" class="mt-2 text-sm text-red-600 hidden" role="alert"></p>
+            <p id="vote-error" class="mt-2 text-sm text-rose-600 dark:text-rose-400 hidden" role="alert"></p>
         </div>
 
+        {# ── PDF actions ──────────────────────────────────────────────────── #}
         <div class="mt-5 flex flex-wrap gap-2">
-            <button type="button"
-               onclick="casePdfNavigate({{ case.id }}, 'open_tab')"
-               class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 text-white text-sm rounded-md hover:bg-slate-800 cursor-pointer">
+            <button type="button" onclick="casePdfNavigate({{ case.id }}, 'open_tab')" class="btn-primary">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
                 Open PDF in new tab
             </button>
-            <button type="button"
-               onclick="casePdfNavigate({{ case.id }}, 'download')"
-               class="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded-md hover:bg-slate-50 cursor-pointer bg-white">
+            <button type="button" onclick="casePdfNavigate({{ case.id }}, 'download')" class="btn-secondary">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                 Download
             </button>
         </div>
     </div>
 
+    {# ── Preview ─────────────────────────────────────────────────────────── #}
     {% if preview_knit_url %}
-    <div class="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden mb-6">
-        <div class="px-4 py-3 border-b border-slate-100 bg-slate-50">
-            <h2 class="text-sm font-medium text-slate-800">Case Preview</h2>
+    <div class="surface rounded-2xl shadow-card overflow-hidden mb-5 animate-fade-up" style="animation-delay: 120ms">
+        <div class="px-4 py-2.5 border-b border-slate-200/70 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 flex items-center justify-between">
+            <h2 class="text-sm font-medium text-slate-800 dark:text-slate-200">Case preview</h2>
+            <span class="text-[10px] text-slate-500 dark:text-slate-500 uppercase tracking-[0.08em]">Read-only</span>
         </div>
-        <div class="p-4 sm:p-6">
+        <div class="p-3.5 sm:p-5">
             <figure class="w-full m-0">
                 <img id="preview-knit-img"
                      src="{{ preview_knit_url }}"
                      alt="Case preview"
                      loading="lazy"
                      decoding="async"
-                     class="block w-full max-w-full h-auto rounded-sm border border-slate-200 bg-white shadow-sm" />
+                     class="block w-full max-w-full h-auto rounded-md border border-slate-200/80 dark:border-slate-800 bg-white shadow-soft" />
             </figure>
-            <p id="preview-knit-fallback" class="hidden text-center text-sm text-slate-600 py-8">
-                Preview failed to load — check R2 path in the browser console.
+            <p id="preview-knit-fallback" class="hidden text-center text-sm text-slate-600 dark:text-slate-400 py-8">
+                Preview failed to load &mdash; check R2 path in the browser console.
             </p>
         </div>
     </div>
@@ -188,21 +219,12 @@ function casePdfNavigate(caseId, action) {
         pctWrap.classList.add("hidden");
       } else {
         pctWrap.classList.remove("hidden");
-        pctWrap.textContent = p + "% found this useful";
-        pctWrap.className = "text-xs text-slate-500";
+        pctWrap.innerHTML = '<span class="tabular-nums font-medium text-slate-700 dark:text-slate-300">' + p + '%</span> found this useful';
       }
     }
-    usefulBtn.classList.remove("border-emerald-400", "bg-emerald-50", "text-emerald-900");
-    notBtn.classList.remove("border-rose-400", "bg-rose-50", "text-rose-900");
-    usefulBtn.classList.add("border-slate-200", "bg-white", "text-slate-800");
-    notBtn.classList.add("border-slate-200", "bg-white", "text-slate-800");
-    if (cur === "useful") {
-      usefulBtn.classList.remove("border-slate-200", "bg-white", "text-slate-800");
-      usefulBtn.classList.add("border-emerald-400", "bg-emerald-50", "text-emerald-900");
-    } else if (cur === "not_useful") {
-      notBtn.classList.remove("border-slate-200", "bg-white", "text-slate-800");
-      notBtn.classList.add("border-rose-400", "bg-rose-50", "text-rose-900");
-    }
+    // Style is fully driven by the data-state attribute (see <style> at top).
+    usefulBtn.setAttribute("data-state", cur === "useful" ? "useful" : "");
+    notBtn.setAttribute("data-state", cur === "not_useful" ? "not_useful" : "");
   }
 
   function optimistic(req) {
@@ -270,12 +292,8 @@ function casePdfNavigate(caseId, action) {
     }
   }
 
-  usefulBtn.addEventListener("click", function () {
-    submitVote("useful");
-  });
-  notBtn.addEventListener("click", function () {
-    submitVote("not_useful");
-  });
+  usefulBtn.addEventListener("click", function () { submitVote("useful"); });
+  notBtn.addEventListener("click", function () { submitVote("not_useful"); });
 
   render(u, n, cur);
 })();

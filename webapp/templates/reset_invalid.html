@@ -2,17 +2,14 @@
 {% block title %}Link invalid · Case Repo{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto px-6 py-12">
-    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6 text-center">
-        <h1 class="text-xl font-semibold mb-2">Link is invalid or expired</h1>
-        <p class="text-sm text-slate-600 mb-6">
+<div class="max-w-md mx-auto px-6 py-14 animate-fade-up">
+    <div class="surface rounded-2xl shadow-card p-7 sm:p-8 text-center">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-2">Link is invalid or expired</h1>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
             Password-reset links expire after 1 hour and can only be used once.
             Request a new link below.
         </p>
-        <a href="/forgot-password"
-           class="inline-block px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 font-medium">
-            Request a new link
-        </a>
+        <a href="/forgot-password" class="btn-primary inline-flex">Request a new link</a>
     </div>
 </div>
 {% endblock %}

@@ -2,17 +2,17 @@
 {% block title %}Check your email · Case Repo{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto px-6 py-12">
-    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6 text-center">
-        <h1 class="text-xl font-semibold mb-2">Check your email</h1>
-        <p class="text-sm text-slate-600 mb-4">
-            If an account exists for <strong>{{ email }}</strong>, we just sent
+<div class="max-w-md mx-auto px-6 py-14 animate-fade-up">
+    <div class="surface rounded-2xl shadow-card p-7 sm:p-8 text-center">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-2">Check your email</h1>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+            If an account exists for <strong class="text-slate-900 dark:text-slate-100">{{ email }}</strong>, we just sent
             a password-reset link to that address. The link is valid for 1 hour
             and can only be used once.
         </p>
-        <p class="text-xs text-slate-500">
+        <p class="text-xs text-slate-500 dark:text-slate-500">
             Didn't get an email? Check Junk / Other, or
-            <a href="/forgot-password" class="text-slate-700 underline">try again</a>.
+            <a href="/forgot-password" class="text-slate-700 dark:text-slate-300 underline underline-offset-2 hover:opacity-80">try again</a>.
         </p>
     </div>
 </div>

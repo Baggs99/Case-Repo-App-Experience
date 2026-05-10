@@ -2,21 +2,19 @@
 {% block title %}Check your email · Case Repo{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto px-6 py-12">
-    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
-        <h1 class="text-xl font-semibold mb-2">Check your email</h1>
-        <p class="text-sm text-slate-600 mb-4">
+<div class="max-w-md mx-auto px-6 py-14 animate-fade-up">
+    <div class="surface rounded-2xl shadow-card p-7 sm:p-8">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-2">Check your email</h1>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
             We sent a verification link to
-            {% if email %}<strong class="text-slate-900">{{ email }}</strong>{% else %}your address{% endif %}.
-            Click the link to activate your account — it&rsquo;s valid for 24 hours.
+            {% if email %}<strong class="text-slate-900 dark:text-slate-100">{{ email }}</strong>{% else %}your address{% endif %}.
+            Click the link to activate your account &mdash; it&rsquo;s valid for 24 hours.
         </p>
-        <p class="text-sm text-slate-500 mb-6">
+        <p class="text-sm text-slate-500 dark:text-slate-500 mb-6 leading-relaxed">
             Didn&rsquo;t get it? Check your spam folder, or wait a minute and try
             signing up again with the same address.
         </p>
-        <a href="/login" class="block w-full text-center px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 font-medium">
-            Back to sign in
-        </a>
+        <a href="/login" class="btn-secondary w-full">Back to sign in</a>
     </div>
 </div>
 {% endblock %}

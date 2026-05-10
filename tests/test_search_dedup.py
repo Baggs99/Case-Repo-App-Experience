@@ -175,3 +175,8 @@ class TestDedupSqlShape:
     def test_dedup_sql_still_orders_by_difficulty_then_title(self):
         # The outer ORDER BY (used to drive list rendering) must be preserved.
         assert "ORDER BY difficulty_score NULLS LAST, case_title" in SEARCH_SQL_DEDUP
+
+    def test_industry_filter_uses_canonical_array_params(self):
+        assert "industry_active" in SEARCH_SQL_DEDUP
+        assert "industry_raws" in SEARCH_SQL_DEDUP
+        assert "CASE WHEN NOT %(industry_active)s" in SEARCH_SQL_DEDUP

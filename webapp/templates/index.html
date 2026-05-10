@@ -2,18 +2,49 @@
 {% block title %}Browse cases · Case Repo{% endblock %}
 
 {% block content %}
-<div class="max-w-6xl mx-auto px-6 py-8">
+<div class="max-w-7xl mx-auto px-5 sm:px-6 pt-6 sm:pt-8 pb-10">
 
-    <div class="mb-8">
-        <h1 class="text-3xl font-semibold tracking-tight">Browse cases</h1>
-        <p class="text-slate-600 mt-1">
-            Filter by difficulty, industry, case type, or school.
-            Click any card to read the full case PDF.
-            Sign in with <span class="text-slate-800 font-medium">@yale.edu</span>
-            or <span class="text-slate-800 font-medium">@chicagobooth.edu</span>.
+    {# ── Hero ─────────────────────────────────────────────────────────────── #}
+    <section class="mb-6 sm:mb-8 animate-fade-up">
+        <div class="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide
+                    bg-slate-900/[0.04] text-slate-600 border border-slate-200
+                    dark:bg-slate-100/[0.06] dark:text-slate-400 dark:border-slate-800">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            Live catalog &middot; updated continuously
+        </div>
+
+        <h1 class="mt-3 text-3xl sm:text-[34px] font-semibold tracking-tight text-slate-900 dark:text-slate-50 leading-[1.1]">
+            The case library for
+            <span class="block sm:inline text-slate-500 dark:text-slate-400">consulting interviewers.</span>
+        </h1>
+        <p class="mt-2.5 max-w-2xl text-sm sm:text-[15px] text-slate-600 dark:text-slate-400 leading-relaxed">
+            Browse curated MBA case interviews from leading programs. Filter by difficulty,
+            industry, type, or school &mdash; and read the full PDF in one click.
+            Sign in with <span class="font-medium text-slate-800 dark:text-slate-200">@yale.edu</span>
+            or <span class="font-medium text-slate-800 dark:text-slate-200">@chicagobooth.edu</span>.
         </p>
-    </div>
 
+        {# ── Stats row ───────────────────────────────────────────────────── #}
+        <dl class="mt-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-200/70 dark:bg-slate-800
+                   sm:max-w-xl">
+            {% set _stats = [
+                ('Cases',      total_cases or total or 0),
+                ('Schools',    options.schools|length),
+                ('Industries', options.industries|length),
+            ] %}
+            {% for label, value in _stats %}
+            <div class="bg-white dark:bg-slate-950 px-4 py-2.5 sm:px-5 sm:py-3 animate-fade-up"
+                 style="animation-delay: {{ 80 + loop.index0 * 80 }}ms">
+                <dt class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500">{{ label }}</dt>
+                <dd class="mt-0.5 text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 tabular-nums">
+                    {{ "{:,}".format(value) }}
+                </dd>
+            </div>
+            {% endfor %}
+        </dl>
+    </section>
+
+    {# ── Filter bar (sticky beneath the navbar) ──────────────────────────── #}
     <form
         id="search-form"
         hx-get="/search"
@@ -21,80 +52,88 @@
         hx-trigger="input changed delay:300ms from:#q, change from:select, click from:button[data-difficulty]"
         hx-push-url="true"
         hx-indicator="#search-spinner"
-        class="bg-white rounded-lg border border-slate-200 shadow-sm p-5 mb-6">
+        class="animate-fade-up" style="animation-delay: 280ms">
 
-        <div class="mb-4">
-            <label for="q" class="block text-xs font-medium text-slate-600 mb-1.5">
-                Search by title
-            </label>
-            <input
-                id="q" name="q" type="text"
-                value="{{ filters.q or '' }}"
-                placeholder="e.g. retirement, retail, pharma..."
-                class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-transparent">
-        </div>
+        <div class="surface-2 rounded-xl shadow-card p-3 sm:p-3.5 backdrop-blur supports-[backdrop-filter]:bg-white/85 dark:supports-[backdrop-filter]:bg-slate-900/85">
 
-        <div class="mb-4">
-            <label class="block text-xs font-medium text-slate-600 mb-1.5">Difficulty</label>
-            <div class="flex gap-2 flex-wrap">
-                <input type="hidden" name="difficulty" id="difficulty-input" value="{{ filters.difficulty or '' }}">
-                <button type="button" data-difficulty=""
-                    onclick="setDifficulty(this, '')"
-                    class="px-3 py-1.5 rounded-md text-sm border {% if not filters.difficulty %}bg-slate-900 text-white border-slate-900{% else %}bg-white text-slate-700 border-slate-300 hover:bg-slate-50{% endif %}">
-                    Any
-                </button>
-                {% for d in options.difficulties %}
-                <button type="button" data-difficulty="{{ d }}"
-                    onclick="setDifficulty(this, '{{ d }}')"
-                    class="px-3 py-1.5 rounded-md text-sm border {% if filters.difficulty == d %}bg-slate-900 text-white border-slate-900{% else %}bg-white text-slate-700 border-slate-300 hover:bg-slate-50{% endif %}">
-                    {{ d }}
-                </button>
-                {% endfor %}
-            </div>
-        </div>
+            {# Single horizontal row on lg+ for max information density. #}
+            <div class="flex flex-col lg:flex-row lg:items-end gap-2.5 lg:gap-3">
+                <div class="flex-1 min-w-0">
+                    <label for="q" class="block text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-1">Search</label>
+                    <div class="relative">
+                        <svg class="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                        <input
+                            id="q" name="q" type="text" autocomplete="off"
+                            value="{{ filters.q or '' }}"
+                            placeholder="Search by title &mdash; e.g. retirement, retail, pharma…"
+                            class="input-base !pl-8">
+                    </div>
+                </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-                <label for="industry" class="block text-xs font-medium text-slate-600 mb-1.5">Industry</label>
-                <select id="industry" name="industry"
-                    class="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                    <option value="">Any industry</option>
-                    {% for v in options.industries %}
-                    <option value="{{ v }}" {% if filters.industry == v %}selected{% endif %}>{{ v }}</option>
-                    {% endfor %}
-                </select>
+                <div class="lg:w-auto">
+                    <label class="block text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-1">Difficulty</label>
+                    <div class="flex gap-1 flex-wrap">
+                        <input type="hidden" name="difficulty" id="difficulty-input" value="{{ filters.difficulty or '' }}">
+                        <button type="button" data-difficulty=""
+                            onclick="setDifficulty(this, '')"
+                            class="btn-pill {% if not filters.difficulty %}btn-pill-active{% else %}btn-pill-default{% endif %}">
+                            Any
+                        </button>
+                        {% for d in options.difficulties %}
+                        <button type="button" data-difficulty="{{ d }}"
+                            onclick="setDifficulty(this, '{{ d }}')"
+                            class="btn-pill {% if filters.difficulty == d %}btn-pill-active{% else %}btn-pill-default{% endif %}">
+                            {{ d }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                </div>
             </div>
 
-            <div>
-                <label for="case_type" class="block text-xs font-medium text-slate-600 mb-1.5">Case type</label>
-                <select id="case_type" name="case_type"
-                    class="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                    <option value="">Any type</option>
-                    {% for v in options.case_types %}
-                    <option value="{{ v }}" {% if filters.case_type == v %}selected{% endif %}>{{ v }}</option>
-                    {% endfor %}
-                </select>
+            {# Industry / case type / school. #}
+            <div class="mt-2.5 grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                <div>
+                    <label for="industry" class="block text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-1">Industry</label>
+                    <select id="industry" name="industry" class="input-base">
+                        <option value="">Any industry</option>
+                        {% for v in options.industries %}
+                        <option value="{{ v }}" {% if filters.industry == v %}selected{% endif %}>{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="case_type" class="block text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-1">Case type</label>
+                    <select id="case_type" name="case_type" class="input-base">
+                        <option value="">Any type</option>
+                        {% for v in options.case_types %}
+                        <option value="{{ v }}" {% if filters.case_type == v %}selected{% endif %}>{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label for="school" class="block text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-1">School</label>
+                    <select id="school" name="school" class="input-base">
+                        <option value="">Any school</option>
+                        {% for v in options.schools %}
+                        <option value="{{ v }}" {% if filters.school == v %}selected{% endif %}>{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
 
-            <div>
-                <label for="school" class="block text-xs font-medium text-slate-600 mb-1.5">School</label>
-                <select id="school" name="school"
-                    class="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                    <option value="">Any school</option>
-                    {% for v in options.schools %}
-                    <option value="{{ v }}" {% if filters.school == v %}selected{% endif %}>{{ v }}</option>
-                    {% endfor %}
-                </select>
+            <div class="mt-2.5 flex items-center justify-between text-[11px]">
+                <span id="search-spinner" class="htmx-indicator inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                    <span class="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse"></span>
+                    Searching…
+                </span>
+                <a href="/" class="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 underline-offset-2 hover:underline transition">Reset filters</a>
             </div>
-        </div>
-
-        <div class="mt-4 flex items-center justify-between text-xs">
-            <span id="search-spinner" class="htmx-indicator text-slate-500">Searching…</span>
-            <a href="/" class="text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline">Reset filters</a>
         </div>
     </form>
 
-    <div id="results">
+    <div id="results" class="mt-5 animate-fade-up" style="animation-delay: 360ms">
         {% include "_search_results.html" %}
     </div>
 
@@ -103,16 +142,10 @@
 <script>
     function setDifficulty(btn, value) {
         document.getElementById("difficulty-input").value = value;
-        // Update visual state
         document.querySelectorAll("button[data-difficulty]").forEach(el => {
             const isSelected = el.dataset.difficulty === value;
-            el.className = "px-3 py-1.5 rounded-md text-sm border " + (
-                isSelected
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
-            );
+            el.className = "btn-pill " + (isSelected ? "btn-pill-active" : "btn-pill-default");
         });
-        // Trigger HTMX request manually since hidden inputs don't fire change events
         htmx.trigger("#search-form", "change");
     }
 </script>

@@ -95,7 +95,7 @@ def _row_to_case_dict(row: pd.Series) -> dict:
         except (ValueError, TypeError):
             return None
 
-    return {
+    out = {
         "id":               int(row["id"]),
         "case_title":       _str("case_title") or "(untitled)",
         "normalized_title": _str("normalized_title"),
@@ -112,17 +112,23 @@ def _row_to_case_dict(row: pd.Series) -> dict:
         "created_at":       datetime.now(timezone.utc),
         "updated_at":       datetime.now(timezone.utc),
     }
+    attach_industry_display(out)
+    return out
 
 
 # ── Repository patches ────────────────────────────────────────────────────────
 
 import webapp.repositories.cases as _cases_repo  # noqa: E402
+from webapp.industry_normalize import attach_industry_display, normalize_industry_label  # noqa: E402
 from webapp.repositories.cases import FilterOptions, SearchFilters  # noqa: E402
 
 
 def _fake_get_filter_options() -> FilterOptions:
+    raws = [str(v) for v in _df["industry"].unique() if v and str(v).strip()]
+    labels = {normalize_industry_label(r) for r in raws}
+    labels.discard(None)
     return FilterOptions(
-        industries=sorted(v for v in _df["industry"].unique() if v),
+        industries=sorted(labels),
         case_types=sorted(v for v in _df["case_type"].unique() if v),
         schools=sorted(v for v in _df["source_school"].unique() if v),
         difficulties=["Easy", "Medium", "Hard"],
@@ -137,7 +143,12 @@ def _fake_search_cases(filters: SearchFilters, *, limit: int = 100, **_kw):
     if filters.difficulty:
         rows = rows[rows["difficulty_normalized"] == filters.difficulty]
     if filters.industry:
-        rows = rows[rows["industry"] == filters.industry]
+        def _row_canon(s) -> Optional[str]:
+            if s is None or (isinstance(s, float) and pd.isna(s)):
+                return None
+            return normalize_industry_label(str(s).strip())
+
+        rows = rows[rows["industry"].map(_row_canon) == filters.industry]
     if filters.case_type:
         rows = rows[rows["case_type"] == filters.case_type]
     if filters.school:

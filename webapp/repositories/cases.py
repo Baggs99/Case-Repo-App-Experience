@@ -16,6 +16,11 @@ from urllib.parse import urlencode
 from psycopg.rows import dict_row
 
 from webapp.db import get_pool
+from webapp.industry_normalize import (
+    attach_industry_display,
+    industry_raws_matching_canonical,
+    normalize_industry_label,
+)
 
 
 # ── Filter options (populate the dropdowns) ────────────────────────────────────
@@ -28,15 +33,41 @@ class FilterOptions:
     difficulties: list[str]
 
 
+def _distinct_raw_industries() -> list[str]:
+    """Distinct ``industry`` values as stored in the database."""
+    sql = """
+        SELECT DISTINCT industry
+        FROM cases
+        WHERE industry IS NOT NULL AND TRIM(industry) <> ''
+        ORDER BY industry;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return [str(r[0]) for r in cur.fetchall()]
+
+
+def _canonical_industry_options(raw_values: list[str]) -> list[str]:
+    """Sorted unique canonical labels for the industry dropdown."""
+    labels: set[str] = set()
+    for raw in raw_values:
+        c = normalize_industry_label(raw)
+        if c:
+            labels.add(c)
+    return sorted(labels)
+
+
 def get_filter_options() -> FilterOptions:
     """Return the distinct values for each filterable column.
 
-    Cheap query (~3ms total): the indexes on these columns mean Postgres
-    just walks the b-tree. No need to cache yet.
+    Industries are collapsed to canonical labels (see
+    ``webapp.industry_normalize``) while the DB keeps raw strings.
     """
+    raw_industries = _distinct_raw_industries()
+    industries = _canonical_industry_options(raw_industries)
+
     sql = """
         SELECT
-          ARRAY(SELECT DISTINCT industry      FROM cases WHERE industry      IS NOT NULL ORDER BY 1) AS industries,
           ARRAY(SELECT DISTINCT case_type     FROM cases WHERE case_type     IS NOT NULL ORDER BY 1) AS case_types,
           ARRAY(SELECT DISTINCT source_school FROM cases WHERE source_school IS NOT NULL ORDER BY 1) AS schools;
     """
@@ -46,7 +77,7 @@ def get_filter_options() -> FilterOptions:
             row = cur.fetchone()
 
     return FilterOptions(
-        industries  = row["industries"]  or [],
+        industries  = industries,
         case_types  = row["case_types"]  or [],
         schools     = row["schools"]     or [],
         difficulties = ["Easy", "Medium", "Hard"],
@@ -223,7 +254,10 @@ def _is_better_canonical(candidate: dict, current: dict) -> bool:
 _FILTER_WHERE = """
     (%(q)s::text IS NULL OR case_title ILIKE '%%' || %(q)s || '%%')
     AND (%(difficulty)s::text IS NULL OR difficulty    = %(difficulty)s)
-    AND (%(industry)s::text   IS NULL OR industry      = %(industry)s)
+    AND (
+        CASE WHEN NOT %(industry_active)s THEN true
+        ELSE industry = ANY(%(industry_raws)s::text[]) END
+    )
     AND (%(case_type)s::text  IS NULL OR case_type     = %(case_type)s)
     AND (%(school)s::text     IS NULL OR source_school = %(school)s)
 """
@@ -291,6 +325,16 @@ SEARCH_SQL = SEARCH_SQL_ALL
 COUNT_SQL = COUNT_SQL_ALL
 
 
+def _industry_filter_params(
+    filters: SearchFilters, *, raw_distinct: list[str],
+) -> dict[str, object]:
+    """Build SQL params for canonical industry filtering."""
+    if not filters.industry:
+        return {"industry_active": False, "industry_raws": []}
+    raws = industry_raws_matching_canonical(filters.industry, raw_distinct)
+    return {"industry_active": True, "industry_raws": raws}
+
+
 def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict], int]:
     """Run the search and return (rows, total_matching).
 
@@ -301,14 +345,15 @@ def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict
     ``limit`` caps how many rows we return for display; ``total_matching``
     is the unbounded count so the UI can show "showing 100 of 247".
     """
-    params = {
+    raw_distinct = _distinct_raw_industries()
+    params: dict[str, object] = {
         "q":          filters.q,
         "difficulty": filters.difficulty,
-        "industry":   filters.industry,
         "case_type":  filters.case_type,
         "school":     filters.school,
         "limit":      limit,
     }
+    params.update(_industry_filter_params(filters, raw_distinct=raw_distinct))
 
     if filters.include_duplicates:
         search_sql = SEARCH_SQL_ALL
@@ -325,6 +370,8 @@ def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict
             cur.execute(count_sql, params)
             total = cur.fetchone()["total"]
 
+    for r in rows:
+        attach_industry_display(r)
     return rows, total
 
 
@@ -371,7 +418,10 @@ def get_case_by_id(case_id: int) -> Optional[dict]:
                 """,
                 (case_id,),
             )
-            return cur.fetchone()
+            row = cur.fetchone()
+            if row:
+                attach_industry_display(row)
+            return row
 
 
 def fetch_or_assign_preview_slug(conn, case_id: int) -> str:

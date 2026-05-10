@@ -1,45 +1,192 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Case Repo{% endblock %}</title>
 
+    {# Avoid FOUC: apply saved theme before paint. #}
+    <script>
+      (function () {
+        try {
+          var s = localStorage.getItem('theme');
+          var prefers = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (s === 'dark' || (s !== 'light' && prefers)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+            },
+            boxShadow: {
+              'soft':    '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
+              'card':    '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 4px 16px -8px rgb(15 23 42 / 0.10)',
+              'lift':    '0 4px 12px -2px rgb(15 23 42 / 0.10), 0 12px 32px -8px rgb(15 23 42 / 0.14)',
+            },
+            keyframes: {
+              'fade-up':   { '0%': { opacity: '0', transform: 'translateY(6px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+              'fade-in':   { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            },
+            animation: {
+              'fade-up':       'fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both',
+              'fade-up-slow':  'fade-up 0.65s cubic-bezier(0.16, 1, 0.3, 1) both',
+              'fade-in':       'fade-in 0.4s ease-out both',
+            },
+          },
+        },
+      };
+    </script>
+
     <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
 
-    <style>
-        body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-        .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
-        .htmx-request .htmx-indicator { opacity: 1; }
-        .htmx-request.htmx-indicator { opacity: 1; }
+    <style type="text/tailwindcss">
+      @layer base {
+        html { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+        body { @apply font-sans antialiased; text-rendering: optimizeLegibility; }
+      }
+
+      @layer components {
+        /* Surface tokens — keep the design language consistent. */
+        .surface     { @apply bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800; }
+        .surface-2   { @apply bg-white dark:bg-slate-900   border border-slate-200/80 dark:border-slate-800; }
+        .surface-mut { @apply bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800; }
+
+        /* Inputs share the same focus + border treatment everywhere. */
+        .input-base {
+          @apply w-full px-3 py-2 text-sm rounded-lg
+                 bg-white dark:bg-slate-900
+                 border border-slate-200 dark:border-slate-700
+                 text-slate-900 dark:text-slate-100
+                 placeholder:text-slate-400 dark:placeholder:text-slate-500
+                 transition
+                 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/20
+                 focus:border-slate-400 dark:focus:border-slate-500;
+        }
+
+        /* Pill-style toggle buttons (difficulty filter, etc.). */
+        .btn-pill {
+          @apply inline-flex items-center justify-center px-3 py-1 rounded-full text-[13px] font-medium border transition
+                 active:scale-[0.98];
+        }
+        .btn-pill-default {
+          @apply bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300
+                 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800;
+        }
+        .btn-pill-active {
+          @apply bg-slate-900 text-white border-slate-900 shadow-soft
+                 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100;
+        }
+
+        /* Primary / secondary buttons. */
+        .btn-primary {
+          @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium
+                 bg-slate-900 text-white shadow-soft
+                 hover:bg-slate-800 active:scale-[0.98] transition
+                 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white;
+        }
+        .btn-secondary {
+          @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium
+                 bg-white text-slate-700 border border-slate-200
+                 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition
+                 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800;
+        }
+        .btn-ghost {
+          @apply inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition
+                 dark:text-slate-400 dark:hover:text-slate-100;
+        }
+
+        /* Difficulty + status badges. */
+        .badge {
+          @apply inline-flex items-center gap-1 text-[11px] font-medium tracking-wide px-2 py-0.5 rounded-full border;
+        }
+        .badge-easy   { @apply bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/20; }
+        .badge-medium { @apply bg-amber-50  text-amber-700  border-amber-200  dark:bg-amber-500/10  dark:text-amber-300  dark:border-amber-500/20; }
+        .badge-hard   { @apply bg-rose-50   text-rose-700   border-rose-200   dark:bg-rose-500/10   dark:text-rose-300   dark:border-rose-500/20; }
+
+        /* Case card — the headline visual. */
+        .case-card {
+          @apply relative block rounded-xl p-4 bg-white dark:bg-slate-900
+                 border border-slate-200/80 dark:border-slate-800
+                 shadow-soft
+                 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]
+                 hover:-translate-y-0.5 hover:shadow-lift hover:border-slate-300 dark:hover:border-slate-700
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 dark:focus-visible:ring-slate-100/20;
+        }
+        .case-card::before {
+          content: "";
+          @apply absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full bg-slate-200 dark:bg-slate-700 opacity-70 transition-opacity;
+        }
+        .case-card:hover::before { @apply opacity-100; }
+        /* Per-school accent color, applied via inline `--case-accent` from the template. */
+        .case-card[data-school-accent="1"]::before { background: var(--case-accent); opacity: 0.55; }
+        .case-card[data-school-accent="1"]:hover::before { opacity: 0.95; }
+      }
+
+      /* htmx loading indicator. */
+      .htmx-indicator { opacity: 0; transition: opacity 200ms ease-in; }
+      .htmx-request .htmx-indicator,
+      .htmx-request.htmx-indicator { opacity: 1; }
+
+      /* Respect reduced motion. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen flex flex-col selection:bg-slate-900/10 dark:selection:bg-slate-100/20">
 
-    <header class="border-b border-slate-200 bg-white">
-        <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-            <a href="/" class="flex items-center gap-2">
-                <span class="text-lg font-semibold tracking-tight">Case Repo</span>
-                <span class="text-xs text-slate-500 hidden sm:inline">consulting cases for MBAs</span>
+    <header class="sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800 bg-white/85 dark:bg-slate-950/80 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-slate-950/70">
+        <div class="max-w-7xl mx-auto px-5 sm:px-6 h-14 flex items-center justify-between">
+            <a href="/" class="flex items-center gap-2 group">
+                <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-slate-900 text-white text-[10px] font-semibold tracking-tight dark:bg-slate-100 dark:text-slate-900">CR</span>
+                <span class="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">Case Repo</span>
+                <span class="text-xs text-slate-500 dark:text-slate-500 hidden md:inline">consulting cases for MBAs</span>
             </a>
-            <nav class="flex items-center gap-4 text-sm">
-                <a href="/" class="text-slate-600 hover:text-slate-900">Browse</a>
+
+            <nav class="flex items-center gap-0.5 sm:gap-1 text-sm">
+                <a href="/" class="hidden sm:inline-flex px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Browse</a>
+
                 {% if current_user %}
-                    <span class="text-slate-500 hidden sm:inline">{{ current_user.email }}</span>
+                    <span class="text-slate-500 hidden lg:inline px-2 text-[13px] truncate max-w-[200px]">{{ current_user.email }}</span>
                     {% if current_user_is_admin %}
-                        <a href="/admin/cases" class="text-slate-600 hover:text-slate-900">Cases</a>
-                        <a href="/admin/users" class="text-slate-600 hover:text-slate-900">Users</a>
+                        <a href="/admin/cases" class="px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Cases</a>
+                        <a href="/admin/users" class="px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Users</a>
                     {% endif %}
-                    <a href="/change-password" class="text-slate-600 hover:text-slate-900">Change password</a>
+                    <a href="/change-password" class="hidden sm:inline-flex px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Change password</a>
+                    <button id="theme-toggle" type="button" aria-label="Toggle theme"
+                        class="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
+                        <svg class="h-4 w-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+                        <svg class="h-4 w-4 block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    </button>
                     <form method="POST" action="/logout" class="inline">
-                        <button type="submit" class="px-3 py-1.5 rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50">
-                            Sign out
-                        </button>
+                        <button type="submit" class="btn-secondary !py-1 !px-2.5 !text-[13px]">Sign out</button>
                     </form>
                 {% else %}
-                    <a href="/login" class="text-slate-600 hover:text-slate-900">Sign in</a>
-                    <a href="/signup" class="px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800">Sign up</a>
+                    <button id="theme-toggle" type="button" aria-label="Toggle theme"
+                        class="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
+                        <svg class="h-4 w-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+                        <svg class="h-4 w-4 block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    </button>
+                    <a href="/login" class="px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Sign in</a>
+                    <a href="/signup" class="btn-primary !py-1 !px-2.5 !text-[13px]">Sign up</a>
                 {% endif %}
             </nav>
         </div>
@@ -49,12 +196,25 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="border-t border-slate-200 bg-white mt-12">
-        <div class="max-w-6xl mx-auto px-6 py-6 text-xs text-slate-500 flex justify-between">
-            <span>Case Repo — Yale SOM &amp; Booth collaborators</span>
-            <span>{{ total_cases or 0 }} cases indexed</span>
+    <footer class="border-t border-slate-200/80 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60 mt-12">
+        <div class="max-w-7xl mx-auto px-5 sm:px-6 py-4 text-xs text-slate-500 dark:text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span>Case Repo &middot; Yale SOM &amp; Booth collaborators</span>
+            <span class="tabular-nums">{{ total_cases or 0 }} cases indexed</span>
         </div>
     </footer>
+
+    <script>
+      (function () {
+        var btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          var root = document.documentElement;
+          var nowDark = !root.classList.contains('dark');
+          root.classList.toggle('dark', nowDark);
+          try { localStorage.setItem('theme', nowDark ? 'dark' : 'light'); } catch (e) {}
+        });
+      })();
+    </script>
 
 </body>
 </html>

@@ -23,7 +23,7 @@ from webapp.repositories.cases import (
     get_filter_options,
     search_cases,
 )
-from webapp.templating import render
+from webapp.templating import render, render_browse_page
 
 
 router = APIRouter()
@@ -51,7 +51,7 @@ def index(
     cases, total = search_cases(filters, limit=settings.search_result_limit)
     options = get_filter_options()
 
-    return render(request, "index.html", {
+    return render_browse_page(request, "index.html", {
         "filters": filters,
         "options": options,
         "cases":   cases,

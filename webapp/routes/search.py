@@ -17,7 +17,7 @@ from webapp.repositories.cases import (
     get_filter_options,
     search_cases,
 )
-from webapp.templating import render
+from webapp.templating import render, render_browse_page
 
 
 router = APIRouter()
@@ -48,7 +48,7 @@ def search(
 
     if not _is_htmx(request):
         options = get_filter_options()
-        response = render(request, "index.html", {
+        response = render_browse_page(request, "index.html", {
             "filters": filters,
             "options": options,
             "cases": cases,

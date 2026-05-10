@@ -2,34 +2,30 @@
 {% block title %}Email verified · Case Repo{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto px-6 py-12">
-    <div class="bg-white rounded-lg border border-slate-200 shadow-sm p-6">
+<div class="max-w-md mx-auto px-6 py-14 animate-fade-up">
+    <div class="surface rounded-2xl shadow-card p-7 sm:p-8">
 
         {% if result.success %}
-        <div class="mb-4 inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-100 text-emerald-700">
-            ✓
+        <div class="mb-4 inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200
+                    dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/20 text-base">
+            &check;
         </div>
-        <h1 class="text-xl font-semibold mb-2">Email verified</h1>
-        <p class="text-sm text-slate-600 mb-6">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-2">Email verified</h1>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
             Your account is now active. Sign in to start browsing cases.
         </p>
-        <a href="/login"
-           class="block w-full text-center px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 font-medium">
-            Sign in
-        </a>
+        <a href="/login" class="btn-primary w-full">Sign in</a>
 
         {% else %}
-        <div class="mb-4 inline-flex items-center justify-center w-10 h-10 rounded-full bg-rose-100 text-rose-700">
+        <div class="mb-4 inline-flex items-center justify-center w-10 h-10 rounded-full bg-rose-50 text-rose-700 border border-rose-200
+                    dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20 text-base">
             !
         </div>
-        <h1 class="text-xl font-semibold mb-2">Verification failed</h1>
-        <p class="text-sm text-slate-600 mb-6">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-2">Verification failed</h1>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
             {{ result.error or "We couldn&rsquo;t verify that link." }}
         </p>
-        <a href="/signup"
-           class="block w-full text-center px-4 py-2 bg-slate-900 text-white rounded-md hover:bg-slate-800 font-medium">
-            Try signing up again
-        </a>
+        <a href="/signup" class="btn-primary w-full">Try signing up again</a>
         {% endif %}
 
     </div>
