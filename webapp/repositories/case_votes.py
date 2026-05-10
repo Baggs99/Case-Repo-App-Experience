@@ -63,6 +63,70 @@ def get_vote_state(case_id: int, user_id: int) -> dict[str, Any]:
     }
 
 
+def get_vote_stats_for_cases(case_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Bulk public vote aggregates keyed by case id.
+
+    Returns ``{case_id: {useful_count, not_useful_count, total_votes,
+    useful_percentage}}`` for every requested id. Cases without votes get
+    zeroed counts and ``useful_percentage=None`` so callers can skip them
+    cleanly. One round-trip regardless of result size — used to decorate
+    public search results without N+1 queries.
+    """
+    if not case_ids:
+        return {}
+    sql = """
+        SELECT
+            case_id,
+            COUNT(*) FILTER (WHERE vote_type = 'useful')::int     AS useful_count,
+            COUNT(*) FILTER (WHERE vote_type = 'not_useful')::int AS not_useful_count
+        FROM case_votes
+        WHERE case_id = ANY(%s)
+        GROUP BY case_id;
+    """
+    out: dict[int, dict[str, Any]] = {
+        int(cid): {
+            "useful_count": 0,
+            "not_useful_count": 0,
+            "total_votes": 0,
+            "useful_percentage": None,
+        }
+        for cid in case_ids
+    }
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (list(case_ids),))
+            for r in cur.fetchall():
+                u = int(r["useful_count"] or 0)
+                n = int(r["not_useful_count"] or 0)
+                out[int(r["case_id"])] = {
+                    "useful_count": u,
+                    "not_useful_count": n,
+                    "total_votes": u + n,
+                    "useful_percentage": _pct(u, n),
+                }
+    return out
+
+
+def get_vote_stats_for_cases_safe(case_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Same as ``get_vote_stats_for_cases`` but tolerates a missing ``case_votes`` table."""
+    try:
+        return get_vote_stats_for_cases(case_ids)
+    except UndefinedTable:
+        logger.warning(
+            "case_votes table missing — apply db/migrations/007_case_votes.sql "
+            "(search vote stats zeroed)"
+        )
+        return {
+            int(cid): {
+                "useful_count": 0,
+                "not_useful_count": 0,
+                "total_votes": 0,
+                "useful_percentage": None,
+            }
+            for cid in case_ids
+        }
+
+
 def get_vote_state_safe(case_id: int, user_id: int) -> dict[str, Any]:
     """Like ``get_vote_state`` but returns empty aggregates if ``case_votes`` is missing.
 

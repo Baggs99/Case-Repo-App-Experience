@@ -17,6 +17,7 @@ from webapp.repositories.cases import (
     get_filter_options,
     search_cases,
 )
+from webapp.routes.pages import _attach_vote_stats
 from webapp.templating import render, render_browse_page
 
 
@@ -44,6 +45,7 @@ def search(
     )
     settings = request.app.state.settings
     cases, total = search_cases(filters, limit=settings.search_result_limit)
+    _attach_vote_stats(cases)
     return_url = filters.to_search_url()
 
     if not _is_htmx(request):

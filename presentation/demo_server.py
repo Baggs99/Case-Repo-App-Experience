@@ -186,10 +186,17 @@ _pages_mod.get_filter_options = _fake_get_filter_options
 _pages_mod.get_case_by_id = _fake_get_case_by_id
 _pages_mod.count_all_cases = lambda **_kw: len(_df)
 _pages_mod._count_all_cases = lambda **_kw: len(_df)
+# No real votes table in the CSV demo — stub the decorator so each row
+# carries zeros rather than triggering a DB lookup.
+_pages_mod._attach_vote_stats = lambda rows: [
+    r.update({"useful_count": 0, "not_useful_count": 0, "total_votes": 0, "useful_percentage": None})
+    for r in rows
+]
 
 import webapp.routes.search as _search_mod  # noqa: E402
 _search_mod.search_cases = _fake_search_cases
 _search_mod.count_all_cases = lambda **_kw: len(_df)
+_search_mod._attach_vote_stats = _pages_mod._attach_vote_stats
 
 
 # ── Admin repo patches ────────────────────────────────────────────────────────

@@ -15,7 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from webapp.auth.dependencies import require_auth
 from webapp.auth.users import User
 from webapp.preview_urls import preview_knit_url
-from webapp.repositories.case_votes import get_vote_state_safe
+from webapp.repositories.case_votes import (
+    get_vote_state_safe,
+    get_vote_stats_for_cases_safe,
+)
 from webapp.repositories.cases import (
     SearchFilters,
     count_all_cases,
@@ -49,6 +52,7 @@ def index(
     )
     settings = request.app.state.settings
     cases, total = search_cases(filters, limit=settings.search_result_limit)
+    _attach_vote_stats(cases)
     options = get_filter_options()
 
     return render_browse_page(request, "index.html", {
@@ -101,6 +105,31 @@ def _count_all_cases(*, include_duplicates: bool = False) -> int:
     the symbol (``presentation/demo_server.py`` overrides this for its CSV-only
     standalone preview). Real implementation lives in ``cases`` repo."""
     return count_all_cases(include_duplicates=include_duplicates)
+
+
+def _attach_vote_stats(rows: list[dict]) -> None:
+    """Decorate each search row with public vote aggregates.
+
+    Adds ``useful_count``, ``not_useful_count``, ``total_votes``, and
+    ``useful_percentage`` keys (the last is ``None`` when there are no votes
+    yet, so templates can branch cleanly). One bulk query, idempotent on
+    empty lists, tolerates a missing ``case_votes`` table.
+    """
+    if not rows:
+        return
+    ids = [int(r["id"]) for r in rows if r.get("id") is not None]
+    stats = get_vote_stats_for_cases_safe(ids)
+    for r in rows:
+        s = stats.get(int(r["id"]), {
+            "useful_count": 0,
+            "not_useful_count": 0,
+            "total_votes": 0,
+            "useful_percentage": None,
+        })
+        r["useful_count"] = s["useful_count"]
+        r["not_useful_count"] = s["not_useful_count"]
+        r["total_votes"] = s["total_votes"]
+        r["useful_percentage"] = s["useful_percentage"]
 
 
 def _safe_back_url(candidate: Optional[str]) -> str:
