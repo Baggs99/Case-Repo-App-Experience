@@ -15,24 +15,6 @@ function casePdfNavigate(caseId, action) {
 }
 </script>
 
-<style type="text/tailwindcss">
-  @layer components {
-    .vote-btn {
-      @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition
-             border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300
-             dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800;
-    }
-    .vote-btn[data-state="useful"] {
-      @apply border-emerald-300 bg-emerald-50 text-emerald-800
-             dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300;
-    }
-    .vote-btn[data-state="not_useful"] {
-      @apply border-rose-300 bg-rose-50 text-rose-800
-             dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300;
-    }
-  }
-</style>
-
 <div class="max-w-5xl mx-auto px-5 sm:px-6 pt-5 sm:pt-6 pb-12 animate-fade-up">
 
     <a href="{{ back_url }}"
@@ -96,37 +78,67 @@ function casePdfNavigate(caseId, action) {
             {% endif %}
         </dl>
 
-        {# ── Vote bar ─────────────────────────────────────────────────────── #}
+        {# ── Was this case helpful? ───────────────────────────────────────── #}
         <div id="case-vote-root"
              class="mt-5 pt-4 border-t border-slate-200/70 dark:border-slate-800"
              data-case-id="{{ case.id }}"
+             {% if vote_state.vote %}data-voted="{{ vote_state.vote }}"{% endif %}
              data-current-vote="{{ vote_state.vote or '' }}"
              data-useful="{{ vote_state.useful_count }}"
              data-not="{{ vote_state.not_useful_count }}"
              data-pct="{{ vote_state.useful_percentage if vote_state.useful_percentage is not none else '' }}">
-            <p class="text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500 dark:text-slate-500 mb-2">Prep feedback</p>
-            <div class="flex flex-wrap items-center gap-2">
-                <button type="button" id="vote-useful" class="vote-btn"
-                        data-state="{% if vote_state.vote == 'useful' %}useful{% endif %}">
-                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 22V11M14 5.5V3a2 2 0 0 0-4 0c0 4-3 5-3 8h12.5a2.5 2.5 0 0 1 2.45 3L19.5 19a2.5 2.5 0 0 1-2.45 2H7"/></svg>
-                    Useful
-                    <span class="vote-count-useful tabular-nums text-slate-500 dark:text-slate-500">({{ vote_state.useful_count }})</span>
+
+            <div class="flex items-center justify-between gap-3 mb-2.5">
+                <h3 class="text-[13px] font-semibold tracking-tight text-slate-800 dark:text-slate-200">
+                    Was this case helpful?
+                </h3>
+                <span id="vote-thanks"
+                      class="text-[11px] font-medium text-emerald-700 dark:text-emerald-400 transition-opacity duration-300 {% if not vote_state.vote %}opacity-0 pointer-events-none{% endif %}">
+                    Thanks for the feedback
+                </span>
+            </div>
+
+            <div role="group" aria-label="Rate this case"
+                 class="flex flex-wrap items-center gap-2.5">
+                <div class="vote-pill-track">
+                <button type="button" id="vote-useful" class="vote-pill"
+                        data-state="{% if vote_state.vote == 'useful' %}useful{% endif %}"
+                        aria-pressed="{{ 'true' if vote_state.vote == 'useful' else 'false' }}"
+                        aria-label="Mark this case as useful">
+                    {# Lucide thumbs-up #}
+                    <svg class="vote-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M7 10v12"/>
+                        <path d="M15 5.88 14 12h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 24H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>
+                    </svg>
+                    <span>Useful</span>
+                    <span class="vote-count vote-count-useful">{{ vote_state.useful_count }}</span>
                 </button>
-                <button type="button" id="vote-not" class="vote-btn"
-                        data-state="{% if vote_state.vote == 'not_useful' %}not_useful{% endif %}">
-                    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2v11M10 18.5V21a2 2 0 0 0 4 0c0-4 3-5 3-8H4.5A2.5 2.5 0 0 1 2.05 10L4.5 5A2.5 2.5 0 0 1 6.95 3H17"/></svg>
-                    Not useful
-                    <span class="vote-count-not tabular-nums text-slate-500 dark:text-slate-500">({{ vote_state.not_useful_count }})</span>
+
+                <button type="button" id="vote-not" class="vote-pill"
+                        data-state="{% if vote_state.vote == 'not_useful' %}not_useful{% endif %}"
+                        aria-pressed="{{ 'true' if vote_state.vote == 'not_useful' else 'false' }}"
+                        aria-label="Mark this case as not useful">
+                    {# Lucide thumbs-down #}
+                    <svg class="vote-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M17 14V2"/>
+                        <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/>
+                    </svg>
+                    <span>Not useful</span>
+                    <span class="vote-count vote-count-not">{{ vote_state.not_useful_count }}</span>
                 </button>
+                </div>
+
                 {% if vote_state.useful_percentage is not none %}
-                <span id="vote-pct-wrap" class="text-xs text-slate-500 dark:text-slate-400">
-                    <span class="tabular-nums font-medium text-slate-700 dark:text-slate-300">{{ "%.0f"|format(vote_state.useful_percentage) }}%</span> found this useful
+                <span id="vote-pct-wrap" class="inline-flex items-center gap-1.5 ml-1 text-[12px] text-slate-500 dark:text-slate-500">
+                    <span class="h-1 w-1 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden="true"></span>
+                    <span><span class="tabular-nums font-medium text-slate-700 dark:text-slate-300">{{ "%.0f"|format(vote_state.useful_percentage) }}%</span> found this useful</span>
                 </span>
                 {% else %}
-                <span id="vote-pct-wrap" class="text-xs text-slate-500 dark:text-slate-400 hidden"></span>
+                <span id="vote-pct-wrap" class="inline-flex items-center gap-1.5 ml-1 text-[12px] text-slate-500 dark:text-slate-500 hidden"></span>
                 {% endif %}
             </div>
-            <p id="vote-error" class="mt-2 text-sm text-rose-600 dark:text-rose-400 hidden" role="alert"></p>
+
+            <p id="vote-error" class="mt-2 text-[12px] text-rose-600 dark:text-rose-400 hidden" role="alert"></p>
         </div>
 
         {# ── PDF actions ──────────────────────────────────────────────────── #}
@@ -190,12 +202,18 @@ function casePdfNavigate(caseId, action) {
   var notBtn = document.getElementById("vote-not");
   var errEl = document.getElementById("vote-error");
   var pctWrap = document.getElementById("vote-pct-wrap");
+  var thanksEl = document.getElementById("vote-thanks");
 
   if (!usefulBtn || !notBtn) return;
 
   var cur = root.getAttribute("data-current-vote") || "";
   var u = parseInt(root.getAttribute("data-useful") || "0", 10);
   var n = parseInt(root.getAttribute("data-not") || "0", 10);
+  var prevU = u;
+  var prevN = n;
+
+  var usefulCountEl = root.querySelector(".vote-count-useful");
+  var notCountEl    = root.querySelector(".vote-count-not");
 
   function pctLabel(uu, nn) {
     var t = uu + nn;
@@ -203,15 +221,35 @@ function casePdfNavigate(caseId, action) {
     return Math.round((100 * uu) / t);
   }
 
+  function bumpCount(el) {
+    if (!el) return;
+    el.classList.remove("is-bumped");
+    void el.offsetWidth;
+    el.classList.add("is-bumped");
+  }
+
+  function setVoted(c) {
+    if (c) root.setAttribute("data-voted", c);
+    else root.removeAttribute("data-voted");
+    if (thanksEl) {
+      var visible = !!c;
+      thanksEl.classList.toggle("opacity-0", !visible);
+      thanksEl.classList.toggle("pointer-events-none", !visible);
+    }
+  }
+
   function render(uu, nn, nextCur) {
     cur = nextCur;
     root.setAttribute("data-current-vote", cur);
     root.setAttribute("data-useful", String(uu));
     root.setAttribute("data-not", String(nn));
-    var cu = root.querySelector(".vote-count-useful");
-    var cn = root.querySelector(".vote-count-not");
-    if (cu) cu.textContent = "(" + uu + ")";
-    if (cn) cn.textContent = "(" + nn + ")";
+
+    if (usefulCountEl) usefulCountEl.textContent = String(uu);
+    if (notCountEl)    notCountEl.textContent    = String(nn);
+    if (uu !== prevU)  bumpCount(usefulCountEl);
+    if (nn !== prevN)  bumpCount(notCountEl);
+    prevU = uu; prevN = nn;
+
     var p = pctLabel(uu, nn);
     if (pctWrap) {
       if (p === null) {
@@ -219,12 +257,19 @@ function casePdfNavigate(caseId, action) {
         pctWrap.classList.add("hidden");
       } else {
         pctWrap.classList.remove("hidden");
-        pctWrap.innerHTML = '<span class="tabular-nums font-medium text-slate-700 dark:text-slate-300">' + p + '%</span> found this useful';
+        pctWrap.innerHTML =
+          '<span class="h-1 w-1 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden="true"></span>' +
+          '<span><span class="tabular-nums font-medium text-slate-700 dark:text-slate-300">' +
+          p + '%</span> found this useful</span>';
       }
     }
-    // Style is fully driven by the data-state attribute (see <style> at top).
+
     usefulBtn.setAttribute("data-state", cur === "useful" ? "useful" : "");
-    notBtn.setAttribute("data-state", cur === "not_useful" ? "not_useful" : "");
+    notBtn.setAttribute("data-state",    cur === "not_useful" ? "not_useful" : "");
+    usefulBtn.setAttribute("aria-pressed", cur === "useful" ? "true" : "false");
+    notBtn.setAttribute("aria-pressed",    cur === "not_useful" ? "true" : "false");
+
+    setVoted(cur);
   }
 
   function optimistic(req) {

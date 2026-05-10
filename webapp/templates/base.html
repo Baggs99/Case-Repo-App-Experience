@@ -133,6 +133,67 @@
         /* Per-school accent color, applied via inline `--case-accent` from the template. */
         .case-card[data-school-accent="1"]::before { background: var(--case-accent); opacity: 0.55; }
         .case-card[data-school-accent="1"]:hover::before { opacity: 0.95; }
+
+        /*
+         * Case detail — vote pills. Defined here (not in child templates) because
+         * cdn.tailwindcss.com only compiles the first text/tailwindcss block in the
+         * document; a second block in case_detail.html would not emit CSS.
+         */
+        .vote-pill-track {
+          @apply inline-flex flex-wrap items-center gap-0.5 rounded-full border border-slate-200/90
+                 bg-gradient-to-b from-slate-50 to-slate-100 p-0.5 shadow-sm
+                 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900 dark:shadow-none;
+        }
+        .vote-pill {
+          @apply relative inline-flex items-center gap-1.5 rounded-full border border-transparent
+                 bg-white/80 px-3 py-1.5 text-[13px] font-semibold tracking-tight text-slate-700
+                 shadow-sm transition-all duration-200 ease-out
+                 hover:z-10 hover:scale-[1.02] hover:border-slate-200 hover:bg-white hover:shadow-soft
+                 active:scale-[0.98]
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15
+                 dark:bg-slate-800/70 dark:text-slate-100 dark:shadow-none
+                 dark:hover:border-slate-600 dark:hover:bg-slate-800 dark:hover:shadow-soft
+                 dark:focus-visible:ring-slate-100/25;
+        }
+        .vote-pill .vote-icon {
+          @apply h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200 dark:text-slate-400;
+        }
+        .vote-pill:hover .vote-icon { @apply scale-110 text-slate-700 dark:text-slate-200; }
+        .vote-pill .vote-count {
+          @apply min-w-[1.25ch] text-center text-[12px] font-semibold tabular-nums text-slate-500
+                 transition-colors duration-200 dark:text-slate-400;
+        }
+
+        .vote-pill[data-state="useful"] {
+          @apply border-emerald-200/90 bg-emerald-50 text-emerald-900 shadow-soft
+                 hover:scale-[1.02] hover:border-emerald-300 hover:bg-emerald-50
+                 dark:border-emerald-500/35 dark:bg-emerald-950/50 dark:text-emerald-200
+                 dark:hover:bg-emerald-950/60 dark:hover:border-emerald-400/40;
+        }
+        .vote-pill[data-state="useful"] .vote-count {
+          @apply text-emerald-800 dark:text-emerald-300;
+        }
+        .vote-pill[data-state="useful"] .vote-icon {
+          @apply text-emerald-600 dark:text-emerald-400;
+        }
+
+        .vote-pill[data-state="not_useful"] {
+          @apply border-rose-200/90 bg-rose-50 text-rose-900 shadow-soft
+                 hover:scale-[1.02] hover:border-rose-300 hover:bg-rose-50
+                 dark:border-rose-500/35 dark:bg-rose-950/45 dark:text-rose-200
+                 dark:hover:bg-rose-950/55 dark:hover:border-rose-400/40;
+        }
+        .vote-pill[data-state="not_useful"] .vote-count {
+          @apply text-rose-800 dark:text-rose-300;
+        }
+        .vote-pill[data-state="not_useful"] .vote-icon {
+          @apply text-rose-600 dark:text-rose-400;
+        }
+
+        #case-vote-root[data-voted="useful"] #vote-not,
+        #case-vote-root[data-voted="not_useful"] #vote-useful {
+          @apply opacity-60 hover:opacity-100;
+        }
       }
 
       /* htmx loading indicator. */
@@ -148,6 +209,17 @@
           transition-duration: 0.001ms !important;
           scroll-behavior: auto !important;
         }
+      }
+    </style>
+    {# Vote count bump — plain CSS so it still runs when the class is toggled only from JS
+       (Tailwind JIT would not emit animate-* utilities otherwise). #}
+    <style>
+      @keyframes vote-count-bump {
+        0%, 100% { transform: scale(1); }
+        40%      { transform: scale(1.2); }
+      }
+      .vote-count.is-bumped {
+        animation: vote-count-bump 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
       }
     </style>
 </head>
