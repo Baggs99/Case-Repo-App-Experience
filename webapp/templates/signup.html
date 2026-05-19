@@ -6,8 +6,9 @@
     <div class="surface rounded-2xl shadow-card p-7 sm:p-8">
         <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-1.5">Create your account</h1>
         <p class="text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
-            Yale SOM: use your <code class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">@yale.edu</code> email.
-            Chicago Booth: use your <code class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">@chicagobooth.edu</code> email (invite-only).
+            Yale SOM: <code class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">@yale.edu</code>.
+            Michigan Ross: <code class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">@umich.edu</code>.
+            Chicago Booth: <code class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">@chicagobooth.edu</code> (invite-only).
         </p>
 
         {% if error %}
@@ -24,7 +25,7 @@
                 <label for="email" class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">School email</label>
                 <input type="email" id="email" name="email" required
                     value="{{ values.email or '' }}"
-                    placeholder="you@yale.edu or you@chicagobooth.edu"
+                    placeholder="you@yale.edu, you@umich.edu, or you@chicagobooth.edu"
                     class="input-base">
             </div>
 

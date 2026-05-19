@@ -72,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_cases_title_trgm ON cases USING GIN (case_title g
 -- ----------------------------------------------------------------------------
 -- users
 -- ----------------------------------------------------------------------------
--- Minimal shape needed for school-email auth (@yale.edu + invited Booth guest).
+-- Minimal shape needed for school-email auth (@yale.edu, @umich.edu + Booth guest).
 -- email_verified_at is NULL until the user clicks the verification link.
 -- password_hash holds an argon2id (or bcrypt) hash — NEVER plain text.
 -- ----------------------------------------------------------------------------
@@ -84,9 +84,10 @@ CREATE TABLE IF NOT EXISTS users (
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     last_login_at       TIMESTAMPTZ,
 
-    -- Defense in depth: @yale.edu for Yale SOM, plus one invited Booth account.
+    -- Defense in depth: allowed school domains plus one invited Booth account.
     CONSTRAINT users_email_allowed CHECK (
         email ILIKE '%@yale.edu'
+        OR email ILIKE '%@umich.edu'
         OR lower(email::text) = 'acannata@chicagobooth.edu'
     )
 );

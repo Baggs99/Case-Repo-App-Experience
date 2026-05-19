@@ -24,9 +24,9 @@ from webapp.db import get_pool
 logger = logging.getLogger(__name__)
 
 
-# Yale SOM: any @yale.edu address. Chicago Booth: exactly one guest account.
+# School domains: any address on these suffixes. Chicago Booth: one guest only.
 # Enforced here and via CHECK constraint on users.email (see db/schema.sql).
-ALLOWED_DOMAIN_SUFFIX = "@yale.edu"
+ALLOWED_DOMAIN_SUFFIXES = ("@yale.edu", "@umich.edu")
 ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
 BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
 
@@ -47,7 +47,7 @@ class User:
 # ── Domain errors ──────────────────────────────────────────────────────────────
 
 class InvalidEmailDomain(ValueError):
-    """Email isn't @yale.edu, isn't the lone Booth guest, or is malformed."""
+    """Email isn't on an allowed school domain, isn't the lone Booth guest, or is malformed."""
 
 
 class EmailAlreadyRegistered(ValueError):
@@ -74,7 +74,7 @@ def normalize_email(email: str) -> str:
 
 
 def validate_email(email: str) -> str:
-    """Return the normalized email iff it's allowed (@yale.edu or Booth guest).
+    """Return the normalized email iff it's on an allowed school domain or Booth guest.
 
     Conservative: single '@', suffix / allow-list checks. Verification email
     is the actual proof of inbox control.
@@ -86,7 +86,7 @@ def validate_email(email: str) -> str:
     if not local:
         raise InvalidEmailDomain("Email address is missing the local part.")
 
-    if e.endswith(ALLOWED_DOMAIN_SUFFIX):
+    if any(e.endswith(suffix) for suffix in ALLOWED_DOMAIN_SUFFIXES):
         return e
     if e == ALLOWED_BOOTH_EMAIL:
         return e
@@ -94,8 +94,9 @@ def validate_email(email: str) -> str:
         raise InvalidEmailDomain(
             "Chicago Booth sign-up is limited to invited addresses on this site."
         )
+    domains = ", ".join(ALLOWED_DOMAIN_SUFFIXES)
     raise InvalidEmailDomain(
-        f"Sign-up is restricted to {ALLOWED_DOMAIN_SUFFIX} addresses "
+        f"Sign-up is restricted to {domains} addresses "
         "and authorized Booth collaborators."
     )
 

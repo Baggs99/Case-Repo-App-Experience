@@ -6,7 +6,8 @@
     <div class="surface rounded-2xl shadow-card p-7 sm:p-8">
         <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 mb-1.5">Welcome back</h1>
         <p class="text-sm text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
-            Sign in with your <span class="font-medium text-slate-800 dark:text-slate-200">@yale.edu</span>
+            Sign in with your <span class="font-medium text-slate-800 dark:text-slate-200">@yale.edu</span>,
+            <span class="font-medium text-slate-800 dark:text-slate-200">@umich.edu</span>,
             or <span class="font-medium text-slate-800 dark:text-slate-200">@chicagobooth.edu</span> school email.
         </p>
 
@@ -31,7 +32,7 @@
                 <label for="email" class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">Email</label>
                 <input type="email" id="email" name="email" required
                     value="{{ values.email or '' }}"
-                    placeholder="you@yale.edu or you@chicagobooth.edu"
+                    placeholder="you@yale.edu, you@umich.edu, or you@chicagobooth.edu"
                     class="input-base">
             </div>
 
