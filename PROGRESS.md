@@ -1,16 +1,81 @@
 # PROGRESS
-Updated: 2026-07-12T01:47:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T02:20:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 8 (queues/proposals/visiting/.ics) complete — next is Phase 9:
-dashboard & recommendations. T9.1 dashboard: upcoming, inbox badge,
-queues, history table (date/case/role/counterpart/grade),
-per-dimension rubric averages over last 10 finalized-as-candidate
-(GROUP BY over feedback.rubric_json). T9.2 the three §4.8
-recommendation rules as bounded queries (coverage gap → difficulty
-ladder → weak dimension), union/dedupe/cap 5, exclude burned+queued.
-STILL PENDING: rubric-template editor UI (deferred P5→P7→P8) — slot
-into P9 or P10 polish.
+Phase 9 (dashboard & recommendations) + full myCase brand restyle
+complete — next is Phase 10: local recording pipeline (spec §4.6:
+per-participant mic-only MediaRecorder, 60 s chunk uploads, INV-5 size
+caps, storage under private recordings/ prefix, debrief links; A9
+upload failure never blocks the call). Owner decisions O1–O3 still
+open. STILL PENDING: rubric-template editor UI (deferred P5→…→P9) —
+now firmly a P10/P11 polish item.
+
+## Done — myCase brand restyle (2026-07-12, owner-directed)
+- Source: mycase/myCase Style Guide.html (React bundle; tokens
+  extracted from its Implementation-spec section — "tokens are the
+  contract"). Light chalk #F3F5F8 / dark midnight #081222, surface
+  #FFFFFF/#101E36, ink #0D1C31/#E9EEF5, uptick #1B9A5F/#2FC07E,
+  cobalt links, hairlines #C9D2DF/#24365A
+- Mechanism: Tailwind slate/emerald ramps REMAPPED in base.html config
+  so every existing utility lands on brand tokens; fonts → Archivo +
+  Source Serif 4; radius scale zeroed (guide rule 01, rounded-full
+  kept for dots); shadows zeroed (rule 02); btn-secondary → underlined
+  text (rule 03); badges → square caps labels; rise motion 16px/420ms
+  cubic-bezier(0.22,1,0.36,1) (rule 07); staircase wordmark
+  (serif-italic "my" + Archivo-800 "Case", theme-aware gradient stops)
+  in nav + footer; titles "Case Repo" → "myCase" across templates;
+  session/exhibits pages squared + light --muted token fixed; 🔒
+  emoji → LOCKED caps label (rule 05)
+- Evidence: screenshots output/evidence/restyle-*.png (browse
+  light+dark, case detail dark, room light); computed-style check
+  confirmed dark pill = chalk block; suite stayed green
+- Known deviations from the guide, deliberate: Lucide icons remain on
+  a few controls (search, votes, PDF buttons — rule 05 wants none;
+  sweep later), amber/rose semantic ramps kept for Medium/Hard/errors
+  (accessibility floor > brand purity), theme toggle stays an icon
+  button not the guide's labeled pill
+- Also fixed: test_ws_integration now deletes its sessions (each suite
+  run was piling scheduled sessions on the dev dummy case → 143 stale
+  rows purged from dev DB)
+
+## Done — Phase 9 (2026-07-12)
+- `webapp/repositories/dashboard.py` — history (finalized, both roles,
+  grade visible to both participants per A10, LIMIT 50);
+  dimension_averages = AVG(points/max_points)×5 over last 10
+  finalized-as-candidate, one GROUP BY over feedback.rubric_json ×
+  template items (A11); the three §4.8 rules as bounded queries with
+  shared eligibility (published, non-duplicate, not burned, not in
+  either queue): coverage-gap (fewest finalized candidate-sessions per
+  type, alphabetical tie-break, then highest usefulness % per DV-6),
+  difficulty-ladder (mean of last 3 grades ≥ 4.0 → next rung of
+  most-practiced (type,difficulty), Easy→Medium→Hard per DV-7),
+  weak-dimension (lowest trend dimension → case whose case-specific
+  template gives it the largest max_points share, >0.2 floor).
+  Union/dedupe/cap 5 with rule attribution
+- GET /api/dashboard (identity from session — no user param, T9.3);
+  own-room page grew Recommended-next / Your-trend (hairline bars,
+  weakest first) / History table panels, myCase-styled; visiting view
+  untouched (stats + intersections only)
+- A10/A11 recorded in INTEGRATION.md
+- Tests (tests/test_dashboard.py, 4): trend numbers equal the
+  hand-computed table in the module docstring (structure 4.00, quant
+  1.00, insight 3.67, communication 4.33, synthesis 2.00 — done-when's
+  hand-computed comparison); all three rules fire on the fixture
+  (gap→B1 over unrated B2 via DV-6 rating, ladder→TypeA Medium rung
+  at mean 4.23, weak-dim→quant-heavy template share 0.8); T9.3
+  privacy audit: other user's dashboard excludes the subject's
+  sessions, feedback/rubric endpoints 404 for non-participants,
+  visiting room HTML carries no grades/History/Recommended markers,
+  anonymous /api/dashboard 401. Suite 230 passed
+- Dev-room evidence: seeded 2 finalized demo sessions → dashboard
+  screenshot output/evidence/p9-dashboard.png (trend bars weakest-
+  first, spot-checked 2.5 = (3+2)/2/5×5; history w/ green tabular
+  grades); Recommended empty for Alice is CORRECT (only dev case is in
+  her Give queue → excluded); demo rows deleted after
+- Commits: 2dd3bdf (restyle) · 7708c38 (dashboard backend+tests) ·
+  4d194cf (dashboard panels)
+
+## Done — Phase 8 (2026-07-12)
 
 ## Done — Phase 8 (2026-07-12)
 - `webapp/repositories/queues.py` — want/give add(idempotent)/remove/
