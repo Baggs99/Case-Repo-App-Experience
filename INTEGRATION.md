@@ -128,6 +128,11 @@ Postgres idiom throughout: `SERIAL` PKs, `TIMESTAMPTZ`, `JSONB`, `TEXT` +
   its `node --test` suite, and the VPS runbook (T3.1–T3.4) are replaced by the
   in-app WS route + `unittest` coverage. coturn config ships later only if the
   self-hosted TURN option is chosen.
+- **DV-11 — API status codes.** Spec P2's done-when says wrong-actor and
+  illegal transitions both return 403. Implemented with more precise
+  semantics: **404** for non-participants (session existence undisclosed —
+  same philosophy as `require_admin`'s 404), **403** for a participant acting
+  outside their role, **409** for illegal state edges and unmet consent gates.
 
 ## 5. Assumptions (recorded per operating rules; flag to overturn)
 
