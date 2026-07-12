@@ -1,8 +1,8 @@
 {# Partial: rendered standalone by /search (HTMX) and embedded in index.html.
-   Guide-styled casebook GRID (owner call 2026-07-12: keep the grid density):
-   square hairline tiles, caps kicker, bold tight title, serif firm accents,
-   color-coded usefulness text, school identity as the left accent bar.
-   Unnumbered. #}
+   Casebook GRID in the classic soft-card shell (owner call 2026-07-12:
+   borderless rounded cards, shadow lift) with the current bold typographic
+   interior. School identity lives in the school NAME's color; dark mode
+   brightens it with a filter so dark hues stay legible on midnight. #}
 
 {% set school_accent = {
     'Yale':     '#0F4C81',
@@ -11,7 +11,7 @@
     'Stern':    '#5B21B6',
     'Ross':     '#B45309',
     'Fuqua':    '#1E3A8A',
-    'Columbia': '#0EA5E9',
+    'Columbia': '#0369A1',
     'Darden':   '#C2410C',
     'Yale SOM': '#0F4C81',
 } %}
@@ -39,16 +39,15 @@
 
 {% if cases %}
 {% set _return_to = return_url or "/search" %}
-<div class="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+<div class="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
     {% for c in cases %}
     {% set accent = school_accent.get(c.source_school) %}
     <a href="/cases/{{ c.id }}?return_to={{ _return_to|urlencode }}"
        class="case-card group flex flex-col animate-fade-up"
-       style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms{% if accent %}; --case-accent: {{ accent }}{% endif %}"
-       {% if accent %}data-school-accent="1"{% endif %}>
+       style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms">
 
         <div class="flex items-baseline justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
-            <span class="truncate">{{ c.source_school }}{% if c.source_year %} · {{ c.source_year }}{% endif %}</span>
+            <span class="truncate"><span {% if accent %}style="color: {{ accent }}" class="dark:[filter:brightness(1.9)_saturate(0.75)]"{% endif %}>{{ c.source_school }}</span>{% if c.source_year %} · {{ c.source_year }}{% endif %}</span>
             {% if c.difficulty %}
             <span class="badge shrink-0
                 {% if c.difficulty == 'Easy' %}badge-easy
@@ -76,7 +75,7 @@
             {% endif %}
         </div>
 
-        <div class="mt-auto pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-baseline justify-between gap-2 text-[12px]">
+        <div class="mt-auto flex items-baseline justify-between gap-2 text-[12px]">
             {% if c.useful_percentage is not none and c.total_votes %}
                 {% set _pct = c.useful_percentage|round(0)|int %}
                 <span class="font-semibold tabular-nums

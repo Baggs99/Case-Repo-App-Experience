@@ -154,23 +154,20 @@
         .badge-medium { @apply text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-300/30; }
         .badge-hard   { @apply text-rose-700 border-rose-200 dark:text-rose-300 dark:border-rose-300/30; }
 
-        /* Case card — square, hairline, 1px hover lift (guide motion:
-           hover — lift, 160ms, nothing bounces). */
+        /* Case card — the one deliberate exception to guide rules 01/02
+           (owner call 2026-07-12): the classic soft borderless card.
+           Rounded + shadow-lifted, values inlined because the global
+           radius/shadow scales are zeroed for everything else. */
         .case-card {
-          @apply relative block p-4 bg-white dark:bg-[#101E36]
-                 border border-slate-200 dark:border-slate-800
-                 transition duration-150
-                 hover:-translate-y-px hover:border-slate-300 dark:hover:border-slate-400
-                 focus-visible:outline-none focus-visible:border-emerald-500 dark:focus-visible:border-emerald-300;
+          @apply relative block p-4 rounded-[0.75rem] bg-white dark:bg-[#101E36]
+                 shadow-[0_1px_2px_0_rgb(15_23_42/0.05),0_1px_3px_0_rgb(15_23_42/0.07)]
+                 dark:shadow-[0_1px_2px_0_rgb(0_0_0/0.30),0_1px_4px_0_rgb(0_0_0/0.35)]
+                 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]
+                 hover:-translate-y-0.5
+                 hover:shadow-[0_4px_12px_-2px_rgb(15_23_42/0.10),0_12px_32px_-8px_rgb(15_23_42/0.14)]
+                 dark:hover:shadow-[0_4px_14px_-2px_rgb(0_0_0/0.45),0_12px_32px_-8px_rgb(0_0_0/0.50)]
+                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60;
         }
-        .case-card::before {
-          content: "";
-          @apply absolute left-0 top-0 bottom-0 w-[3px] bg-slate-200 dark:bg-slate-700 opacity-70 transition-opacity;
-        }
-        .case-card:hover::before { @apply opacity-100; }
-        /* Per-school accent color, applied via inline `--case-accent` from the template. */
-        .case-card[data-school-accent="1"]::before { background: var(--case-accent); opacity: 0.55; }
-        .case-card[data-school-accent="1"]:hover::before { opacity: 0.95; }
 
         /*
          * Case detail — vote pills. Defined here (not in child templates) because
