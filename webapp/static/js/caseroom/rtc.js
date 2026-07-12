@@ -21,6 +21,7 @@ export class RtcSession {
    * @param {(stream: MediaStream) => void} opts.onRemoteStream
    * @param {(msg: object) => void} opts.onCtrlMessage parsed ctrl-channel JSON
    * @param {() => void} opts.onCtrlOpen
+   * @param {() => void} opts.onCtrlClose
    * @param {(state: string) => void} opts.onConnectionState pc.connectionState changes
    */
   constructor(opts) {
@@ -39,6 +40,7 @@ export class RtcSession {
     // Negotiated on both sides with a fixed id — never rides the SDP race (§4.3).
     this.ctrl = pc.createDataChannel('ctrl', { id: 0, negotiated: true, ordered: true });
     this.ctrl.onopen = () => opts.onCtrlOpen?.();
+    this.ctrl.onclose = () => opts.onCtrlClose?.();
     this.ctrl.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }

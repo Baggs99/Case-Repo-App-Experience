@@ -90,6 +90,86 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   background: rgba(8,18,34,.85); border: 1px solid var(--line); border-radius: 6px;
 }
 
+/* Exhibits — interviewer panel (right) */
+#exhibit-panel {
+  position: absolute; right: 16px; top: 48px; width: 176px;
+  max-height: calc(100dvh - 340px); overflow-y: auto;
+  background: rgba(8,18,34,.88); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px;
+}
+.panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 10px;
+}
+#exhibit-panel button, #pdf-drawer button, .ex-send {
+  min-height: 32px; padding: 0 10px; font-size: 12px;
+}
+.ex-card { margin-bottom: 12px; }
+.ex-thumb {
+  display: block; width: 100%; aspect-ratio: 4/3; padding: 0; overflow: hidden;
+  background: #050B16; border: 1px solid var(--line); border-radius: 8px;
+}
+.ex-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ex-send { width: 100%; margin-top: 6px; background: var(--green);
+  border-color: var(--green); color: #06301C; }
+.ex-send:disabled { background: transparent; border-color: var(--green);
+  color: var(--green); cursor: default; }
+.ex-send.err { background: transparent; border-color: var(--danger); color: var(--danger); }
+
+/* Exhibits — PDF drawer (left) */
+#pdf-drawer {
+  position: absolute; left: 16px; top: 48px; bottom: 96px;
+  width: min(560px, 46vw); display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 10px;
+}
+#pdf-frame { flex: 1; width: 100%; border: 0; border-radius: 6px; background: #050B16; }
+
+/* Exhibits — candidate tray (bottom-left) */
+#exhibit-tray {
+  position: absolute; left: 20px; bottom: 20px; max-width: 44vw;
+  padding: 10px; background: rgba(8,18,34,.88);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+#tray-status { margin: 0 0 8px; }
+#tray-slots { display: flex; gap: 8px; flex-wrap: wrap; }
+.ex-slot {
+  position: relative; width: 76px; height: 57px; padding: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+}
+.ex-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ex-slot .ex-num {
+  position: absolute; top: 3px; left: 5px; z-index: 1;
+  font: 600 11px/1 Archivo, sans-serif; color: var(--ink);
+  text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+.ex-slot.locked { color: var(--faint); }
+.ex-slot.locked .ex-lock { font-size: 16px; }
+.ex-slot:not(.locked) { border-color: var(--green); cursor: pointer; }
+
+/* Lightbox */
+#lightbox {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  background: rgba(5,11,22,.85); cursor: zoom-out;
+}
+#lightbox figure { margin: 0; text-align: center; }
+#lightbox img {
+  max-width: 92vw; max-height: 86vh; border-radius: 8px;
+  border: 1px solid var(--line); background: #fff;
+}
+#lightbox figcaption { margin-top: 10px; }
+
+/* Reveal timeline (ended view) */
+#reveal-timeline {
+  margin: 14px 0 18px; padding: 12px 16px; text-align: left;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+}
+#reveal-timeline .tl-row { margin: 6px 0; font-size: 14px; }
+#reveal-timeline .tl-t {
+  display: inline-block; min-width: 48px; color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace; font-size: 13px;
+}
+
 /* Ended */
 [data-view="ended"] { min-height: 100dvh; display: grid; place-items: center; }
 
@@ -148,6 +228,28 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   <video id="pip" autoplay muted playsinline></video>
   <p class="call-head label">{{ session.case_title }}</p>
   <div id="debug-overlay" hidden></div>
+
+  <aside id="exhibit-panel" hidden aria-label="Exhibits">
+    <div class="panel-head">
+      <span class="label">Exhibits</span>
+      <button id="btn-pdf">Case PDF</button>
+    </div>
+    <div id="exhibit-strip"></div>
+  </aside>
+
+  <div id="pdf-drawer" hidden>
+    <div class="panel-head">
+      <span class="label">Case PDF</span>
+      <button id="btn-pdf-close">Close</button>
+    </div>
+    <iframe id="pdf-frame" title="Case PDF"></iframe>
+  </div>
+
+  <div id="exhibit-tray" hidden aria-label="Your exhibits">
+    <p id="tray-status" class="label" role="status"></p>
+    <div id="tray-slots"></div>
+  </div>
+
   <div class="controls">
     <button id="btn-mute" aria-pressed="false">Mute</button>
     <button id="btn-cam" aria-pressed="false">Camera off</button>
@@ -159,9 +261,17 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   <div class="lobby-card" style="text-align:center">
     <h1>Call ended</h1>
     <p class="case">Feedback unlocks once your interviewer finalizes the session.</p>
+    <div id="reveal-timeline" hidden></div>
     <p><a href="/room" style="color: var(--green)">Back to your room</a></p>
   </div>
 </section>
+
+<div id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Exhibit enlarged">
+  <figure>
+    <img id="lightbox-img" alt="Exhibit">
+    <figcaption id="lightbox-cap" class="label"></figcaption>
+  </figure>
+</div>
 
 <div id="admit-modal" hidden role="dialog" aria-modal="true" aria-labelledby="admit-name">
   <div class="modal-card">

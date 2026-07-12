@@ -9,6 +9,7 @@
 
 import { SignalClient } from './signal.js';
 import { RtcSession } from './rtc.js';
+import { ExhibitManager, wireLightbox } from './exhibits.js';
 import * as ui from './ui.js';
 
 const BOOT = window.CASEROOM;
@@ -18,6 +19,7 @@ const PARAMS = new URLSearchParams(location.search);
 
 let signal = null;
 let rtc = null;
+let exhibits = null;
 let localStream = null;
 let joinConfig = null;
 let admitted = false;
@@ -141,6 +143,15 @@ function startCall() {
   ui.showView('call');
   ui.banner(null);
 
+  exhibits = new ExhibitManager({
+    api,
+    apiBase: API,
+    role: BOOT.role,
+    caseId: BOOT.caseId,
+    sendCtrl: (msg) => rtc?.sendCtrl(msg) ?? false,
+    isCtrlOpen: () => rtc?.ctrl.readyState === 'open',
+  });
+
   rtc = new RtcSession({
     polite: IS_CANDIDATE,
     iceServers: joinConfig.ice_servers,
@@ -148,7 +159,11 @@ function startCall() {
     localStream,
     signal,
     onRemoteStream: (stream) => { ui.$('remote').srcObject = stream; },
-    onCtrlOpen: () => rtc.sendCtrl({ type: 'echo', t: performance.now() }),
+    onCtrlOpen: () => {
+      rtc.sendCtrl({ type: 'echo', t: performance.now() });
+      exhibits.onCtrlOpen();
+    },
+    onCtrlClose: () => exhibits.onCtrlClosed(),
     onCtrlMessage: onCtrl,
     onConnectionState: (s) => {
       if (s === 'connected') ui.banner(null);
@@ -156,7 +171,11 @@ function startCall() {
     },
   });
 
+  exhibits.start();
+
   if (PARAMS.get('debug') === '1') {
+    // Test/debug hook: lets the evidence pass kill the ctrl channel etc.
+    window.__caseroom = { get rtc() { return rtc; }, get exhibits() { return exhibits; } };
     ui.$('debug-overlay').hidden = false;
     setInterval(async () => {
       const s = await rtc?.sampleStats();
@@ -171,6 +190,8 @@ function onCtrl(msg) {
   else if (msg.type === 'echo-ack') {
     lastRtt = Math.round(performance.now() - msg.t);
     console.info(`ctrl DataChannel echo RTT: ${lastRtt} ms`);
+  } else if (msg.type === 'reveal') {
+    exhibits?.handleCtrl(msg);
   }
 }
 
@@ -178,11 +199,13 @@ async function endCall() {
   await api('/state', { target: 'debrief' }).catch(() => {});
   teardown();
   ui.showView('ended');
+  exhibits?.renderTimeline(); // T6.4: both parties see the reveal timeline
 }
 
 function teardown() {
   signal?.stop();
   rtc?.close();
+  exhibits?.stop();
   if (localStream) for (const t of localStream.getTracks()) t.stop();
   inCall = false;
 }
@@ -192,6 +215,7 @@ function teardown() {
 async function boot() {
   ui.showView('lobby');
   ui.$('consent').checked = BOOT.selfConsent;
+  wireLightbox();
 
   if (PARAMS.get('nomedia') === '1') {
     // Dev/smoke-test flag: exercise signaling, admit flow, and the ctrl
