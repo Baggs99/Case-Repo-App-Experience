@@ -146,13 +146,15 @@
                  dark:text-slate-400 dark:hover:text-slate-100;
         }
 
-        /* Difficulty + status badges — square caps labels on hairlines. */
+        /* Difficulty badges — an INK RAMP, not a traffic light (owner call
+           2026-07-12): difficulty is ordinal, so weight encodes it.
+           Easy = quiet outline · Medium = firm outline · Hard = ink block. */
         .badge {
           @apply inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] px-2 py-0.5 border;
         }
-        .badge-easy   { @apply text-emerald-600 border-emerald-200 dark:text-emerald-300 dark:border-emerald-300/30; }
-        .badge-medium { @apply text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-300/30; }
-        .badge-hard   { @apply text-rose-700 border-rose-200 dark:text-rose-300 dark:border-rose-300/30; }
+        .badge-easy   { @apply text-slate-500 border-slate-200 dark:text-slate-400 dark:border-slate-700; }
+        .badge-medium { @apply text-slate-900 border-slate-400 dark:text-slate-100 dark:border-slate-500; }
+        .badge-hard   { @apply bg-slate-900 text-slate-50 border-slate-900 dark:bg-slate-100 dark:text-slate-950 dark:border-slate-100; }
 
         /* Case card — the one deliberate exception to guide rules 01/02
            (owner call 2026-07-12): the classic soft borderless card.

@@ -4,16 +4,18 @@
    interior. School identity lives in the school NAME's color; dark mode
    brightens it with a filter so dark hues stay legible on midnight. #}
 
+{# One desaturated, ink-adjacent band — similar chroma/lightness per hue so
+   no school shouts; explicit dark lifts replace the old brightness filter. #}
 {% set school_accent = {
-    'Yale':     '#0F4C81',
-    'Booth':    '#9B1C2F',
-    'Kellogg':  '#5B2A86',
-    'Stern':    '#5B21B6',
-    'Ross':     '#B45309',
-    'Fuqua':    '#1E3A8A',
-    'Columbia': '#0369A1',
-    'Darden':   '#C2410C',
-    'Yale SOM': '#0F4C81',
+    'Yale':     ('#2E4E6E', '#93BCE4'),
+    'Booth':    ('#7A3B47', '#DE9CAC'),
+    'Kellogg':  ('#5C4470', '#C2A0E2'),
+    'Stern':    ('#4C4A82', '#ADA9E8'),
+    'Ross':     ('#8A5A2E', '#D9AB6A'),
+    'Fuqua':    ('#3D4E7E', '#A0B4EE'),
+    'Columbia': ('#33607E', '#8EC6EA'),
+    'Darden':   ('#8A4A38', '#DE9E82'),
+    'Yale SOM': ('#2E4E6E', '#93BCE4'),
 } %}
 
 <div class="border-t-2 border-slate-900 dark:border-slate-100 pt-4 flex items-baseline justify-between gap-4">
@@ -47,7 +49,7 @@
        style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms">
 
         <div class="flex items-baseline justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
-            <span class="truncate"><span {% if accent %}style="color: {{ accent }}" class="dark:[filter:brightness(1.9)_saturate(0.75)]"{% endif %}>{{ c.source_school }}</span>{% if c.source_year %} · {{ c.source_year }}{% endif %}</span>
+            <span class="truncate"><span {% if accent %}style="--sc: {{ accent[0] }}; --scd: {{ accent[1] }}" class="text-[color:var(--sc)] dark:text-[color:var(--scd)]"{% endif %}>{{ c.source_school }}</span>{% if c.source_year %} · {{ c.source_year }}{% endif %}</span>
             {% if c.difficulty %}
             <span class="badge shrink-0
                 {% if c.difficulty == 'Easy' %}badge-easy
