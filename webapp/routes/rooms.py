@@ -9,8 +9,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from webapp.auth.dependencies import require_auth
+from webapp.auth.dependencies import require_auth, require_auth_api
 from webapp.auth.users import User
+from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import proposals as proposals_repo
 from webapp.repositories import queues as queues_repo
 from webapp.repositories.practice_sessions import (
@@ -28,6 +29,17 @@ router = APIRouter(tags=["rooms"])
 def my_room(request: Request, user: User = Depends(require_auth)):
     room = get_or_create_room(user.id)
     return RedirectResponse(url=f"/room/{room['slug']}", status_code=303)
+
+
+@router.get("/api/dashboard")
+def dashboard(user: User = Depends(require_auth_api)):
+    """Spec §5: own history, trends, recommendations — never anyone else's
+    (T9.3: the user id comes from the session, not a parameter)."""
+    return {
+        "history": dashboard_repo.history(user.id),
+        "dimension_averages": dashboard_repo.dimension_averages(user.id),
+        "recommendations": dashboard_repo.recommendations(user.id),
+    }
 
 
 @router.get("/room/{slug}")
@@ -50,6 +62,9 @@ def room_page(slug: str, request: Request, user: User = Depends(require_auth)):
             "inbox": proposals_repo.inbox(user.id),
             "queue_want": queues_repo.list_for_user(user.id, "want"),
             "queue_give": queues_repo.list_for_user(user.id, "give"),
+            "hist": dashboard_repo.history(user.id),
+            "trends": dashboard_repo.dimension_averages(user.id),
+            "recommended": dashboard_repo.recommendations(user.id),
         })
     else:
         ctx["intersections"] = queues_repo.intersections(user.id,

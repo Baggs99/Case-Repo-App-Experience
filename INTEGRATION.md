@@ -168,6 +168,13 @@ Postgres idiom throughout: `SERIAL` PKs, `TIMESTAMPTZ`, `JSONB`, `TEXT` +
   finalized session.
 - **A9** Recording-upload failure does not block the call; the recording row
   simply stays `completed=0` and the debrief view shows it as unavailable.
+- **A10** History (P9) shows the session grade to BOTH participants — the
+  interviewer gave it, the candidate received it, and the P7 feedback
+  endpoint already serves both. Grades stay out of every other-user surface
+  (public room stats, intersections, dashboards of non-participants).
+- **A11** Per-dimension trend = AVG(points / max_points) × 5 over the last
+  10 finalized-as-candidate sessions, so case-specific templates with
+  different max_points compare on one scale.
 
 ## 6. Environment / config additions
 
