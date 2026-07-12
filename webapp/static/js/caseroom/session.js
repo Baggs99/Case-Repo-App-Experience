@@ -305,6 +305,9 @@ async function boot() {
     gain.gain.value = 0.05;
     osc.connect(gain).connect(dest);
     osc.start();
+    // Autoplay policy: resume eagerly (works under automation), and again
+    // on the first real click (works in a normal browser).
+    ctx.resume().catch(() => {});
     document.addEventListener('click', () => ctx.resume(), { once: true });
     localStream = dest.stream;
   } else {
