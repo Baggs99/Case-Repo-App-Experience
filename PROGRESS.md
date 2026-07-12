@@ -2,13 +2,51 @@
 Updated: 2026-07-12T02:20:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 10 (recording pipeline) complete. IN FLIGHT: implementing the
-myCase Interviewer Console design (mycase/myCase Interviewer
-Console.html — same bundler format as the guide; decoded template in
-scratchpad) as the interviewer's in-call view, + a site-wide
-style-conformance review (owner request). Then Phase 11 hardening.
-Owner decisions O1–O3 still open; rubric-template editor UI still
-deferred.
+Phase 10 + Interviewer Console + conformance sweep complete — next is
+Phase 11: hardening (verify script T11.1, cross-browser Chrome+Safari
+pass T11.2 incl. the Safari audio/mp4 recording path, failure-mode
+pass T11.3: wifi drop → ICE restart, signal-server restart → WS
+reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
+still open; rubric-template editor UI still deferred (P11 polish or
+cut for v1 — generic template works server-side).
+
+## Done — Interviewer Console + conformance sweep (2026-07-12,
+owner-directed)
+- Console per mycase/myCase Interviewer Console.html (same __bundler
+  format; template decoded like the guide's): top bar (staircase +
+  wordmark · case kicker/title · CANDIDATE name · INTERVIEW master
+  clock counting from server started_at with 45-min cap remaining +
+  2px green progress rule · REC badge · End call), left column tabs
+  [Score & exhibits | Case PDF (lazy iframe)] — exhibit RELEASE rows
+  ("Release to candidate" → "SENT · m:ss" from t_offset_ms; NO Recall:
+  a revealed key can't be un-sent, spec's accepted tradeoff), rubric
+  score-cell strips (1..max_points ink cells, click-again clears,
+  autosaves through the P7 draft endpoints) + Source-Serif italic
+  evidence inputs + overall notes; right rail: candidate feed (306px,
+  LIVE badge, self-view PiP, mute/cam), SEGMENT TIMER with logged
+  editable laps (client-side tool, page-memory only), RUBRIC — SUMMARY
+  mirror + running average. Candidate call view unchanged
+- session.html now theme-aware: guide light tokens default, body.dark
+  mirrors the app toggle (localStorage 'theme'); old interviewer
+  drawers/panel removed; debug overlay moved bottom-right
+- Evidence (session 596, real call): console live with master clock
+  ticking, scored structure4/quant3/insight5 → "Draft grade: 2.4/5
+  Saved ✓" (12/25 ✓) mirrored in rail; Release → candidate slot
+  unlocked via DC + "SENT · 0:27"; segment logged; End from console →
+  debrief editor restored the console scores (grade prefill 2.4).
+  Shots: output/evidence/console-light.png / console-dark.png
+- Conformance sweep: 47 leftover rounded-* classes are inert (config
+  zeroes those scales); no Inter font remnants; exhibits.html tokens
+  fixed earlier; school accent bars on case cards KEPT (data encoding,
+  not decoration); emerald-600/700 darkened (#157A4C/#116340) — brand
+  green #1B9A5F is 3.7:1 on chalk and WCAG AA text floor (4.5:1) wins
+  over token purity; fills/dots stay on #1B9A5F via emerald-500.
+  Privacy test hardened to assert on <main> (the Tailwind config
+  comment "4.5:1" tripped the old whole-page substring check)
+- Still open vs guide rule 05: a few Lucide icons (search, votes, PDF
+  buttons, theme toggle) + favicon is still the browser default —
+  staircase favicon is a P11 nicety
+- Commit: 7ef9b88
 
 ## Done — Phase 10 (2026-07-12)
 - `webapp/repositories/recordings.py` — chunk append under FOR UPDATE
