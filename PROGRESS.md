@@ -1,12 +1,39 @@
 # PROGRESS
-Updated: 2026-07-11T22:55:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T00:20:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 2 (rooms, session skeleton, state machine, consent, join-config)
-complete — next is Phase 3: in-app WebSocket signaling route
-`/ws/practice/{id}` implementing the spec §4.2 protocol
-(hello/knock/admit/deny/sdp/ice/bye + heartbeat), cookie-authenticated
-per DV-3, with unit tests. Then Phase 4 (call experience).
+Phase 3 (in-app WebSocket signaling) complete — next is Phase 4: the call
+experience. Session page `/session/{id}` with lobby (device pickers,
+consent checkbox, knock state) and live view; `signal.js` / `rtc.js` /
+`ui.js` vanilla modules; perfect negotiation (interviewer impolite);
+1.2 Mbps bitrate cap; negotiated `ctrl` DataChannel; ICE-restart banner;
+teardown → debrief. Thomas keeps a style guide at
+`mycase/myCase Style Guide.html` — consult it for the UI.
+
+## Done — Phase 3 (2026-07-12)
+- `webapp/signaling.py` — process-local hub: one socket per (session,
+  role) with newest-wins replacement (old closed 4000), knock only from
+  candidate (relayed with display name), admit/deny only from
+  interviewer, sdp/ice relayed only post-admit and only between the two
+  participants, extra fields stripped on relay, unknown types dropped,
+  message contents never logged, `admitted` survives reconnect,
+  peer-joined/peer-left presence, room GC when empty
+- `webapp/routes/signal_ws.py` — `/ws/practice/{id}`: cookie auth done
+  in-route (SessionMiddleware is BaseHTTPMiddleware → never runs for
+  WebSockets), participant + joinable-state gate (4401/4403), DB lookups
+  via threadpool, 60 s receive timeout kills dead sockets (clients ping
+  every 30 s per §4.2)
+- Tests: 19 fake-socket unit tests (every §4.2 rule) + 4 REAL end-to-end
+  WebSocket integration tests via TestClient against the live app + dev
+  DB (skip cleanly when no DB): full knock→admit→sdp/ice→bye flow,
+  pre-admit sdp proven blocked by ordering, outsider 4403 / anon 4401 /
+  aborted-session 4403, reconnect closes old socket 4000 and new socket
+  relays. Full suite: 200 passed
+- TestClient quirk documented in test: its synthetic client host
+  "testclient" violates sessions.ip_address INET, so tests mint session
+  cookies via create_session(ip_address=None) instead of POST /login
+- httpx installed in .venv (dev-only, like pytest — NOT in
+  requirements.txt)
 
 ## Done — Phase 2 (2026-07-11)
 - Migration 012 `state_changed_at` — applied twice cleanly (idempotent)
