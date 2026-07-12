@@ -264,13 +264,21 @@ def list_upcoming_for_user(user_id: int) -> list[dict]:
 
 def sweep_stale_sessions() -> int:
     """A4: abort sessions stuck pre-debrief for > 6 h (no cron on the target
-    host — called from page loads). Returns rows swept."""
+    host — called from page loads). Returns rows swept.
+
+    'scheduled' counts too (it is pre-debrief): a no-show 6 h past its
+    scheduled_at, or an unscheduled ("now") session nobody opened within
+    6 h of creation, is dead — otherwise it sits in Upcoming forever.
+    Future-scheduled sessions are untouched."""
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE practice_sessions"
                 " SET state = 'aborted', ended_at = NOW(), state_changed_at = NOW()"
-                " WHERE state IN ('lobby', 'live')"
-                "   AND state_changed_at < NOW() - INTERVAL '6 hours';"
+                " WHERE (state IN ('lobby', 'live')"
+                "        AND state_changed_at < NOW() - INTERVAL '6 hours')"
+                "    OR (state = 'scheduled'"
+                "        AND COALESCE(scheduled_at, created_at)"
+                "            < NOW() - INTERVAL '6 hours');"
             )
             return cur.rowcount

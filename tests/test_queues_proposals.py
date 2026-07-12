@@ -133,9 +133,13 @@ class TestQueuesAndProposals(unittest.TestCase):
             q.add(self.bid, "give", cid)
 
         inter = q.intersections(self.aid, self.bid)  # Alice visiting Bob
-        self.assertEqual([r["id"] for r in inter["give_to_them"]], [C1],
-                         "C2 must be excluded — burned for Bob")
-        self.assertEqual([r["id"] for r in inter["receive_from_them"]], [C4])
+        fixture = set(self.case_ids)  # ignore ambient dev-DB queue overlap
+        self.assertEqual(
+            [r["id"] for r in inter["give_to_them"] if r["id"] in fixture],
+            [C1], "C2 must be excluded — burned for Bob")
+        self.assertEqual(
+            [r["id"] for r in inter["receive_from_them"] if r["id"] in fixture],
+            [C4])
 
         # Same math through the room page itself.
         from webapp.repositories.rooms import get_or_create_room
@@ -266,6 +270,34 @@ class TestQueuesAndProposals(unittest.TestCase):
         self.assertTrue(raw.endswith(b"\r\n"))
         for line in raw.split(b"\r\n"):
             self.assertLessEqual(len(line), 76)  # 75 + leading fold space
+
+    def test_stale_scheduled_sessions_swept(self):
+        """A4 covers 'scheduled' too: a no-show or never-opened session
+        aborts after 6 h; future-scheduled sessions survive the sweep."""
+        from webapp.repositories.practice_sessions import (
+            create_practice_session, sweep_stale_sessions)
+        stale = create_practice_session(
+            interviewer_id=self.aid, candidate_id=self.bid,
+            case_id=self.case_ids[2])
+        fresh = create_practice_session(
+            interviewer_id=self.aid, candidate_id=self.bid,
+            case_id=self.case_ids[3],
+            scheduled_at=datetime.now(timezone.utc) + timedelta(days=1))
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE practice_sessions SET created_at ="
+                            " NOW() - INTERVAL '7 hours' WHERE id = %s;",
+                            (stale["id"],))
+        sweep_stale_sessions()
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, state FROM practice_sessions"
+                            " WHERE id = ANY(%s);",
+                            ([stale["id"], fresh["id"]],))
+                states = dict(cur.fetchall())
+        self.assertEqual(states[stale["id"]], "aborted")
+        self.assertEqual(states[fresh["id"]], "scheduled")
 
     def test_ics_escaping_and_defaults(self):
         from webapp.ics import build_session_ics
