@@ -69,3 +69,7 @@ Thumbs.db
 
 # CaseRoom encrypted exhibit blobs (keys live in the DB, blobs stay local)
 output/exhibits/
+
+# Local dev-server log and manual-test evidence screenshots
+output/devserver.log
+output/evidence/
