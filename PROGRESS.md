@@ -10,6 +10,23 @@ reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
 still open; rubric-template editor UI still deferred (P11 polish or
 cut for v1 — generic template works server-side).
 
+## Done — Browse page redesign (2026-07-12, owner-directed)
+- index.html + _search_results.html moved from card grid to the
+  guide-native casebook pattern: hero = green eyebrow + Archivo-800
+  display ("Find your next case.") + Source-Serif lede; stats as
+  rule-topped columns (no boxes); filter band under a 2px ink section
+  opener w/ serif aside (search icon dropped per rule 05); results as
+  numbered editorial rows — %02d faint index (position in the result
+  slice), caps kicker w/ 7px square school swatch (accent data kept),
+  19px/700 title (hover → green), meta line w/ color-coded usefulness
+  TEXT (pills dropped), square difficulty badge + "Open case →".
+  Empty state in guide voice. htmx contract untouched (form ids,
+  #results target, setDifficulty) — filter round-trip verified in
+  browser (Hard → empty state → Any → row restored)
+- Shots: output/evidence/browse-rows-light.png / -dark.png. Suite 234
+  passed. Commit a317d04
+- Domains sign-in note now renders only when logged out
+
 ## Done — Interviewer Console + conformance sweep (2026-07-12,
 owner-directed)
 - Console per mycase/myCase Interviewer Console.html (same __bundler
