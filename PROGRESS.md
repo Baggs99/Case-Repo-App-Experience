@@ -1,15 +1,71 @@
 # PROGRESS
-Updated: 2026-07-12T01:28:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T01:47:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 7 (rubric/feedback/finalize/burn) complete — next is Phase 8:
-queues, proposals, room visiting, .ics. Queue endpoints + buttons on
-case pages; visiting view w/ two intersection lists (exclude burned);
-proposal create/inbox/accept/decline/expire (page-load sweep, no cron)
-w/ nav badge; accept → session + .ics via Resend (§4.7).
-NOTE deferred from P7: rubric-template EDITOR UI (originally T5.3, was
-slated for P7) still unbuilt — generic template works server-side;
-slot it into P8 or the P10 polish pass.
+Phase 8 (queues/proposals/visiting/.ics) complete — next is Phase 9:
+dashboard & recommendations. T9.1 dashboard: upcoming, inbox badge,
+queues, history table (date/case/role/counterpart/grade),
+per-dimension rubric averages over last 10 finalized-as-candidate
+(GROUP BY over feedback.rubric_json). T9.2 the three §4.8
+recommendation rules as bounded queries (coverage gap → difficulty
+ladder → weak dimension), union/dedupe/cap 5, exclude burned+queued.
+STILL PENDING: rubric-template editor UI (deferred P5→P7→P8) — slot
+into P9 or P10 polish.
+
+## Done — Phase 8 (2026-07-12)
+- `webapp/repositories/queues.py` — want/give add(idempotent)/remove/
+  list/membership + the two §4.7 intersection queries (one join each,
+  burned-for-would-be-candidate excluded via NOT EXISTS)
+- `webapp/repositories/proposals.py` — create (self-propose 400, >3
+  times 400, A6 burned 409), inbox, pending_count, 7-day sweep_expired,
+  respond() under FOR UPDATE: decline, or accept → practice_session
+  INSERT + proposal link IN THE SAME TRANSACTION (room/template ids
+  resolved beforehand; racing double-accept → 409)
+- `webapp/ics.py` — dependency-free RFC 5545 builder: METHOD:REQUEST,
+  stable UID caseroom-{id}@{host}, UTC DTSTART/DTEND (45-min default),
+  §3.3.11 TEXT escaping, §3.1 75-octet folding, CRLF
+- EmailSender grew optional attachments (console backend writes them
+  to output/emails/; Resend backend base64s them); accept emails BOTH
+  parties w/ invite.ics attached — mail failure logged, never fails
+  the accept. GET /ics/session-{id}.ics download (participants only)
+- Routes: /api/queues (+kind/case add/remove, Origin CSRF),
+  /api/proposals (+/inbox w/ sweep, /{id}/accept, /{id}/decline);
+  room page context (own: upcoming/inbox/queues; visiting: public
+  stats + intersections); nav "My room" + pending-proposal badge via
+  templating.render (indexed COUNT/page)
+- `public_stats` (finalized count + A8 streak: consecutive calendar
+  weeks, current-week grace) + `list_upcoming_for_user`
+- **A4 sweep extended** (found via the Upcoming panel): 'scheduled' is
+  also pre-debrief — no-shows 6 h past scheduled_at and never-opened
+  unscheduled sessions now abort; future-scheduled survive. 98 stale
+  dev rows cleaned
+- UI: room.html full rewrite (own panels + visiting intersections +
+  propose modal w/ message + ≤3 datetime-local times), room.js
+  (localized time pills, accept w/ time pick → redirect to session,
+  decline, unqueue), case_detail Want/Give buttons (Give = client-side
+  honesty confirm per spec), base.html My-room badge
+- Tests: tests/test_queues_proposals.py (8): queue CRUD/gating/CSRF,
+  intersection fixture per done-when (3 users, 6 cases, C2 burned for
+  Bob → excluded; verified at repo level AND through the rendered room
+  page), create validation, decline + recipient-only 404s, expiry
+  sweep (accept of 8-day-old → 409 + state=expired), accept → session
+  row links proposal w/ correct role mapping + scheduled_at + 2 emails
+  + 2 .ics files, ics escaping/folding, A4 scheduled-sweep. Suite 226
+  passed ×2. **.ics validator: parsed by the `icalendar` 7.2.0 library**
+  (dev-only install, like pytest/httpx — NOT in requirements.txt) +
+  structural asserts (CRLF, ≤75-octet lines, METHOD/UID/DTSTART)
+- Browser evidence (Playwright MCP, two tabs): Alice visits /room/
+  bob-dev → intersection panels + Propose modal (message + time) →
+  "Proposed ✓" → Bob's nav badge "1", inbox shows proposal w/
+  localized time pills → picks time → Accept → redirected to
+  /session/314. SQL: proposal 16 accepted, session_id=314,
+  interviewer=1/candidate=2, scheduled_at Jul 14 15:30 → .ics
+  DTSTART 20260714T193000Z / DTEND 20150Z+45min, folded DESCRIPTION.
+  Emails: 2×.txt + 2×invite.ics in output/emails/. Shot:
+  output/evidence/p8-bob-inbox.png
+- Commits: 7ee8fec (P8 feature) · af6841a (A4 sweep + test isolation)
+
+## Done — Phase 7 (2026-07-12)
 
 ## Done — Phase 7 (2026-07-12)
 - `webapp/repositories/feedback.py` — draft validation against the
