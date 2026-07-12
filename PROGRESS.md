@@ -1,13 +1,16 @@
 # PROGRESS
 Updated: 2026-07-12T14:32:00-04:00 · Branch: feature/caseroom
 
-## Now
-NEW TRACK — iOS app: approved spec at
-docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md, P1
-implementation plan at
-docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md. Execute on a
-new branch feature/ios-app (from feature/caseroom); web P11 hardening
-below continues independently on this branch.
+## Now — TWO parallel tracks. Route by what Thomas asks for; if the
+session prompt doesn't say, ASK which track before touching anything.
+- WEB track (this branch, feature/caseroom): phases 1–10 done + brand
+  complete; next chunk is P11 T11.1 — a worker writes
+  scripts/verify_caseroom.sh (spec §Phase 11, adapt its PHP greps to
+  this FastAPI repo). Full table: "Handoff partition (web track)".
+- iOS track (NEW branch feature/ios-app off feature/caseroom):
+  approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
+  P1 plan docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md.
+  First action in "Handoff partition (iOS track)" table.
 
 ## Handoff partition (iOS track, written 2026-07-12)
 | Chunk | Spec state | Tier | Next concrete action |
