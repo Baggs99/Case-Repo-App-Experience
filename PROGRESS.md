@@ -10,6 +10,14 @@ reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
 still open; rubric-template editor UI still deferred (P11 polish or
 cut for v1 — generic template works server-side).
 
+## Done — Browse results back to a GRID (2026-07-12, owner call)
+- Owner: results should stay grid-like. Rows → guide-styled tiles
+  (md:2 / xl:3): .case-card square hairline + school accent bar, caps
+  kicker w/ difficulty badge, 16px/700 title (hover green), serif firm,
+  color-coded usefulness, mt-auto pinned hairline footer w/ "Open case
+  →"; container 5xl→6xl. Hero/filter band unchanged from the redesign.
+  Shots: output/evidence/browse-grid-{light,dark}.png. Commit 1c902e2
+
 ## Done — Browse rows unnumbered + demo data (2026-07-12, owner call)
 - Result rows lost the %02d index column (owner: position isn't worth
   numbering). Rows now kicker+title-led, grid [1fr auto]. Commit 8fb0f60
