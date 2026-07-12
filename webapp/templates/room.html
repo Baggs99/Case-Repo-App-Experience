@@ -102,6 +102,84 @@
         {% endfor %}
     </div>
 
+    {# ── Dashboard (spec §4.8, T9.1/T9.2) ─────────────────────────────── #}
+    <div class="grid gap-4 sm:grid-cols-2 mt-4">
+        <div class="surface p-6">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Recommended next</h2>
+            <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-3">From your history — coverage gaps, the next rung, weak spots.</p>
+            {% if recommended %}
+            <ul class="space-y-2.5">
+                {% for rec in recommended %}
+                <li class="text-sm flex items-center justify-between gap-2">
+                    <span class="truncate">
+                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.case_title }}</a>
+                        <span class="text-[12px] text-slate-500 dark:text-slate-500">· {{ rec.difficulty }}</span>
+                    </span>
+                    <span class="badge badge-easy shrink-0">{{ rec.rule }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">Nothing yet — finish a few sessions and this fills in.</p>
+            {% endif %}
+        </div>
+
+        <div class="surface p-6">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Your trend</h2>
+            <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-3">Per-dimension average over your last 10 sessions as candidate.</p>
+            {% if trends %}
+            <ul class="space-y-3">
+                {% for t in trends %}
+                <li class="text-[13px]">
+                    <div class="flex justify-between mb-1">
+                        <span class="font-semibold text-slate-800 dark:text-slate-200 capitalize">{{ t.dimension }}</span>
+                        <span class="tabular-nums text-slate-500 dark:text-slate-400">{{ "%.1f"|format(t.avg_score) }} / 5</span>
+                    </div>
+                    <div class="h-1 bg-slate-100 dark:bg-slate-800">
+                        <div class="h-1 bg-emerald-600 dark:bg-emerald-300" style="width: {{ (t.avg_score / 5 * 100)|round }}%"></div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">Appears after your first finalized session as candidate.</p>
+            {% endif %}
+        </div>
+
+        <div class="surface p-6 sm:col-span-2">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">History</h2>
+            {% if hist %}
+            <div class="overflow-x-auto">
+            <table class="w-full text-[13px]">
+                <thead>
+                    <tr class="text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                        <th class="py-2 pr-4 font-semibold">Date</th>
+                        <th class="py-2 pr-4 font-semibold">Case</th>
+                        <th class="py-2 pr-4 font-semibold">Role</th>
+                        <th class="py-2 pr-4 font-semibold">With</th>
+                        <th class="py-2 text-right font-semibold">Grade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in hist %}
+                    <tr class="border-b border-slate-200 dark:border-slate-800">
+                        <td class="py-2.5 pr-4 whitespace-nowrap text-slate-500 dark:text-slate-400">{{ h.ended_at.strftime('%b %-d') }}</td>
+                        <td class="py-2.5 pr-4"><a href="/session/{{ h.id }}" class="hover:underline text-slate-900 dark:text-slate-100">{{ h.case_title }}</a></td>
+                        <td class="py-2.5 pr-4 text-slate-500 dark:text-slate-400">{{ h.your_role }}</td>
+                        <td class="py-2.5 pr-4 text-slate-500 dark:text-slate-400">{{ h.counterpart }}</td>
+                        <td class="py-2.5 text-right tabular-nums font-semibold {% if h.grade is not none %}text-emerald-600 dark:text-emerald-300{% else %}text-slate-400{% endif %}">
+                            {{ "%.1f"|format(h.grade) if h.grade is not none else "—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">Finished sessions land here with their grades.</p>
+            {% endif %}
+        </div>
+    </div>
+
     {% else %}
     {# ── Visiting view (spec §4.7 T8.2): public stats + intersections only #}
     <div class="grid gap-4 sm:grid-cols-2">
