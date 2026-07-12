@@ -20,6 +20,7 @@ from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.repositories.cases import get_case_by_id
+from webapp.repositories import feedback as feedback_repo
 from webapp.repositories import practice_sessions as repo
 from webapp.templating import render
 
@@ -66,6 +67,11 @@ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_
         raise HTTPException(status_code=400, detail="Interviewer and candidate must differ")
     if get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
+    if feedback_repo.is_burned(body.candidate_id, body.case_id):
+        # A6: the candidate has already received this case in a finalized
+        # session — it's burned for them.
+        raise HTTPException(status_code=409,
+                            detail="This case is burned for the candidate")
 
     session = repo.create_practice_session(
         interviewer_id=body.interviewer_id,
