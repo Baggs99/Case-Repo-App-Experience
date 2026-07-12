@@ -159,6 +159,70 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 #lightbox figcaption { margin-top: 10px; }
 
+/* Rubric drawer + debrief editor */
+#rubric-drawer {
+  position: absolute; left: 16px; top: 48px; bottom: 96px;
+  width: min(420px, 40vw); display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 12px;
+}
+.panel-btns { display: flex; gap: 6px; }
+.rubric-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
+.ru-item { margin-bottom: 14px; }
+.ru-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; font-weight: 600; font-size: 14px; margin-bottom: 6px;
+}
+.ru-pts { display: flex; align-items: center; gap: 6px; color: var(--muted);
+  font-size: 13px; white-space: nowrap; }
+.ru-pts input {
+  width: 56px; min-height: 36px; text-align: center; border-radius: 8px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  font: 600 14px Archivo, sans-serif;
+}
+.ru-note, .ru-notes {
+  width: 100%; min-height: 36px; padding: 7px 10px; border-radius: 8px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  font: 400 13px/1.5 Archivo, sans-serif;
+}
+.ru-notes { resize: vertical; margin-top: 4px; }
+.ru-status {
+  display: flex; justify-content: space-between; gap: 10px;
+  font-size: 13px; color: var(--muted); margin: 10px 0 0;
+}
+.ru-status [data-ru-grade] { color: var(--green); font-weight: 600; }
+.ru-finalize { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.ru-finalize-row { display: flex; gap: 10px; margin-top: 6px; }
+.ru-finalize-row input {
+  width: 90px; min-height: 44px; text-align: center; border-radius: 8px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  font: 600 16px Archivo, sans-serif;
+}
+.ru-hint { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+#debrief-zone { margin: 18px 0; }
+#debrief-zone .ru-item .ru-head { font-size: 15px; }
+
+/* Feedback view (T7.3) */
+[data-view="feedback"] {
+  min-height: 100dvh; display: grid; place-items: center; padding: 24px;
+}
+[data-view="feedback"] .lobby-card { width: min(720px, 100%); }
+.fb-grade { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 22px; }
+.fb-grade-n { font: 700 56px/1 Archivo, sans-serif; color: var(--green); }
+.fb-grade-of { font: 600 20px Archivo, sans-serif; color: var(--muted); }
+.fb-item { margin-bottom: 14px; }
+.fb-item-head {
+  display: flex; justify-content: space-between; font-weight: 600;
+  font-size: 14px; margin-bottom: 6px;
+}
+.fb-pts { color: var(--muted); }
+.fb-bar { height: 6px; border-radius: 3px; background: var(--bg);
+  border: 1px solid var(--line); overflow: hidden; }
+.fb-fill { height: 100%; background: var(--green); }
+.fb-note { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.fb-notes { white-space: pre-wrap; font-size: 14px; margin: 6px 0 0; }
+.fb-link { color: var(--green); }
+
 /* Reveal timeline (ended view) */
 #reveal-timeline {
   margin: 14px 0 18px; padding: 12px 16px; text-align: left;
@@ -231,8 +295,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 
   <aside id="exhibit-panel" hidden aria-label="Exhibits">
     <div class="panel-head">
-      <span class="label">Exhibits</span>
-      <button id="btn-pdf">Case PDF</button>
+      <span class="label">Case</span>
+      <span class="panel-btns">
+        <button id="btn-rubric">Rubric</button>
+        <button id="btn-pdf">PDF</button>
+      </span>
     </div>
     <div id="exhibit-strip"></div>
   </aside>
@@ -243,6 +310,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
       <button id="btn-pdf-close">Close</button>
     </div>
     <iframe id="pdf-frame" title="Case PDF"></iframe>
+  </div>
+
+  <div id="rubric-drawer" hidden>
+    <div class="panel-head">
+      <span class="label">Rubric</span>
+      <button id="btn-rubric-close">Close</button>
+    </div>
+    <div id="rubric-body" class="rubric-scroll"></div>
   </div>
 
   <div id="exhibit-tray" hidden aria-label="Your exhibits">
@@ -258,12 +333,17 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 </section>
 
 <section data-view="ended" hidden>
-  <div class="lobby-card" style="text-align:center">
-    <h1>Call ended</h1>
-    <p class="case">Feedback unlocks once your interviewer finalizes the session.</p>
+  <div class="lobby-card">
+    <h1 id="ended-title" style="text-align:center">Call ended</h1>
+    <p class="case" id="ended-sub" style="text-align:center">{{ session.case_title }}</p>
+    <div id="debrief-zone"></div>
     <div id="reveal-timeline" hidden></div>
-    <p><a href="/room" style="color: var(--green)">Back to your room</a></p>
+    <p style="text-align:center"><a href="/room" style="color: var(--green)">Back to your room</a></p>
   </div>
+</section>
+
+<section data-view="feedback" hidden>
+  <div class="lobby-card" id="fb-body"></div>
 </section>
 
 <div id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Exhibit enlarged">

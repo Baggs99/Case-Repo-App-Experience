@@ -9,7 +9,8 @@
 
 import { SignalClient } from './signal.js';
 import { RtcSession } from './rtc.js';
-import { ExhibitManager, wireLightbox } from './exhibits.js';
+import { ExhibitManager, wireLightbox, renderRevealTimeline } from './exhibits.js';
+import { RubricPanel, renderFeedbackView } from './rubric.js';
 import * as ui from './ui.js';
 
 const BOOT = window.CASEROOM;
@@ -20,19 +21,49 @@ const PARAMS = new URLSearchParams(location.search);
 let signal = null;
 let rtc = null;
 let exhibits = null;
+let rubric = null;
 let localStream = null;
 let joinConfig = null;
 let admitted = false;
 let inCall = false;
 
-async function api(path, body) {
+async function api(path, body, method) {
   const res = await fetch(`${API}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
+    method: method ?? (body === undefined ? 'GET' : 'POST'),
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, data };
+}
+
+function getRubric() {
+  rubric ??= new RubricPanel({ api, onFinalized: showFeedback });
+  return rubric;
+}
+
+// ── Debrief & feedback views (Phase 7) ───────────────────────────────────────
+
+async function showFeedback() {
+  if (await renderFeedbackView(api, BOOT)) ui.showView('feedback');
+  else ui.banner('Could not load feedback — try reloading.', 'error');
+}
+
+function renderDebriefZone() {
+  renderRevealTimeline(api);
+  const zone = ui.$('debrief-zone');
+  if (!IS_CANDIDATE) {
+    ui.$('ended-sub').textContent = 'Score the rubric, then finalize to release feedback.';
+    getRubric().renderDebrief(zone);
+    return;
+  }
+  zone.innerHTML = `<p style="text-align:center;color:var(--muted)">
+    Waiting for ${BOOT.peerName} to finalize your feedback — it will appear
+    here once released.</p>`;
+  const poll = setInterval(async () => {
+    const { ok, data } = await api('');
+    if (ok && data.state === 'finalized') { clearInterval(poll); showFeedback(); }
+  }, 15000);
 }
 
 // ── Lobby: media preview + device pickers ─────────────────────────────────────
@@ -173,6 +204,11 @@ function startCall() {
 
   exhibits.start();
 
+  if (!IS_CANDIDATE) {
+    ui.$('btn-rubric').addEventListener('click', () => getRubric().toggleDrawer());
+    ui.$('btn-rubric-close').addEventListener('click', () => getRubric().toggleDrawer(false));
+  }
+
   if (PARAMS.get('debug') === '1') {
     // Test/debug hook: lets the evidence pass kill the ctrl channel etc.
     window.__caseroom = { get rtc() { return rtc; }, get exhibits() { return exhibits; } };
@@ -199,7 +235,7 @@ async function endCall() {
   await api('/state', { target: 'debrief' }).catch(() => {});
   teardown();
   ui.showView('ended');
-  exhibits?.renderTimeline(); // T6.4: both parties see the reveal timeline
+  renderDebriefZone(); // T6.4 timeline + T7.1 rubric editor / waiting note
 }
 
 function teardown() {
@@ -213,9 +249,24 @@ function teardown() {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 async function boot() {
+  wireLightbox();
+
+  // Post-call states never touch media or signaling (Phase 7).
+  if (BOOT.state === 'finalized') { showFeedback(); return; }
+  if (BOOT.state === 'debrief') {
+    ui.showView('ended');
+    renderDebriefZone();
+    return;
+  }
+  if (BOOT.state === 'aborted') {
+    ui.showView('ended');
+    ui.$('ended-title').textContent = 'Session aborted';
+    ui.$('ended-sub').textContent = 'Nothing was recorded or released.';
+    return;
+  }
+
   ui.showView('lobby');
   ui.$('consent').checked = BOOT.selfConsent;
-  wireLightbox();
 
   if (PARAMS.get('nomedia') === '1') {
     // Dev/smoke-test flag: exercise signaling, admit flow, and the ctrl

@@ -54,7 +54,9 @@ export class ExhibitManager {
     const m = await this.opts.api('/exhibits');
     if (!m.ok) return;
     this.manifest = m.data.exhibits;
-    if (!this.manifest.length) return; // sessions never block on exhibits (DV-12b)
+    // No exhibits: candidate gets no tray (DV-12b — sessions never block on
+    // exhibits), but the interviewer panel still hosts PDF/Rubric buttons.
+    if (!this.manifest.length && this.opts.role === 'candidate') return;
 
     for (const e of this.manifest) {
       this.blobs.set(e.exhibit_id, fetch(`${this.opts.apiBase}/exhibit-blob/${e.exhibit_id}`)
@@ -210,8 +212,11 @@ export class ExhibitManager {
   _togglePdf(force) {
     const drawer = $('pdf-drawer');
     const show = force !== undefined ? force : drawer.hidden;
-    if (show && !$('pdf-frame').src) {
-      $('pdf-frame').src = `/api/cases/${this.opts.caseId}/open-pdf`; // lazy-load
+    if (show) {
+      $('rubric-drawer').hidden = true; // one left-side drawer at a time
+      if (!$('pdf-frame').src) {
+        $('pdf-frame').src = `/api/cases/${this.opts.caseId}/open-pdf`; // lazy-load
+      }
     }
     drawer.hidden = !show;
   }
@@ -240,21 +245,23 @@ export class ExhibitManager {
     $('lightbox').hidden = false;
   }
 
-  /** T6.4: reveal timeline for the ended/debrief view (both parties). */
-  async renderTimeline() {
-    const r = await this.opts.api('/reveals');
-    const wrap = $('reveal-timeline');
-    if (!r.ok || !r.data.reveals.length) { wrap.hidden = true; return; }
-    wrap.hidden = false;
-    wrap.innerHTML = '<p class="label">Exhibits revealed</p>'
-      + r.data.reveals.map((rev) =>
-          `<p class="tl-row"><span class="tl-t">${fmtOffset(rev.t_offset_ms)}</span>`
-          + ` Exhibit ${rev.idx}</p>`).join('');
-  }
-
   stop() {
     this._setPolling(false);
   }
+}
+
+/** T6.4: reveal timeline for the ended/debrief view (both parties).
+ * Standalone: also used when the page loads straight into debrief and no
+ * ExhibitManager ever starts. */
+export async function renderRevealTimeline(api) {
+  const r = await api('/reveals');
+  const wrap = $('reveal-timeline');
+  if (!r.ok || !r.data.reveals.length) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  wrap.innerHTML = '<p class="label">Exhibits revealed</p>'
+    + r.data.reveals.map((rev) =>
+        `<p class="tl-row"><span class="tl-t">${fmtOffset(rev.t_offset_ms)}</span>`
+        + ` Exhibit ${rev.idx}</p>`).join('');
 }
 
 export function wireLightbox() {
