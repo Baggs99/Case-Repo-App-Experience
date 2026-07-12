@@ -41,7 +41,7 @@
 
 {% if cases %}
 {% set _return_to = return_url or "/search" %}
-<div class="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-5">
+<div class="mt-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for c in cases %}
     {% set accent = school_accent.get(c.source_school) %}
     <a href="/cases/{{ c.id }}?return_to={{ _return_to|urlencode }}"

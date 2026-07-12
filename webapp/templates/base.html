@@ -156,16 +156,16 @@
         .badge-medium { @apply text-slate-900 border-slate-400 dark:text-slate-100 dark:border-slate-500; }
         .badge-hard   { @apply bg-slate-900 text-slate-50 border-slate-900 dark:bg-slate-100 dark:text-slate-950 dark:border-slate-100; }
 
-        /* Case card — guide rule 02 (owner call 2026-07-12): no isolating
-           background, no radius, no shadow. Each tile is bounded by the
-           guide's top + bottom hairlines; hover is the guide's quiet
-           surface wash. */
+        /* Case card (owner call 2026-07-12): open tile outlined by a
+           hairline on all four sides — transparent, square, no shadow;
+           hover is the guide's quiet surface wash. */
         .case-card {
-          @apply relative flex flex-col py-4 px-3 -mx-3
-                 border-y border-slate-200 dark:border-slate-800
+          @apply relative flex flex-col p-4
+                 border border-slate-200 dark:border-slate-800
                  transition duration-150
                  hover:bg-white dark:hover:bg-[#101E36]
-                 focus-visible:outline-none focus-visible:bg-white dark:focus-visible:bg-[#101E36];
+                 hover:border-slate-300 dark:hover:border-slate-400
+                 focus-visible:outline-none focus-visible:border-emerald-500 dark:focus-visible:border-emerald-300;
         }
 
         /*
