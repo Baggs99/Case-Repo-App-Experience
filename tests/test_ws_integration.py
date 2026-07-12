@@ -93,8 +93,18 @@ class TestSignalingIntegration(unittest.TestCase):
                                      ip_address=None)
             client.cookies.set(SESSION_COOKIE_NAME, session.id)
 
+    _created_sessions: list[int] = []
+
     @classmethod
     def tearDownClass(cls):
+        # These sessions live on the shared dev dummy case — remove them so
+        # suite runs don't pile "Upcoming sessions" into the dev room pages.
+        if cls._created_sessions:
+            import psycopg
+            with psycopg.connect(_DB_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM practice_sessions WHERE id = ANY(%s);",
+                                (cls._created_sessions,))
         cls._client_ctx.__exit__(None, None, None)
 
     def _new_session(self) -> int:
@@ -103,6 +113,7 @@ class TestSignalingIntegration(unittest.TestCase):
             "interviewer_id": 1, "candidate_id": 2, "case_id": self.case_id,
         })
         self.assertEqual(r.status_code, 200, r.text)
+        self._created_sessions.append(r.json()["id"])
         return r.json()["id"]
 
     def _expect_reject(self, client, path: str) -> int | None:

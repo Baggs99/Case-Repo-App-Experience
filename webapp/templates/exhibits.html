@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root { /* myCase light theme */
-  --bg:#F3F5F8; --surface:#FFFFFF; --ink:#0D1C31; --muted:#7C8CA8;
+  --bg:#F3F5F8; --surface:#FFFFFF; --ink:#0D1C31; --muted:#5E6E86;
   --line:#C9D2DF; --green:#1B9A5F; --cobalt:#2E56C0; --danger:#B3384D;
 }
 * { box-sizing: border-box; }
@@ -19,15 +19,15 @@ h1 { font-size: 22px; font-weight: 600; margin: 0; }
 .sub { color: var(--muted); margin: 2px 0 24px; }
 .label { font:600 11px/1 Archivo; letter-spacing:.15em; text-transform:uppercase; color:var(--muted); }
 .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); margin:18px 0; }
-.pagecard { position:relative; border:1px solid var(--line); border-radius:8px;
+.pagecard { position:relative; border:1px solid var(--line); border-radius:0;
   background:var(--surface); padding:6px; cursor:pointer; }
-.pagecard img { width:100%; display:block; border-radius:4px; min-height:90px; background:#E9EEF5; }
+.pagecard img { width:100%; display:block; border-radius:0; min-height:90px; background:#E9EEF5; }
 .pagecard .pn { font-size:12px; color:var(--muted); text-align:center; padding-top:4px; }
 .pagecard.sel { border-color:var(--green); box-shadow:0 0 0 2px var(--green); }
 .pagecard .badge { position:absolute; top:10px; left:10px; min-width:26px; height:26px;
   border-radius:50%; background:var(--green); color:#fff; font-weight:700;
   display:grid; place-items:center; font-size:13px; }
-button { font:600 14px/1 Archivo; min-height:44px; padding:0 18px; border-radius:8px;
+button { font:600 14px/1 Archivo; min-height:44px; padding:0 18px; border-radius:0;
   border:1px solid var(--line); background:var(--surface); color:var(--ink); cursor:pointer; }
 button.primary { background:var(--green); border-color:var(--green); color:#fff; }
 button:disabled { opacity:.5; cursor:default; }

@@ -78,7 +78,7 @@ export class ExhibitManager {
       slot.className = 'ex-slot locked';
       slot.id = `ex-slot-${e.exhibit_id}`;
       slot.disabled = true;
-      slot.innerHTML = `<span class="ex-num">${e.idx}</span><span class="ex-lock">🔒</span>`;
+      slot.innerHTML = `<span class="ex-num">${e.idx}</span><span class="ex-lock">LOCKED</span>`;
       slot.addEventListener('click', () => this._enlarge(e.exhibit_id));
       slots.appendChild(slot);
     }

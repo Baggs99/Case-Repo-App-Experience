@@ -25,7 +25,7 @@ body {
 video { background: #050B16; }
 button {
   font: 600 14px/1 Archivo, system-ui, sans-serif;
-  min-height: 44px; padding: 0 18px; border-radius: 8px;
+  min-height: 44px; padding: 0 18px; border-radius: 0;
   border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   cursor: pointer;
 }
@@ -55,15 +55,15 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .lobby-card {
   width: min(680px, 100%); background: var(--surface);
-  border: 1px solid var(--line); border-radius: 8px; padding: 28px;
+  border: 1px solid var(--line); border-radius: 0; padding: 28px;
   box-shadow: 0 1px 4px rgba(0,0,0,.12);
 }
 .lobby-card h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; }
 .lobby-card .case { color: var(--muted); margin: 0 0 20px; }
-#preview { width: 100%; aspect-ratio: 16/9; border-radius: 8px; border: 1px solid var(--line); }
+#preview { width: 100%; aspect-ratio: 16/9; border-radius: 0; border: 1px solid var(--line); }
 .pickers { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; margin: 16px 0; }
 .pickers select {
-  width: 100%; min-height: 44px; padding: 0 10px; border-radius: 8px;
+  width: 100%; min-height: 44px; padding: 0 10px; border-radius: 0;
   background: var(--bg); color: var(--ink); border: 1px solid var(--line);
 }
 .consent { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; }
@@ -75,19 +75,19 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 #remote { width: 100%; height: 100%; object-fit: cover; }
 #pip {
   position: absolute; right: 16px; bottom: 96px; width: clamp(120px, 18vw, 240px);
-  aspect-ratio: 16/9; border-radius: 8px; border: 1px solid var(--line);
+  aspect-ratio: 16/9; border-radius: 0; border: 1px solid var(--line);
   object-fit: cover;
 }
 .controls {
   position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
   display: flex; gap: 12px; padding: 10px; background: rgba(8,18,34,.85);
-  border: 1px solid var(--line); border-radius: 8px;
+  border: 1px solid var(--line); border-radius: 0;
 }
 .call-head { position: absolute; top: 14px; left: 20px; }
 #debug-overlay {
   position: absolute; top: 14px; right: 20px; padding: 6px 10px;
   font: 500 12px/1.5 ui-monospace, Menlo, monospace;
-  background: rgba(8,18,34,.85); border: 1px solid var(--line); border-radius: 6px;
+  background: rgba(8,18,34,.85); border: 1px solid var(--line); border-radius: 0;
 }
 
 /* Exhibits — interviewer panel (right) */
@@ -95,7 +95,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   position: absolute; right: 16px; top: 48px; width: 176px;
   max-height: calc(100dvh - 340px); overflow-y: auto;
   background: rgba(8,18,34,.88); border: 1px solid var(--line);
-  border-radius: 8px; padding: 10px;
+  border-radius: 0; padding: 10px;
 }
 .panel-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -107,7 +107,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .ex-card { margin-bottom: 12px; }
 .ex-thumb {
   display: block; width: 100%; aspect-ratio: 4/3; padding: 0; overflow: hidden;
-  background: #050B16; border: 1px solid var(--line); border-radius: 8px;
+  background: #050B16; border: 1px solid var(--line); border-radius: 0;
 }
 .ex-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .ex-send { width: 100%; margin-top: 6px; background: var(--green);
@@ -121,21 +121,21 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   position: absolute; left: 16px; top: 48px; bottom: 96px;
   width: min(560px, 46vw); display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: 8px; padding: 10px;
+  border-radius: 0; padding: 10px;
 }
-#pdf-frame { flex: 1; width: 100%; border: 0; border-radius: 6px; background: #050B16; }
+#pdf-frame { flex: 1; width: 100%; border: 0; border-radius: 0; background: #050B16; }
 
 /* Exhibits — candidate tray (bottom-left) */
 #exhibit-tray {
   position: absolute; left: 20px; bottom: 20px; max-width: 44vw;
   padding: 10px; background: rgba(8,18,34,.88);
-  border: 1px solid var(--line); border-radius: 8px;
+  border: 1px solid var(--line); border-radius: 0;
 }
 #tray-status { margin: 0 0 8px; }
 #tray-slots { display: flex; gap: 8px; flex-wrap: wrap; }
 .ex-slot {
   position: relative; width: 76px; height: 57px; padding: 0; overflow: hidden;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 0; background: var(--surface);
 }
 .ex-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ex-slot .ex-num {
@@ -144,7 +144,9 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   text-shadow: 0 1px 2px rgba(0,0,0,.8);
 }
 .ex-slot.locked { color: var(--faint); }
-.ex-slot.locked .ex-lock { font-size: 16px; }
+.ex-slot.locked .ex-lock {
+  font: 600 8px/1 Archivo, sans-serif; letter-spacing: .18em; color: var(--faint);
+}
 .ex-slot:not(.locked) { border-color: var(--green); cursor: pointer; }
 
 /* Lightbox */
@@ -154,7 +156,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 #lightbox figure { margin: 0; text-align: center; }
 #lightbox img {
-  max-width: 92vw; max-height: 86vh; border-radius: 8px;
+  max-width: 92vw; max-height: 86vh; border-radius: 0;
   border: 1px solid var(--line); background: #fff;
 }
 #lightbox figcaption { margin-top: 10px; }
@@ -164,7 +166,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   position: absolute; left: 16px; top: 48px; bottom: 96px;
   width: min(420px, 40vw); display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: 8px; padding: 12px;
+  border-radius: 0; padding: 12px;
 }
 .panel-btns { display: flex; gap: 6px; }
 .rubric-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
@@ -176,12 +178,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .ru-pts { display: flex; align-items: center; gap: 6px; color: var(--muted);
   font-size: 13px; white-space: nowrap; }
 .ru-pts input {
-  width: 56px; min-height: 36px; text-align: center; border-radius: 8px;
+  width: 56px; min-height: 36px; text-align: center; border-radius: 0;
   background: var(--bg); color: var(--ink); border: 1px solid var(--line);
   font: 600 14px Archivo, sans-serif;
 }
 .ru-note, .ru-notes {
-  width: 100%; min-height: 36px; padding: 7px 10px; border-radius: 8px;
+  width: 100%; min-height: 36px; padding: 7px 10px; border-radius: 0;
   background: var(--bg); color: var(--ink); border: 1px solid var(--line);
   font: 400 13px/1.5 Archivo, sans-serif;
 }
@@ -194,7 +196,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 .ru-finalize { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
 .ru-finalize-row { display: flex; gap: 10px; margin-top: 6px; }
 .ru-finalize-row input {
-  width: 90px; min-height: 44px; text-align: center; border-radius: 8px;
+  width: 90px; min-height: 44px; text-align: center; border-radius: 0;
   background: var(--bg); color: var(--ink); border: 1px solid var(--line);
   font: 600 16px Archivo, sans-serif;
 }
@@ -216,7 +218,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   font-size: 14px; margin-bottom: 6px;
 }
 .fb-pts { color: var(--muted); }
-.fb-bar { height: 6px; border-radius: 3px; background: var(--bg);
+.fb-bar { height: 6px; border-radius: 0; background: var(--bg);
   border: 1px solid var(--line); overflow: hidden; }
 .fb-fill { height: 100%; background: var(--green); }
 .fb-note { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
@@ -226,7 +228,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 /* Reveal timeline (ended view) */
 #reveal-timeline {
   margin: 14px 0 18px; padding: 12px 16px; text-align: left;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 0;
 }
 #reveal-timeline .tl-row { margin: 6px 0; font-size: 14px; }
 #reveal-timeline .tl-t {
@@ -244,7 +246,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .modal-card {
   width: min(420px, 90vw); background: var(--surface); border: 1px solid var(--line);
-  border-radius: 8px; padding: 24px; text-align: center;
+  border-radius: 0; padding: 24px; text-align: center;
 }
 .modal-card .actions { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Case Repo{% endblock %}</title>
+    <title>{% block title %}myCase{% endblock %}</title>
 
     {# Avoid FOUC: apply saved theme before paint. #}
     <script>
@@ -20,29 +20,64 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      /* myCase brand (mycase/myCase Style Guide.html — Implementation spec):
+         tokens are the contract. The slate/emerald ramps are REMAPPED onto
+         brand tokens so every existing utility class lands on-brand:
+         ink #0D1C31 · chalk #F3F5F8 · midnight #081222 · surface #101E36 ·
+         uptick #1B9A5F/#2FC07E · cobalt #2E56C0/#6C8FEA · hairlines.
+         Corners square (rule 01) except rounded-full for status dots. */
       tailwind.config = {
         darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+              sans:  ['Archivo', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              serif: ['"Source Serif 4"', 'Georgia', 'serif'],
+            },
+            colors: {
+              slate: {
+                50:  '#F3F5F8',  // chalk
+                100: '#E9EEF5',  // chalk text / hover wash
+                200: '#C9D2DF',  // hairline (light)
+                300: '#A9B4C4',  // faint
+                400: '#7C8CA8',  // slate (dark-mode muted)
+                500: '#5E6E86',  // slate (light-mode muted)
+                600: '#5E6E86',
+                700: '#24365A',  // hairline (dark)
+                800: '#24365A',
+                900: '#0D1C31',  // ink
+                950: '#081222',  // midnight
+              },
+              emerald: {
+                50:  '#E8F4EE', 100: '#D4EBDF', 200: '#A8D8C0',
+                300: '#2FC07E', 400: '#2FC07E', 500: '#1B9A5F',
+                600: '#1B9A5F', 700: '#157A4C', 800: '#10613C',
+                900: '#0C4A2E', 950: '#08331F',
+              },
+              sky:  { 800: '#2E56C0' },          // cobalt — links only
+              blue: { 400: '#6C8FEA', 600: '#2E56C0' },
             },
             boxShadow: {
-              'soft':    '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
-              'card':    '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 4px 16px -8px rgb(15 23 42 / 0.10)',
-              'lift':    '0 4px 12px -2px rgb(15 23 42 / 0.10), 0 12px 32px -8px rgb(15 23 42 / 0.14)',
+              // Rule 02: hierarchy is rules + whitespace, not shadows.
+              'soft': '0 0 #0000', 'card': '0 0 #0000', 'lift': '0 0 #0000',
+            },
+            borderRadius: {
+              // Rule 01: corners are square (rounded-full stays for dots).
+              'none': '0', 'sm': '0', DEFAULT: '0', 'md': '0',
+              'lg': '0', 'xl': '0', '2xl': '0', '3xl': '0',
             },
             keyframes: {
-              'fade-up':   { '0%': { opacity: '0', transform: 'translateY(6px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+              // Rule 07: entrances rise 16px / 420ms, nothing bounces.
+              'fade-up':   { '0%': { opacity: '0', transform: 'translateY(16px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
               'fade-in':   { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
             },
             animation: {
-              'fade-up':       'fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both',
-              'fade-up-slow':  'fade-up 0.65s cubic-bezier(0.16, 1, 0.3, 1) both',
+              'fade-up':       'fade-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) both',
+              'fade-up-slow':  'fade-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both',
               'fade-in':       'fade-in 0.4s ease-out both',
             },
           },
@@ -54,80 +89,80 @@
 
     <style type="text/tailwindcss">
       @layer base {
-        html { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
         body { @apply font-sans antialiased; text-rendering: optimizeLegibility; }
       }
 
       @layer components {
-        /* Surface tokens — keep the design language consistent. */
-        .surface     { @apply bg-white dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800; }
-        .surface-2   { @apply bg-white dark:bg-slate-900   border border-slate-200/80 dark:border-slate-800; }
-        .surface-mut { @apply bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800; }
+        /* Surfaces — hairline rules, exact brand surfaces, no shadows
+           (guide rule 02: hierarchy is rules + whitespace). */
+        .surface     { @apply bg-white dark:bg-[#101E36] border border-slate-200 dark:border-slate-800; }
+        .surface-2   { @apply bg-white dark:bg-[#101E36] border border-slate-200 dark:border-slate-800; }
+        .surface-mut { @apply bg-slate-50 dark:bg-[#101E36]/60 border border-slate-200 dark:border-slate-800; }
 
-        /* Inputs share the same focus + border treatment everywhere. */
+        /* Inputs: square field, hairline border, focus turns the border
+           green (guide "Request access" field). */
         .input-base {
-          @apply w-full px-3 py-2 text-sm rounded-lg
-                 bg-white dark:bg-slate-900
+          @apply w-full px-3 py-2 text-sm
+                 bg-white dark:bg-[#101E36]
                  border border-slate-200 dark:border-slate-700
                  text-slate-900 dark:text-slate-100
                  placeholder:text-slate-400 dark:placeholder:text-slate-500
                  transition
-                 focus:outline-none focus:ring-2 focus:ring-slate-900/10 dark:focus:ring-slate-100/20
-                 focus:border-slate-400 dark:focus:border-slate-500;
+                 focus:outline-none focus:border-emerald-500 dark:focus:border-emerald-300;
         }
 
-        /* Pill-style toggle buttons (difficulty filter, etc.). */
+        /* Toggle chips (difficulty filter, proposal time picks) — square,
+           active = ink block, exactly like the primary button. */
         .btn-pill {
-          @apply inline-flex items-center justify-center px-3 py-1 rounded-full text-[13px] font-medium border transition
-                 active:scale-[0.98];
+          @apply inline-flex items-center justify-center px-3 py-1 text-[13px] font-semibold border transition;
         }
         .btn-pill-default {
-          @apply bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300
-                 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-800;
+          @apply bg-transparent text-slate-600 border-slate-200 hover:text-slate-900 hover:border-slate-300
+                 dark:text-slate-400 dark:border-slate-700 dark:hover:text-slate-100 dark:hover:border-slate-400;
         }
         .btn-pill-active {
-          @apply bg-slate-900 text-white border-slate-900 shadow-soft
-                 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100;
+          @apply bg-slate-900 text-slate-50 border-slate-900
+                 dark:bg-slate-100 dark:text-slate-950 dark:border-slate-100;
         }
 
-        /* Primary / secondary buttons. */
+        /* Guide rule 03 — primary: solid ink block that lifts 1px in 160ms;
+           secondary: underlined text, never an outlined box. */
         .btn-primary {
-          @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium
-                 bg-slate-900 text-white shadow-soft
-                 hover:bg-slate-800 active:scale-[0.98] transition
-                 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white;
+          @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-semibold
+                 bg-slate-900 text-slate-50
+                 dark:bg-slate-100 dark:text-slate-950
+                 transition duration-150 hover:-translate-y-px hover:opacity-90;
         }
         .btn-secondary {
-          @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium
-                 bg-white text-slate-700 border border-slate-200
-                 hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition
-                 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-800;
+          @apply inline-flex items-center justify-center gap-1.5 px-1 py-2 text-sm font-semibold
+                 text-slate-900 dark:text-slate-100 underline underline-offset-4
+                 transition duration-150 hover:text-emerald-600 dark:hover:text-emerald-300;
         }
         .btn-ghost {
-          @apply inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition
+          @apply inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 hover:text-slate-900 transition
                  dark:text-slate-400 dark:hover:text-slate-100;
         }
 
-        /* Difficulty + status badges. */
+        /* Difficulty + status badges — square caps labels on hairlines. */
         .badge {
-          @apply inline-flex items-center gap-1 text-[11px] font-medium tracking-wide px-2 py-0.5 rounded-full border;
+          @apply inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] px-2 py-0.5 border;
         }
-        .badge-easy   { @apply bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/20; }
-        .badge-medium { @apply bg-amber-50  text-amber-700  border-amber-200  dark:bg-amber-500/10  dark:text-amber-300  dark:border-amber-500/20; }
-        .badge-hard   { @apply bg-rose-50   text-rose-700   border-rose-200   dark:bg-rose-500/10   dark:text-rose-300   dark:border-rose-500/20; }
+        .badge-easy   { @apply text-emerald-600 border-emerald-200 dark:text-emerald-300 dark:border-emerald-300/30; }
+        .badge-medium { @apply text-amber-700 border-amber-200 dark:text-amber-300 dark:border-amber-300/30; }
+        .badge-hard   { @apply text-rose-700 border-rose-200 dark:text-rose-300 dark:border-rose-300/30; }
 
-        /* Case card — the headline visual. */
+        /* Case card — square, hairline, 1px hover lift (guide motion:
+           hover — lift, 160ms, nothing bounces). */
         .case-card {
-          @apply relative block rounded-xl p-4 bg-white dark:bg-slate-900
-                 border border-slate-200/80 dark:border-slate-800
-                 shadow-soft
-                 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]
-                 hover:-translate-y-0.5 hover:shadow-lift hover:border-slate-300 dark:hover:border-slate-700
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20 dark:focus-visible:ring-slate-100/20;
+          @apply relative block p-4 bg-white dark:bg-[#101E36]
+                 border border-slate-200 dark:border-slate-800
+                 transition duration-150
+                 hover:-translate-y-px hover:border-slate-300 dark:hover:border-slate-400
+                 focus-visible:outline-none focus-visible:border-emerald-500 dark:focus-visible:border-emerald-300;
         }
         .case-card::before {
           content: "";
-          @apply absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full bg-slate-200 dark:bg-slate-700 opacity-70 transition-opacity;
+          @apply absolute left-0 top-0 bottom-0 w-[3px] bg-slate-200 dark:bg-slate-700 opacity-70 transition-opacity;
         }
         .case-card:hover::before { @apply opacity-100; }
         /* Per-school accent color, applied via inline `--case-accent` from the template. */
@@ -140,35 +175,32 @@
          * document; a second block in case_detail.html would not emit CSS.
          */
         .vote-pill-track {
-          @apply inline-flex flex-wrap items-center gap-0.5 rounded-full border border-slate-200/90
-                 bg-gradient-to-b from-slate-50 to-slate-100 p-0.5 shadow-sm
-                 dark:border-slate-700 dark:from-slate-800 dark:to-slate-900 dark:shadow-none;
+          @apply inline-flex flex-wrap items-center gap-0.5 border border-slate-200
+                 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-transparent;
         }
         .vote-pill {
-          @apply relative inline-flex items-center gap-1.5 rounded-full border border-transparent
-                 bg-white/80 px-3 py-1.5 text-[13px] font-semibold tracking-tight text-slate-700
-                 shadow-sm transition-all duration-200 ease-out
-                 hover:z-10 hover:scale-[1.02] hover:border-slate-200 hover:bg-white hover:shadow-soft
-                 active:scale-[0.98]
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15
-                 dark:bg-slate-800/70 dark:text-slate-100 dark:shadow-none
-                 dark:hover:border-slate-600 dark:hover:bg-slate-800 dark:hover:shadow-soft
-                 dark:focus-visible:ring-slate-100/25;
+          @apply relative inline-flex items-center gap-1.5 border border-transparent
+                 bg-white px-3 py-1.5 text-[13px] font-semibold tracking-tight text-slate-600
+                 transition duration-150
+                 hover:z-10 hover:-translate-y-px hover:border-slate-200 hover:text-slate-900
+                 focus-visible:outline-none focus-visible:border-emerald-500
+                 dark:bg-[#101E36] dark:text-slate-100
+                 dark:hover:border-slate-600 dark:focus-visible:border-emerald-300;
         }
         .vote-pill .vote-icon {
-          @apply h-4 w-4 shrink-0 text-slate-500 transition-transform duration-200 dark:text-slate-400;
+          @apply h-4 w-4 shrink-0 text-slate-500 transition-colors duration-150 dark:text-slate-400;
         }
-        .vote-pill:hover .vote-icon { @apply scale-110 text-slate-700 dark:text-slate-200; }
+        .vote-pill:hover .vote-icon { @apply text-slate-900 dark:text-slate-200; }
         .vote-pill .vote-count {
           @apply min-w-[1.25ch] text-center text-[12px] font-semibold tabular-nums text-slate-500
-                 transition-colors duration-200 dark:text-slate-400;
+                 transition-colors duration-150 dark:text-slate-400;
         }
 
         .vote-pill[data-state="useful"] {
-          @apply border-emerald-200/90 bg-emerald-50 text-emerald-900 shadow-soft
-                 hover:scale-[1.02] hover:border-emerald-300 hover:bg-emerald-50
-                 dark:border-emerald-500/35 dark:bg-emerald-950/50 dark:text-emerald-200
-                 dark:hover:bg-emerald-950/60 dark:hover:border-emerald-400/40;
+          @apply border-emerald-500/60 text-emerald-700
+                 hover:border-emerald-500
+                 dark:border-emerald-300/40 dark:text-emerald-300
+                 dark:hover:border-emerald-300/70;
         }
         .vote-pill[data-state="useful"] .vote-count {
           @apply text-emerald-800 dark:text-emerald-300;
@@ -178,10 +210,10 @@
         }
 
         .vote-pill[data-state="not_useful"] {
-          @apply border-rose-200/90 bg-rose-50 text-rose-900 shadow-soft
-                 hover:scale-[1.02] hover:border-rose-300 hover:bg-rose-50
-                 dark:border-rose-500/35 dark:bg-rose-950/45 dark:text-rose-200
-                 dark:hover:bg-rose-950/55 dark:hover:border-rose-400/40;
+          @apply border-rose-300/70 text-rose-700
+                 hover:border-rose-400
+                 dark:border-rose-300/40 dark:text-rose-300
+                 dark:hover:border-rose-300/70;
         }
         .vote-pill[data-state="not_useful"] .vote-count {
           @apply text-rose-800 dark:text-rose-300;
@@ -214,23 +246,36 @@
     {# Vote count bump — plain CSS so it still runs when the class is toggled only from JS
        (Tailwind JIT would not emit animate-* utilities otherwise). #}
     <style>
+      /* Guide motion: nothing bounces — the count nudges up instead of scaling. */
       @keyframes vote-count-bump {
-        0%, 100% { transform: scale(1); }
-        40%      { transform: scale(1.2); }
+        0%, 100% { transform: translateY(0); }
+        40%      { transform: translateY(-2px); }
       }
       .vote-count.is-bumped {
-        animation: vote-count-bump 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        animation: vote-count-bump 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
       }
+      /* Staircase-mark gradient stops (theme-aware; SVG stops can't take
+         Tailwind utilities). Ink → uptick green, per the brand lockup. */
+      .mc-stop-ink   { stop-color: #0D1C31; }
+      .dark .mc-stop-ink   { stop-color: #E9EEF5; }
+      .mc-stop-green { stop-color: #1B9A5F; }
+      .dark .mc-stop-green { stop-color: #2FC07E; }
     </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen flex flex-col selection:bg-slate-900/10 dark:selection:bg-slate-100/20">
 
     <header class="sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800 bg-white/85 dark:bg-slate-950/80 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:supports-[backdrop-filter]:bg-slate-950/70">
         <div class="max-w-7xl mx-auto px-5 sm:px-6 h-14 flex items-center justify-between">
-            <a href="/" class="flex items-center gap-2 group">
-                <span class="inline-flex h-6 w-6 items-center justify-center rounded-md bg-slate-900 text-white text-[10px] font-semibold tracking-tight dark:bg-slate-100 dark:text-slate-900">CR</span>
-                <span class="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">Case Repo</span>
-                <span class="text-xs text-slate-500 dark:text-slate-500 hidden md:inline">consulting cases for MBAs</span>
+            <a href="/" class="flex items-center gap-2.5 group" aria-label="myCase home">
+                {# The staircase — the system's only icon; the last riser fades ink → green. #}
+                <svg width="24" height="20" viewBox="0 0 48 40" aria-hidden="true">
+                    <defs><linearGradient id="mcg-nav" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4">
+                        <stop offset="0" class="mc-stop-ink"/>
+                        <stop offset="1" class="mc-stop-green"/>
+                    </linearGradient></defs>
+                    <path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#mcg-nav)" stroke-width="5"/>
+                </svg>
+                <span class="text-[17px] leading-none text-slate-900 dark:text-slate-100"><span class="font-serif italic font-normal">my</span><span class="font-extrabold tracking-[-0.02em]">Case</span></span>
             </a>
 
             <nav class="flex items-center gap-0.5 sm:gap-1 text-sm">
@@ -275,9 +320,19 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="border-t border-slate-200/80 dark:border-slate-800 bg-white/60 dark:bg-slate-950/60 mt-12">
-        <div class="max-w-7xl mx-auto px-5 sm:px-6 py-4 text-xs text-slate-500 dark:text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
-            <span>Case Repo &middot; Yale SOM &amp; Booth collaborators</span>
+    <footer class="border-t border-slate-200 dark:border-slate-800 mt-12">
+        <div class="max-w-7xl mx-auto px-5 sm:px-6 py-5 text-xs text-slate-500 dark:text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <span class="flex items-center gap-2">
+                <svg width="18" height="15" viewBox="0 0 48 40" aria-hidden="true">
+                    <defs><linearGradient id="mcg-foot" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4">
+                        <stop offset="0" class="mc-stop-ink"/>
+                        <stop offset="1" class="mc-stop-green"/>
+                    </linearGradient></defs>
+                    <path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#mcg-foot)" stroke-width="5"/>
+                </svg>
+                <span class="text-[13px] text-slate-900 dark:text-slate-100"><span class="font-serif italic">my</span><span class="font-extrabold tracking-[-0.02em]">Case</span></span>
+                <span>&middot; Yale SOM &amp; Booth collaborators</span>
+            </span>
             <span class="tabular-nums">{{ total_cases or 0 }} cases indexed</span>
         </div>
     </footer>
