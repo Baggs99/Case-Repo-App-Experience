@@ -12,6 +12,7 @@ import { RtcSession } from './rtc.js';
 import { ExhibitManager, wireLightbox, renderRevealTimeline } from './exhibits.js';
 import { RubricPanel, renderFeedbackView } from './rubric.js';
 import { Recorder, renderRecordingLinks } from './recorder.js';
+import { MasterClock, SegmentTimer } from './console.js';
 import * as ui from './ui.js';
 
 const BOOT = window.CASEROOM;
@@ -24,6 +25,8 @@ let rtc = null;
 let exhibits = null;
 let rubric = null;
 let recorder = null;
+let masterClock = null;
+let segTimer = null;
 let localStream = null;
 let joinConfig = null;
 let admitted = false;
@@ -178,8 +181,9 @@ function startCall() {
   if (inCall) return;
   inCall = true;
   admitted = true;
-  ui.showView('call');
+  ui.showView(IS_CANDIDATE ? 'call' : 'console');
   ui.banner(null);
+  if (!IS_CANDIDATE) wireConsole();
 
   exhibits = new ExhibitManager({
     api,
@@ -196,7 +200,9 @@ function startCall() {
     forceRelay: PARAMS.get('forceRelay') === '1',
     localStream,
     signal,
-    onRemoteStream: (stream) => { ui.$('remote').srcObject = stream; },
+    onRemoteStream: (stream) => {
+      ui.$(IS_CANDIDATE ? 'remote' : 'feed-remote').srcObject = stream;
+    },
     onCtrlOpen: () => {
       rtc.sendCtrl({ type: 'echo', t: performance.now() });
       exhibits.onCtrlOpen();
@@ -217,18 +223,15 @@ function startCall() {
     apiBase: API,
     stream: localStream,
     onState: (state) => {
-      const badge = ui.$('rec-badge');
-      badge.hidden = state === 'off' || state === 'done';
-      badge.dataset.state = state;
-      badge.textContent = state === 'failed' ? 'REC UPLOAD FAILED' : 'REC';
+      for (const badge of document.querySelectorAll('[data-rec-badge]')) {
+        badge.hidden = state === 'off' || state === 'done';
+        badge.dataset.state = state;
+        badge.innerHTML = '<span class="rec-dot"></span>'
+          + (state === 'failed' ? 'REC UPLOAD FAILED' : 'REC');
+      }
     },
   });
   recorder.start();
-
-  if (!IS_CANDIDATE) {
-    ui.$('btn-rubric').addEventListener('click', () => getRubric().toggleDrawer());
-    ui.$('btn-rubric-close').addEventListener('click', () => getRubric().toggleDrawer(false));
-  }
 
   if (PARAMS.get('debug') === '1') {
     // Test/debug hook: lets the evidence pass kill the ctrl channel etc.
@@ -238,6 +241,37 @@ function startCall() {
       const s = await rtc?.sampleStats();
       if (s) ui.debugOverlay(`${s.kbps} kbps · ${s.width}×${s.height}@${s.fps ?? '?'} · ctrl RTT ${lastRtt ?? '–'} ms`);
     }, 2000);
+  }
+}
+
+// ── Interviewer console (myCase Interviewer Console design) ─────────────────
+
+let consoleWired = false;
+async function wireConsole() {
+  if (consoleWired) return;
+  consoleWired = true;
+
+  ui.$('feed-self').srcObject = localStream;
+  getRubric().renderConsole();
+  segTimer = new SegmentTimer();
+
+  // Master clock counts from the server's started_at (survives reloads).
+  const { ok, data } = await api('');
+  const startedAt = ok && data.started_at ? Date.parse(data.started_at) : Date.now();
+  masterClock = new MasterClock(startedAt, 45);
+
+  for (const tab of document.querySelectorAll('.cx-tab')) {
+    tab.addEventListener('click', () => {
+      for (const t of document.querySelectorAll('.cx-tab')) {
+        t.classList.toggle('active', t === tab);
+      }
+      const showPdf = tab.dataset.cxtab === 'pdf';
+      ui.$('cx-score').hidden = showPdf;
+      ui.$('cx-pdf').hidden = !showPdf;
+      if (showPdf && !ui.$('pdf-frame').src) {
+        ui.$('pdf-frame').src = `/api/cases/${BOOT.caseId}/open-pdf`; // lazy
+      }
+    });
   }
 }
 
@@ -267,6 +301,8 @@ function teardown() {
   signal?.stop();
   rtc?.close();
   exhibits?.stop();
+  masterClock?.stop();
+  segTimer?.stop();
   if (localStream) for (const t of localStream.getTracks()) t.stop();
   inCall = false;
 }
@@ -341,18 +377,20 @@ async function boot() {
   ui.$('btn-admit').addEventListener('click', admitClicked);
   ui.$('btn-deny').addEventListener('click', denyClicked);
   ui.$('btn-end').addEventListener('click', endCall);
-  ui.$('btn-mute').addEventListener('click', () => {
-    const t = localStream.getAudioTracks()[0];
+  ui.$('console-end').addEventListener('click', endCall);
+  const toggleTrack = (kind) => () => {
+    const t = kind === 'audio' ? localStream.getAudioTracks()[0]
+                               : localStream.getVideoTracks()[0];
     if (!t) return;
     t.enabled = !t.enabled;
-    ui.setMuteState('audio', t.enabled);
-  });
-  ui.$('btn-cam').addEventListener('click', () => {
-    const t = localStream.getVideoTracks()[0];
-    if (!t) return;
-    t.enabled = !t.enabled;
-    ui.setMuteState('video', t.enabled);
-  });
+    ui.setMuteState(kind, t.enabled);
+  };
+  for (const id of ['btn-mute', 'c-btn-mute']) {
+    ui.$(id).addEventListener('click', toggleTrack('audio'));
+  }
+  for (const id of ['btn-cam', 'c-btn-cam']) {
+    ui.$(id).addEventListener('click', toggleTrack('video'));
+  }
 
   // No state transition on pagehide: a mid-call reload must be able to
   // restore (Phase 6 reconciliation). The WS drop tells the peer we left.

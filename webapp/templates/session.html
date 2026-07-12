@@ -5,14 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Case practice · myCase</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;1,8..60,400&display=swap" rel="stylesheet">
 <style>
-/* myCase dark theme (mycase/myCase Style Guide.html) — call pages are
-   dark-first: video content, less glare. */
+/* myCase tokens (mycase/myCase Style Guide.html — copied verbatim).
+   Light default; body.dark mirrors the app-wide theme toggle. */
 :root {
+  --bg: #F3F5F8; --surface: #FFFFFF; --ink: #0D1C31; --muted: #5E6E86;
+  --faint: #A9B4C4; --line: #C9D2DF; --green: #1B9A5F; --green-text: #157A4C;
+  --cobalt: #2E56C0; --danger: #B3384D; --btnbg: #0D1C31; --btnfg: #F3F5F8;
+}
+body.dark {
   --bg: #081222; --surface: #101E36; --ink: #E9EEF5; --muted: #7C8CA8;
-  --faint: #3D5075; --line: #24365A; --green: #2FC07E; --cobalt: #6C8FEA;
-  --danger: #E2606C;
+  --faint: #3D5075; --line: #24365A; --green: #2FC07E; --green-text: #2FC07E;
+  --cobalt: #6C8FEA; --danger: #E2606C; --btnbg: #E9EEF5; --btnfg: #081222;
 }
 * { box-sizing: border-box; }
 /* Explicit display values below would otherwise defeat the hidden attribute. */
@@ -21,6 +26,7 @@ html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 400 16px/1.6 Archivo, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 video { background: #050B16; }
 button {
@@ -29,14 +35,27 @@ button {
   border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   cursor: pointer;
 }
-button.primary { background: var(--green); border-color: var(--green); color: #06301C; }
+button.primary {
+  background: var(--btnbg); border-color: var(--btnbg); color: var(--btnfg);
+  transition: transform .16s ease, opacity .16s ease;
+}
+button.primary:hover { transform: translateY(-1px); opacity: .92; }
 button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 button.off { background: var(--danger); border-color: var(--danger); color: #fff; }
-button:focus-visible, select:focus-visible, input:focus-visible {
+button.linklike {
+  background: none; border: none; min-height: 0; padding: 6px 2px;
+  color: var(--muted); text-decoration: underline; text-underline-offset: 4px;
+}
+button.linklike:hover { color: var(--ink); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--cobalt); outline-offset: 2px;
 }
 .label {
   font: 600 11px/1 Archivo, sans-serif; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--muted);
+}
+.label-sm {
+  font: 600 9.5px/1.4 Archivo, sans-serif; letter-spacing: .15em;
   text-transform: uppercase; color: var(--muted);
 }
 
@@ -46,7 +65,8 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   padding: 10px 20px; text-align: center; font-weight: 600; font-size: 14px;
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
-#banner[data-tone="warn"] { color: #F0B85B; }
+#banner[data-tone="warn"] { color: #B07515; }
+body.dark #banner[data-tone="warn"] { color: #F0B85B; }
 #banner[data-tone="error"] { color: var(--danger); }
 
 /* Lobby */
@@ -55,12 +75,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .lobby-card {
   width: min(680px, 100%); background: var(--surface);
-  border: 1px solid var(--line); border-radius: 0; padding: 28px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  border: 1px solid var(--line); padding: 28px;
 }
-.lobby-card h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; }
+.lobby-card h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 2px; }
 .lobby-card .case { color: var(--muted); margin: 0 0 20px; }
-#preview { width: 100%; aspect-ratio: 16/9; border-radius: 0; border: 1px solid var(--line); }
+#preview { width: 100%; aspect-ratio: 16/9; border: 1px solid var(--line); }
 .pickers { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; margin: 16px 0; }
 .pickers select {
   width: 100%; min-height: 44px; padding: 0 10px; border-radius: 0;
@@ -68,86 +87,225 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .consent { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; }
 .consent input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--green); }
-#lobby-status { color: var(--green); font-weight: 600; min-height: 1.6em; }
+#lobby-status { color: var(--green-text); font-weight: 600; min-height: 1.6em; }
 
-/* Call */
-[data-view="call"] { position: fixed; inset: 0; }
+/* ── Candidate call view (full-bleed video) ─────────────────────────────── */
+[data-view="call"] { position: fixed; inset: 0; background: #050B16; }
 #remote { width: 100%; height: 100%; object-fit: cover; }
 #pip {
   position: absolute; right: 16px; bottom: 96px; width: clamp(120px, 18vw, 240px);
-  aspect-ratio: 16/9; border-radius: 0; border: 1px solid var(--line);
-  object-fit: cover;
+  aspect-ratio: 16/9; border: 1px solid var(--line); object-fit: cover;
 }
 .controls {
   position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
   display: flex; gap: 12px; padding: 10px; background: rgba(8,18,34,.85);
-  border: 1px solid var(--line); border-radius: 0;
+  border: 1px solid #24365A;
 }
-.call-head { position: absolute; top: 14px; left: 20px; }
+[data-view="call"] button { background: #101E36; color: #E9EEF5; border-color: #24365A; }
+[data-view="call"] button.danger { background: transparent; border-color: #E2606C; color: #E2606C; }
+[data-view="call"] button.off { background: #E2606C; border-color: #E2606C; color: #fff; }
+.call-head { position: absolute; top: 14px; left: 20px; color: #7C8CA8; }
 #debug-overlay {
-  position: absolute; top: 14px; right: 20px; padding: 6px 10px;
-  font: 500 12px/1.5 ui-monospace, Menlo, monospace;
-  background: rgba(8,18,34,.85); border: 1px solid var(--line); border-radius: 0;
+  position: fixed; bottom: 14px; right: 20px; z-index: 70; padding: 6px 10px;
+  font: 500 12px/1.5 ui-monospace, Menlo, monospace; color: #E9EEF5;
+  background: rgba(8,18,34,.85); border: 1px solid #24365A;
 }
 
-/* Exhibits — interviewer panel (right) */
-#exhibit-panel {
-  position: absolute; right: 16px; top: 48px; width: 176px;
-  max-height: calc(100dvh - 340px); overflow-y: auto;
-  background: rgba(8,18,34,.88); border: 1px solid var(--line);
-  border-radius: 0; padding: 10px;
-}
-.panel-head {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; margin-bottom: 10px;
-}
-#exhibit-panel button, #pdf-drawer button, .ex-send {
-  min-height: 32px; padding: 0 10px; font-size: 12px;
-}
-.ex-card { margin-bottom: 12px; }
-.ex-thumb {
-  display: block; width: 100%; aspect-ratio: 4/3; padding: 0; overflow: hidden;
-  background: #050B16; border: 1px solid var(--line); border-radius: 0;
-}
-.ex-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.ex-send { width: 100%; margin-top: 6px; background: var(--green);
-  border-color: var(--green); color: #06301C; }
-.ex-send:disabled { background: transparent; border-color: var(--green);
-  color: var(--green); cursor: default; }
-.ex-send.err { background: transparent; border-color: var(--danger); color: var(--danger); }
-
-/* Exhibits — PDF drawer (left) */
-#pdf-drawer {
-  position: absolute; left: 16px; top: 48px; bottom: 96px;
-  width: min(560px, 46vw); display: flex; flex-direction: column;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 0; padding: 10px;
-}
-#pdf-frame { flex: 1; width: 100%; border: 0; border-radius: 0; background: #050B16; }
-
-/* Exhibits — candidate tray (bottom-left) */
+/* Candidate exhibit tray */
 #exhibit-tray {
   position: absolute; left: 20px; bottom: 20px; max-width: 44vw;
-  padding: 10px; background: rgba(8,18,34,.88);
-  border: 1px solid var(--line); border-radius: 0;
+  padding: 10px; background: rgba(8,18,34,.88); border: 1px solid #24365A;
+  color: #E9EEF5;
 }
-#tray-status { margin: 0 0 8px; }
+#tray-status { margin: 0 0 8px; color: #7C8CA8; }
 #tray-slots { display: flex; gap: 8px; flex-wrap: wrap; }
 .ex-slot {
   position: relative; width: 76px; height: 57px; padding: 0; overflow: hidden;
-  border: 1px solid var(--line); border-radius: 0; background: var(--surface);
+  border: 1px solid #24365A; background: #101E36; min-height: 0;
 }
 .ex-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ex-slot .ex-num {
   position: absolute; top: 3px; left: 5px; z-index: 1;
-  font: 600 11px/1 Archivo, sans-serif; color: var(--ink);
+  font: 600 11px/1 Archivo, sans-serif; color: #E9EEF5;
   text-shadow: 0 1px 2px rgba(0,0,0,.8);
 }
-.ex-slot.locked { color: var(--faint); }
+.ex-slot.locked { color: #3D5075; }
 .ex-slot.locked .ex-lock {
-  font: 600 8px/1 Archivo, sans-serif; letter-spacing: .18em; color: var(--faint);
+  font: 600 8px/1 Archivo, sans-serif; letter-spacing: .18em; color: #3D5075;
 }
-.ex-slot:not(.locked) { border-color: var(--green); cursor: pointer; }
+.ex-slot:not(.locked) { border-color: #2FC07E; cursor: pointer; }
+
+/* ── Interviewer console (myCase Interviewer Console.html) ──────────────── */
+[data-view="console"] {
+  position: fixed; inset: 0; background: var(--surface);
+  display: flex; flex-direction: column; min-width: 1024px; overflow: auto;
+}
+.cx-top {
+  display: flex; align-items: center; gap: 16px; padding: 0 20px;
+  height: 58px; flex: none;
+}
+.cx-word { font-size: 15px; color: var(--ink); white-space: nowrap; }
+.cx-word .my { font-family: 'Source Serif 4', serif; font-style: italic; }
+.cx-word .case { font-weight: 800; letter-spacing: -0.02em; }
+.cx-div { width: 1px; height: 26px; background: var(--line); flex: none; }
+.cx-title { font-weight: 700; font-size: 14.5px; letter-spacing: -0.01em; color: var(--ink); }
+.cx-peer { margin-left: auto; text-align: right; }
+.cx-peer div:last-child { font-weight: 600; font-size: 13px; color: var(--ink); }
+.cx-clock { text-align: right; min-width: 86px; }
+#master-time {
+  font-weight: 800; font-size: 19px; letter-spacing: -0.01em; color: var(--ink);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+#master-remain {
+  font: 600 9.5px/1.4 Archivo, sans-serif; letter-spacing: .08em;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+#master-remain.over { color: var(--danger); }
+.cx-endbtn { min-height: 38px; padding: 0 16px; font-size: 13px; }
+.cx-rule { height: 2px; background: var(--line); flex: none; }
+#master-progress { height: 2px; background: var(--green); width: 0%; transition: width .9s linear; }
+.cx-body {
+  flex: 1; display: grid; grid-template-columns: 1fr clamp(392px, 42vw, 500px);
+  min-height: 0;
+}
+
+/* Left column — tabs, exhibits, scoring */
+.cx-left { display: flex; flex-direction: column; min-height: 0; padding: 14px 26px 20px; }
+.cx-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--line); flex: none; }
+.cx-tab {
+  background: none; border: none; min-height: 0; cursor: pointer;
+  font: 600 11px/1 Archivo, sans-serif; letter-spacing: .14em;
+  padding: 6px 2px 10px; margin-bottom: -1px; color: var(--muted);
+  border-bottom: 2px solid transparent; transition: color .16s ease;
+}
+.cx-tab.active { color: var(--ink); border-bottom-color: var(--green); }
+.cx-scroll { flex: 1; overflow: auto; min-height: 0; padding: 18px 2px 0; }
+.cx-pdfwrap { flex: 1; min-height: 0; padding-top: 12px; display: flex; }
+#pdf-frame { flex: 1; width: 100%; border: 1px solid var(--line); background: #fff; }
+
+.cx-ex {
+  display: flex; align-items: center; gap: 16px; border: 1px solid var(--line);
+  background: var(--bg); padding: 11px 16px; margin-bottom: 8px; max-width: 640px;
+}
+.cx-ex-thumb {
+  width: 58px; height: 44px; padding: 0; overflow: hidden; flex: none;
+  border: 1px solid var(--line); background: #fff; min-height: 0;
+}
+.cx-ex-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cx-ex-info { flex: 1; min-width: 0; }
+.cx-ex-name { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.cx-ex-release {
+  background: var(--btnbg); color: var(--btnfg); border: none;
+  font-size: 12.5px; padding: 9px 14px; min-height: 0;
+  transition: transform .16s ease, opacity .16s ease;
+}
+.cx-ex-release:hover { transform: translateY(-1px); opacity: .92; }
+.cx-ex-release.err { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+.cx-ex-sent {
+  font: 600 10.5px/1 Archivo, sans-serif; letter-spacing: .1em;
+  color: var(--green-text); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.cx-score-open {
+  border-top: 2px solid var(--ink); margin-top: 20px; padding-top: 12px; max-width: 640px;
+}
+.cx-score-open .head {
+  display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;
+}
+.cx-score-open .head .t {
+  font: 600 10.5px/1.4 Archivo, sans-serif; letter-spacing: .15em; color: var(--green-text);
+}
+.cx-score-open .head .h { font-size: 11px; color: var(--faint); }
+
+.cxr-item { border-bottom: 1px solid var(--line); padding: 10px 0 12px; max-width: 640px; }
+.cxr-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cxr-name { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.cxr-score { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cxr-cells { display: flex; gap: 4px; margin: 9px 0; }
+.cxr-cell {
+  width: 26px; height: 26px; padding: 0; min-height: 0; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--line);
+  font: 600 10px/1 Archivo, sans-serif; color: var(--muted);
+  font-variant-numeric: tabular-nums; transition: transform .16s ease;
+}
+.cxr-cell:hover { transform: translateY(-1px); }
+.cxr-cell.on { background: var(--btnbg); border-color: var(--btnbg); color: var(--btnfg); }
+.cxr-note {
+  width: 100%; background: none; border: none; outline: none;
+  border-bottom: 1px solid var(--line);
+  font: italic 400 13px/1.5 'Source Serif 4', serif; color: var(--ink);
+  padding: 3px 0 5px;
+}
+.cxr-notes {
+  width: 100%; max-width: 640px; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--line); font: 400 13px/1.5 Archivo, sans-serif;
+  padding: 8px 10px; margin-top: 12px; resize: vertical;
+}
+.cx-status {
+  display: flex; justify-content: space-between; max-width: 640px; gap: 10px;
+  font-size: 12.5px; color: var(--muted); margin: 8px 0 0;
+}
+.cx-status [data-ru-grade] { color: var(--green-text); font-weight: 600; }
+
+/* Right rail — feed, segment timer, rubric summary */
+.cx-rail { border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.cx-feed {
+  position: relative; height: 306px; flex: none; background: #0D1C31;
+  background-image: repeating-linear-gradient(135deg, rgba(233,238,245,.045) 0 9px, transparent 9px 18px);
+}
+#feed-remote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cx-live {
+  position: absolute; top: 11px; left: 11px; display: inline-flex; align-items: center;
+  gap: 6px; font: 600 9.5px/1 Archivo, sans-serif; letter-spacing: .14em;
+  color: #E9EEF5; background: rgba(8,18,34,.55); padding: 5px 9px; z-index: 2;
+}
+.cx-feedname {
+  position: absolute; bottom: 10px; left: 12px; font: 600 11.5px/1 Archivo, sans-serif;
+  color: #E9EEF5; background: rgba(8,18,34,.55); padding: 5px 9px; z-index: 2;
+}
+#feed-self {
+  position: absolute; right: 0; bottom: 0; width: 134px; height: 76px; z-index: 2;
+  border-left: 1px solid rgba(233,238,245,.16); border-top: 1px solid rgba(233,238,245,.16);
+  object-fit: cover; background: #081222;
+}
+.cx-feedctl {
+  display: flex; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--line); flex: none;
+}
+.cx-feedctl button { min-height: 34px; padding: 0 12px; font-size: 12.5px; }
+.cx-seg { padding: 12px 18px; border-bottom: 1px solid var(--line); flex: none; }
+.cx-seg-row { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+#seg-time {
+  font-weight: 800; font-size: 38px; letter-spacing: -0.02em; line-height: 1;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+}
+#seg-toggle {
+  background: var(--btnbg); color: var(--btnfg); border: none; min-height: 0;
+  font-size: 12.5px; padding: 9px 14px; margin-left: auto;
+  transition: transform .16s ease, opacity .16s ease;
+}
+#seg-toggle:hover { transform: translateY(-1px); opacity: .92; }
+#seg-laps { margin-top: 8px; max-height: 92px; overflow: auto; }
+.seg-lap {
+  display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: baseline;
+  border-bottom: 1px solid var(--line); padding: 5px 0;
+}
+.seg-lap input {
+  background: none; border: none; outline: none;
+  font: 600 12.5px/1.4 Archivo, sans-serif; color: var(--ink); padding: 2px 0; width: 100%;
+}
+.seg-lap span { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg-empty { font: italic 400 12.5px/1.6 'Source Serif 4', serif; color: var(--faint); padding: 4px 0 2px; }
+.cx-sum { flex: 1; overflow: auto; min-height: 0; padding: 12px 18px 14px; }
+.cx-sum-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+#rubric-avg {
+  font: 600 11px/1 Archivo, sans-serif; letter-spacing: .08em;
+  color: var(--green-text); font-variant-numeric: tabular-nums;
+}
+.sum-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: 1px solid var(--line); padding: 7px 0;
+}
+.sum-row .n { font-weight: 600; font-size: 13px; color: var(--ink); }
+.sum-row .s { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Lightbox */
 #lightbox {
@@ -156,20 +314,11 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 #lightbox figure { margin: 0; text-align: center; }
 #lightbox img {
-  max-width: 92vw; max-height: 86vh; border-radius: 0;
-  border: 1px solid var(--line); background: #fff;
+  max-width: 92vw; max-height: 86vh; border: 1px solid var(--line); background: #fff;
 }
-#lightbox figcaption { margin-top: 10px; }
+#lightbox figcaption { margin-top: 10px; color: #E9EEF5; }
 
-/* Rubric drawer + debrief editor */
-#rubric-drawer {
-  position: absolute; left: 16px; top: 48px; bottom: 96px;
-  width: min(420px, 40vw); display: flex; flex-direction: column;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 0; padding: 12px;
-}
-.panel-btns { display: flex; gap: 6px; }
-.rubric-scroll { flex: 1; overflow-y: auto; padding-right: 4px; }
+/* Debrief editor (ended view) */
 .ru-item { margin-bottom: 14px; }
 .ru-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -192,7 +341,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   display: flex; justify-content: space-between; gap: 10px;
   font-size: 13px; color: var(--muted); margin: 10px 0 0;
 }
-.ru-status [data-ru-grade] { color: var(--green); font-weight: 600; }
+.ru-status [data-ru-grade] { color: var(--green-text); font-weight: 600; }
 .ru-finalize { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
 .ru-finalize-row { display: flex; gap: 10px; margin-top: 6px; }
 .ru-finalize-row input {
@@ -210,7 +359,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 [data-view="feedback"] .lobby-card { width: min(720px, 100%); }
 .fb-grade { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 22px; }
-.fb-grade-n { font: 700 56px/1 Archivo, sans-serif; color: var(--green); }
+.fb-grade-n { font: 800 56px/1 Archivo, sans-serif; letter-spacing: -0.02em; color: var(--green-text); }
 .fb-grade-of { font: 600 20px Archivo, sans-serif; color: var(--muted); }
 .fb-item { margin-bottom: 14px; }
 .fb-item-head {
@@ -218,43 +367,40 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   font-size: 14px; margin-bottom: 6px;
 }
 .fb-pts { color: var(--muted); }
-.fb-bar { height: 6px; border-radius: 0; background: var(--bg);
-  border: 1px solid var(--line); overflow: hidden; }
+.fb-bar { height: 6px; background: var(--bg); border: 1px solid var(--line); overflow: hidden; }
 .fb-fill { height: 100%; background: var(--green); }
 .fb-note { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
 .fb-notes { white-space: pre-wrap; font-size: 14px; margin: 6px 0 0; }
-.fb-link { color: var(--green); }
+.fb-link { color: var(--green-text); }
 
-/* Recording indicator (call view, T10.1) */
-#rec-badge {
-  position: absolute; top: 44px; left: 20px; display: flex; gap: 7px;
-  align-items: center; margin: 0;
+/* Recording indicator + links */
+[data-rec-badge] {
+  display: flex; gap: 7px; align-items: center; margin: 0;
   font: 600 10.5px/1 Archivo, sans-serif; letter-spacing: .15em;
-  color: var(--green);
+  color: var(--green-text);
 }
-#rec-badge[data-state="failed"] { color: var(--danger); }
+[data-view="call"] [data-rec-badge] { position: absolute; top: 44px; left: 20px; color: #2FC07E; }
+[data-rec-badge][data-state="failed"] { color: var(--danger); }
 .rec-dot {
   width: 7px; height: 7px; border-radius: 50%; background: currentColor;
   animation: blinkdot 1.1s ease infinite;
 }
 @keyframes blinkdot { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
-
-/* Recording links (ended + feedback views) */
 #recording-links, #recording-links-fb {
   margin: 14px 0 18px; padding: 12px 16px; text-align: left;
   background: var(--bg); border: 1px solid var(--line);
 }
-.rec-link { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+.rec-link { color: var(--green-text); text-decoration: underline; text-underline-offset: 3px; }
 
 /* Reveal timeline (ended view) */
 #reveal-timeline {
   margin: 14px 0 18px; padding: 12px 16px; text-align: left;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 0;
+  background: var(--bg); border: 1px solid var(--line);
 }
 #reveal-timeline .tl-row { margin: 6px 0; font-size: 14px; }
-#reveal-timeline .tl-t {
+#reveal-timeline .tl-t, .tl-t {
   display: inline-block; min-width: 48px; color: var(--muted);
-  font-family: ui-monospace, Menlo, monospace; font-size: 13px;
+  font-variant-numeric: tabular-nums; font-size: 13px;
 }
 
 /* Ended */
@@ -267,19 +413,30 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 .modal-card {
   width: min(420px, 90vw); background: var(--surface); border: 1px solid var(--line);
-  border-radius: 0; padding: 24px; text-align: center;
+  padding: 24px; text-align: center;
 }
 .modal-card .actions { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
 
 @media (prefers-reduced-motion: no-preference) {
   .lobby-card, .modal-card { animation: rise .42s cubic-bezier(.22,1,.36,1); }
-  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } }
 }
 </style>
 </head>
 <body>
+<script>
+  /* Same theme signal as the rest of the app (base.html). */
+  (function () {
+    try {
+      var s = localStorage.getItem('theme');
+      var prefers = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (s === 'dark' || (s !== 'light' && prefers)) document.body.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
 
 <div id="banner" hidden></div>
+<div id="debug-overlay" hidden></div>
 
 <section data-view="lobby" hidden>
   <div class="lobby-card">
@@ -310,39 +467,12 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   </div>
 </section>
 
+{# ── Candidate call view — full-bleed video, exhibit tray ────────────────── #}
 <section data-view="call" hidden>
   <video id="remote" autoplay playsinline></video>
   <video id="pip" autoplay muted playsinline></video>
   <p class="call-head label">{{ session.case_title }}</p>
-  <p id="rec-badge" hidden><span class="rec-dot"></span>REC</p>
-  <div id="debug-overlay" hidden></div>
-
-  <aside id="exhibit-panel" hidden aria-label="Exhibits">
-    <div class="panel-head">
-      <span class="label">Case</span>
-      <span class="panel-btns">
-        <button id="btn-rubric">Rubric</button>
-        <button id="btn-pdf">PDF</button>
-      </span>
-    </div>
-    <div id="exhibit-strip"></div>
-  </aside>
-
-  <div id="pdf-drawer" hidden>
-    <div class="panel-head">
-      <span class="label">Case PDF</span>
-      <button id="btn-pdf-close">Close</button>
-    </div>
-    <iframe id="pdf-frame" title="Case PDF"></iframe>
-  </div>
-
-  <div id="rubric-drawer" hidden>
-    <div class="panel-head">
-      <span class="label">Rubric</span>
-      <button id="btn-rubric-close">Close</button>
-    </div>
-    <div id="rubric-body" class="rubric-scroll"></div>
-  </div>
+  <p id="rec-badge" data-rec-badge hidden><span class="rec-dot"></span>REC</p>
 
   <div id="exhibit-tray" hidden aria-label="Your exhibits">
     <p id="tray-status" class="label" role="status"></p>
@@ -356,6 +486,88 @@ button:focus-visible, select:focus-visible, input:focus-visible {
   </div>
 </section>
 
+{# ── Interviewer console (myCase Interviewer Console design) ─────────────── #}
+<section data-view="console" hidden>
+  <div class="cx-top">
+    <svg width="22" height="18" viewBox="0 0 48 40" aria-hidden="true">
+      <defs><linearGradient id="mcg-cx" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4">
+        <stop offset="0" class="mc-stop-ink"/><stop offset="1" class="mc-stop-green"/>
+      </linearGradient></defs>
+      <path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#mcg-cx)" stroke-width="5"/>
+    </svg>
+    <span class="cx-word"><span class="my">my</span><span class="case">Case</span></span>
+    <span class="cx-div"></span>
+    <div>
+      <div class="label-sm">Case practice · You are the interviewer</div>
+      <div class="cx-title">{{ session.case_title }}</div>
+    </div>
+    <div class="cx-peer">
+      <div class="label-sm">Candidate</div>
+      <div>{{ session.candidate_name }}</div>
+    </div>
+    <span class="cx-div"></span>
+    <div class="cx-clock">
+      <div class="label-sm">Interview</div>
+      <div id="master-time">00:00</div>
+      <div id="master-remain">45:00 left</div>
+    </div>
+    <p id="rec-badge-cx" data-rec-badge hidden><span class="rec-dot"></span>REC</p>
+    <button id="console-end" class="cx-endbtn danger">End call</button>
+  </div>
+  <div class="cx-rule"><div id="master-progress"></div></div>
+
+  <div class="cx-body">
+    <div class="cx-left">
+      <div class="cx-tabs" role="tablist">
+        <button class="cx-tab active" data-cxtab="score" role="tab">Score &amp; exhibits</button>
+        <button class="cx-tab" data-cxtab="pdf" role="tab">Case PDF</button>
+      </div>
+      <div id="cx-score" class="cx-scroll">
+        <div id="console-exhibits"></div>
+        <div class="cx-score-open">
+          <div class="head">
+            <span class="t">Score — collects into the rubric</span>
+            <span class="h">Autosaves as you go</span>
+          </div>
+          <div id="console-rubric"></div>
+        </div>
+      </div>
+      <div id="cx-pdf" class="cx-pdfwrap" hidden>
+        <iframe id="pdf-frame" title="Case PDF"></iframe>
+      </div>
+    </div>
+
+    <div class="cx-rail">
+      <div class="cx-feed">
+        <video id="feed-remote" autoplay playsinline></video>
+        <span class="cx-live"><span class="rec-dot" style="background:#2FC07E"></span>LIVE</span>
+        <span class="cx-feedname">{{ session.candidate_name }}</span>
+        <video id="feed-self" autoplay muted playsinline></video>
+      </div>
+      <div class="cx-feedctl">
+        <button id="c-btn-mute" aria-pressed="false">Mute</button>
+        <button id="c-btn-cam" aria-pressed="false">Camera off</button>
+      </div>
+      <div class="cx-seg">
+        <div class="label-sm">Segment timer</div>
+        <div class="cx-seg-row">
+          <span id="seg-time">00:00</span>
+          <button id="seg-toggle">Start</button>
+          <button id="seg-stop" class="linklike">Stop · log</button>
+        </div>
+        <div id="seg-laps"><div class="seg-empty">No segments logged yet.</div></div>
+      </div>
+      <div class="cx-sum">
+        <div class="cx-sum-head">
+          <span class="label-sm">Rubric — summary</span>
+          <span id="rubric-avg">0.0 / 5</span>
+        </div>
+        <div id="rubric-summary"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section data-view="ended" hidden>
   <div class="lobby-card">
     <h1 id="ended-title" style="text-align:center">Call ended</h1>
@@ -363,7 +575,7 @@ button:focus-visible, select:focus-visible, input:focus-visible {
     <div id="debrief-zone"></div>
     <div id="reveal-timeline" hidden></div>
     <div id="recording-links" hidden></div>
-    <p style="text-align:center"><a href="/room" style="color: var(--green)">Back to your room</a></p>
+    <p style="text-align:center"><a href="/room" style="color: var(--green-text)">Back to your room</a></p>
   </div>
 </section>
 
@@ -389,6 +601,14 @@ button:focus-visible, select:focus-visible, input:focus-visible {
     </div>
   </div>
 </div>
+
+<style>
+  /* Staircase gradient stops — theme-aware (same pattern as base.html). */
+  .mc-stop-ink   { stop-color: #0D1C31; }
+  body.dark .mc-stop-ink   { stop-color: #E9EEF5; }
+  .mc-stop-green { stop-color: #1B9A5F; }
+  body.dark .mc-stop-green { stop-color: #2FC07E; }
+</style>
 
 <script>window.CASEROOM = {{ boot | tojson }};</script>
 <script type="module" src="/static/js/caseroom/session.js"></script>

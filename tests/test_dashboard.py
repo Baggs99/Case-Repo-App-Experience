@@ -199,8 +199,11 @@ class TestDashboard(unittest.TestCase):
         page = self.bob.get(f"/room/{slug}")
         self.assertEqual(page.status_code, 200)
         self.assertIn("3 finalized sessions", page.text)
+        # Assert on the rendered content only — the <head> carries the
+        # Tailwind config whose comments legitimately contain "4.5:1" etc.
+        body = page.text.split("<main", 1)[1]
         for marker in ("4.5", "4.2", "Recommended", "History", "grade"):
-            self.assertNotIn(marker, page.text,
+            self.assertNotIn(marker, body,
                              f"{marker!r} leaked into another user's room view")
 
         # Anonymous: nothing at all.

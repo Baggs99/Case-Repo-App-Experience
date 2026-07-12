@@ -54,13 +54,15 @@ export function closeAdmitModal() {
 }
 
 export function setMuteState(kind, enabled) {
-  const btn = kind === 'audio' ? $('btn-mute') : $('btn-cam');
-  btn.setAttribute('aria-pressed', String(!enabled));
-  btn.classList.toggle('off', !enabled);
-  if (kind === 'audio') {
-    btn.textContent = enabled ? 'Mute' : 'Unmute';
-  } else {
-    btn.textContent = enabled ? 'Camera off' : 'Camera on';
+  const ids = kind === 'audio' ? ['btn-mute', 'c-btn-mute'] : ['btn-cam', 'c-btn-cam'];
+  for (const id of ids) {
+    const btn = $(id);
+    if (!btn) continue;
+    btn.setAttribute('aria-pressed', String(!enabled));
+    btn.classList.toggle('off', !enabled);
+    btn.textContent = kind === 'audio'
+      ? (enabled ? 'Mute' : 'Unmute')
+      : (enabled ? 'Camera off' : 'Camera on');
   }
 }
 

@@ -37,16 +37,72 @@ export class RubricPanel {
     return true;
   }
 
-  // ── In-call drawer ──────────────────────────────────────────────────────
+  // ── In-call console scoring (Interviewer Console design) ────────────────
 
-  async toggleDrawer(force) {
-    const drawer = $('rubric-drawer');
-    const show = force !== undefined ? force : drawer.hidden;
-    if (show) {
-      $('pdf-drawer').hidden = true; // one left-side drawer at a time
-      if (await this.load()) this._renderForm($('rubric-body'));
+  async renderConsole() {
+    if (!(await this.load())) return;
+    const wrap = $('console-rubric');
+    wrap.innerHTML = this.template.map((item) => {
+      const entry = this.draft.items[item.id] || {};
+      return `
+        <div class="cxr-item" data-cxr="${esc(item.id)}">
+          <div class="cxr-head">
+            <span class="cxr-name">${esc(item.label)}</span>
+            <span class="cxr-score" data-cxr-score>${entry.points ?? '—'} / ${item.max_points}</span>
+          </div>
+          <div class="cxr-cells" role="group" aria-label="Score for ${esc(item.label)}">
+            ${Array.from({ length: item.max_points }, (_, i) => `
+              <button class="cxr-cell${(entry.points ?? 0) > i ? ' on' : ''}"
+                      data-cxr-cell="${esc(item.id)}" data-val="${i + 1}"
+                      aria-label="${i + 1} of ${item.max_points}">${i + 1}</button>`).join('')}
+          </div>
+          <input type="text" class="cxr-note" maxlength="2000"
+                 placeholder="Evidence — quotes, moments, misses"
+                 value="${esc(entry.note ?? '')}" data-ru-note="${esc(item.id)}"
+                 aria-label="Evidence for ${esc(item.label)}">
+        </div>`;
+    }).join('') + `
+      <textarea class="cxr-notes ru-notes" rows="3" maxlength="20000"
+        placeholder="Overall notes — what went well, what to practice next…"
+        data-ru-overall>${esc(this.draft.notes_md)}</textarea>
+      <p class="cx-status"><span data-ru-grade>Draft grade: ${this.gradePreview.toFixed(1)} / 5</span>
+        <span data-ru-saved></span></p>`;
+
+    wrap.oninput = (ev) => this._onInput(ev);
+    wrap.onclick = (ev) => {
+      const cell = ev.target.closest('[data-cxr-cell]');
+      if (!cell) return;
+      const id = cell.dataset.cxrCell;
+      const val = Number(cell.dataset.val);
+      const entry = this._entry(id);
+      // Clicking the current score clears it back to 0 (mis-tap escape).
+      entry.points = entry.points === val ? 0 : val;
+      this._paintCells(id);
+      this._scheduleSave();
+    };
+    this._renderSummary();
+  }
+
+  _paintCells(id) {
+    const points = this.draft.items[id]?.points ?? 0;
+    const item = this.template.find((i) => i.id === id);
+    for (const cell of document.querySelectorAll(`[data-cxr-cell="${CSS.escape(id)}"]`)) {
+      cell.classList.toggle('on', Number(cell.dataset.val) <= points);
     }
-    drawer.hidden = !show;
+    const row = document.querySelector(`[data-cxr="${CSS.escape(id)}"] [data-cxr-score]`);
+    if (row) row.textContent = `${points || '—'} / ${item.max_points}`;
+  }
+
+  _renderSummary() {
+    const wrap = $('rubric-summary');
+    if (!wrap) return;
+    wrap.innerHTML = this.template.map((item) => {
+      const points = this.draft.items[item.id]?.points ?? 0;
+      return `<div class="sum-row"><span class="n">${esc(item.label)}</span>`
+        + `<span class="s">${points || '—'} / ${item.max_points}</span></div>`;
+    }).join('');
+    const avg = $('rubric-avg');
+    if (avg) avg.textContent = `${this.gradePreview.toFixed(1)} / 5`;
   }
 
   // ── Debrief editor (ended view) ─────────────────────────────────────────
@@ -176,6 +232,7 @@ export class RubricPanel {
     }
     const gradeInput = $('ru-grade');
     if (gradeInput && !this.gradeTouched) gradeInput.value = this.gradePreview.toFixed(1);
+    this._renderSummary();
   }
 
   _setSaved(text) {

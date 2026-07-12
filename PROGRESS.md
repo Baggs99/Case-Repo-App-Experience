@@ -2,13 +2,50 @@
 Updated: 2026-07-12T02:20:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 9 (dashboard & recommendations) + full myCase brand restyle
-complete — next is Phase 10: local recording pipeline (spec §4.6:
-per-participant mic-only MediaRecorder, 60 s chunk uploads, INV-5 size
-caps, storage under private recordings/ prefix, debrief links; A9
-upload failure never blocks the call). Owner decisions O1–O3 still
-open. STILL PENDING: rubric-template editor UI (deferred P5→…→P9) —
-now firmly a P10/P11 polish item.
+Phase 10 (recording pipeline) complete. IN FLIGHT: implementing the
+myCase Interviewer Console design (mycase/myCase Interviewer
+Console.html — same bundler format as the guide; decoded template in
+scratchpad) as the interviewer's in-call view, + a site-wide
+style-conformance review (owner request). Then Phase 11 hardening.
+Owner decisions O1–O3 still open; rubric-template editor UI still
+deferred.
+
+## Done — Phase 10 (2026-07-12)
+- `webapp/repositories/recordings.py` — chunk append under FOR UPDATE
+  w/ strict seq (409 names the expected seq so client retries can tell
+  "already applied" from "gap"), row created on seq 0, complete()
+  idempotent-ish, files rec_{sid}_{uid}_{rand16}.{ext} under
+  RECORDINGS_DIR (default output/recordings/, gitignored). T10.4
+  deny-all equivalent: FastAPI mounts only /static — recording files
+  are simply never web-served (test-proven 404)
+- `webapp/routes/practice_recordings.py` — POST chunk (multipart
+  seq/mime/blob; live|debrief only; INV-5 via Phase-1 upload_limits:
+  8 MB chunk / 150 MB total / chunk-0 container sniff; mime whitelist;
+  Origin CSRF), POST complete, GET list (no paths leaked), GET
+  /{user_id} download passthrough (either participant, spec §5)
+- `recorder.js` — feature-detected mime (webm/opus, mp4 Safari path
+  untested here), 60 s timeslice, sequential upload queue w/ 5-step
+  backoff; 409 "expected seq N>mine" treated as already-applied; A9:
+  permanent failure stops capture + flags badge, call unaffected;
+  stopAndComplete flushes final chunk then completes. REC badge
+  (blinkdot) in call view; recording list w/ download links in ended
+  + feedback views. nomedia mode now synthesizes an oscillator track
+  (AudioContext resumed eagerly + on first click — Chrome autoplay
+  policy stalled the first evidence run until a real click)
+- Tests (tests/test_recordings.py, 4): ordered appends + exact-byte
+  downloads, gap/dup/pre-seq0 409s, 413 chunk + total caps, 415
+  container/mime, 403 CSRF, state/role gates, files-never-web-served.
+  Suite 234 passed
+- Evidence (session 568, two tabs, oscillator audio): REC badge live →
+  3 chunks/side at 738 KB ≈ 32 kbps math → candidate tab KILLED →
+  candidate 4 chunks (final partial flushed on pagehide) completed=f,
+  loss < 60 s → interviewer End → 5 chunks, 1 079 760 B, completed=t →
+  ended view lists "Bob (candidate) incomplete · Alice (interviewer)
+  1.0 MB" → downloaded blob plays in-browser: canplay=true, duration
+  263 s (≥ 3 min ✓), 1 079 760/263 ≈ 32.8 kbps ✓ → direct file URL 404
+  → 9 MB chunk POST → 413
+- Commits: 53197c2 (backend) · 7b25628 (recorder.js) · this block's
+  autoplay fix
 
 ## Done — myCase brand restyle (2026-07-12, owner-directed)
 - Source: mycase/myCase Style Guide.html (React bundle; tokens

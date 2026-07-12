@@ -153,43 +153,56 @@ export class ExhibitManager {
     if (spotlight) this._enlarge(exhibitId); // a fresh reveal takes the spotlight
   }
 
-  // ── Interviewer: thumbnails + Send, PDF drawer ────────────────────────────
+  // ── Interviewer: console release rows (Interviewer Console design) ───────
 
   async _startInterviewer() {
+    const wrap = $('console-exhibits');
+    if (!this.manifest.length) {
+      wrap.innerHTML = '<p class="seg-empty" style="max-width:640px">'
+        + 'No exhibits authored for this case — the call runs without them.</p>';
+      return;
+    }
     const k = await this.opts.api('/exhibit-keys');
     if (!k.ok) return;
     for (const item of k.data.keys) this.keys.set(item.exhibit_id, item.key_b64);
 
     const already = await this.opts.api('/reveals'); // reload: restore sent state
-    if (already.ok) for (const rev of already.data.reveals) this.sent.add(rev.exhibit_id);
+    const sentAt = new Map();
+    if (already.ok) {
+      for (const rev of already.data.reveals) {
+        this.sent.add(rev.exhibit_id);
+        sentAt.set(rev.exhibit_id, rev.t_offset_ms);
+      }
+    }
 
-    $('exhibit-panel').hidden = false;
-    $('btn-pdf').addEventListener('click', () => this._togglePdf());
-    $('btn-pdf-close').addEventListener('click', () => this._togglePdf(false));
-
-    const strip = $('exhibit-strip');
-    strip.innerHTML = '';
+    wrap.innerHTML = '';
     for (const e of this.manifest) {
-      const card = document.createElement('div');
-      card.className = 'ex-card';
-      card.innerHTML = `
-        <button class="ex-thumb" aria-label="Enlarge exhibit ${e.idx}"></button>
-        <button class="ex-send" id="ex-send-${e.exhibit_id}">Send ${e.idx}</button>`;
-      strip.appendChild(card);
-      card.querySelector('.ex-thumb').addEventListener('click', () => this._enlarge(e.exhibit_id));
-      const btn = card.querySelector('.ex-send');
-      btn.addEventListener('click', () => this.sendExhibit(e.exhibit_id));
-      if (this.sent.has(e.exhibit_id)) this._markSent(e.exhibit_id);
+      const row = document.createElement('div');
+      row.className = 'cx-ex';
+      row.innerHTML = `
+        <button class="cx-ex-thumb" aria-label="Enlarge exhibit ${e.idx}"></button>
+        <div class="cx-ex-info">
+          <div class="label-sm">Exhibit ${e.idx}</div>
+          <div class="cx-ex-name">Page${e.source_pages.includes('-') ? 's' : ''} ${e.source_pages}</div>
+        </div>
+        <button class="cx-ex-release" id="ex-send-${e.exhibit_id}">Release to candidate</button>
+        <span class="cx-ex-sent" id="ex-sent-${e.exhibit_id}" hidden></span>`;
+      wrap.appendChild(row);
+      row.querySelector('.cx-ex-thumb').addEventListener('click', () => this._enlarge(e.exhibit_id));
+      row.querySelector('.cx-ex-release').addEventListener('click', () => this.sendExhibit(e.exhibit_id));
+      if (this.sent.has(e.exhibit_id)) this._markSent(e.exhibit_id, sentAt.get(e.exhibit_id));
 
       this._decrypt(e.exhibit_id, this.keys.get(e.exhibit_id)).then((url) => {
-        card.querySelector('.ex-thumb').innerHTML = `<img src="${url}" alt="Exhibit ${e.idx}">`;
+        row.querySelector('.cx-ex-thumb').innerHTML = `<img src="${url}" alt="Exhibit ${e.idx}">`;
       }).catch(() => {
-        card.querySelector('.ex-thumb').textContent = '⚠︎';
+        row.querySelector('.cx-ex-thumb').textContent = '!';
       });
     }
   }
 
-  /** Spec §4.4 step 3: DataChannel fast path + POST system of record. */
+  /** Spec §4.4 step 3: DataChannel fast path + POST system of record.
+   * No Recall — the key has crossed the wire; the spec's accepted
+   * tradeoff means an un-reveal would be theater. */
   async sendExhibit(exhibitId) {
     const keyB64 = this.keys.get(exhibitId);
     if (!keyB64) return;
@@ -197,28 +210,21 @@ export class ExhibitManager {
     const r = await this.opts.api('/reveals', { exhibit_id: exhibitId });
     if (!r.ok) {
       const btn = $(`ex-send-${exhibitId}`);
-      if (btn) { btn.textContent = 'Retry'; btn.classList.add('err'); }
+      if (btn) { btn.textContent = 'Retry release'; btn.classList.add('err'); }
       return;
     }
     this.sent.add(exhibitId);
-    this._markSent(exhibitId);
+    this._markSent(exhibitId, r.data.t_offset_ms);
   }
 
-  _markSent(exhibitId) {
+  _markSent(exhibitId, tOffsetMs) {
     const btn = $(`ex-send-${exhibitId}`);
-    if (btn) { btn.textContent = 'Sent ✓'; btn.disabled = true; btn.classList.remove('err'); }
-  }
-
-  _togglePdf(force) {
-    const drawer = $('pdf-drawer');
-    const show = force !== undefined ? force : drawer.hidden;
-    if (show) {
-      $('rubric-drawer').hidden = true; // one left-side drawer at a time
-      if (!$('pdf-frame').src) {
-        $('pdf-frame').src = `/api/cases/${this.opts.caseId}/open-pdf`; // lazy-load
-      }
+    const tag = $(`ex-sent-${exhibitId}`);
+    if (btn) btn.hidden = true;
+    if (tag) {
+      tag.hidden = false;
+      tag.textContent = tOffsetMs != null ? `SENT · ${fmtOffset(tOffsetMs)}` : 'SENT';
     }
-    drawer.hidden = !show;
   }
 
   // ── Shared: decrypt, lightbox, timeline ───────────────────────────────────
