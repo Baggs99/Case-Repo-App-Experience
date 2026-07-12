@@ -2,10 +2,36 @@
 Updated: 2026-07-12T00:35:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 4 (call experience) complete — next is Phase 5: case authoring as
-exhibit-marking on existing library cases (DV-2): page-picker over the
-per-page previews, server-side PyMuPDF render → WebP → AES-GCM encrypt
-via webapp/exhibit_crypto.py, rubric template editor, publish validation.
+Phase 5 (exhibit authoring) complete — next is Phase 6: in-call reveal
+system. Candidate preload of encrypted blobs + manifest endpoints
+(no keys), interviewer keys endpoint, reveal POST (system of record) +
+ctrl-DataChannel fast path, fallback key endpoint (key iff reveal row),
+poll-when-DC-down (DV-4), reconnect reconciliation, reveal timeline.
+
+## Done — Phase 5 (2026-07-12)
+- `webapp/exhibits_render.py` — PyMuPDF page → WebP ≤1800px q82 (spec
+  §4.4 params) + on-demand JPEG thumbs for the authoring grid (no
+  preview-pipeline dependency)
+- `webapp/repositories/case_exhibits.py` — encrypt (AES-256-GCM) +
+  store under gitignored output/exhibits/ (EXHIBITS_DIR env), atomic
+  replace-set with orphan-blob cleanup on both success and failure.
+  Note: the Storage abstraction is read-only, hence plain file I/O for
+  writes (DV-12a); prod placement is an O1 deploy question
+- `/cases/{id}/exhibits` authoring page (myCase light theme): click
+  pages in order → numbered badges → save; POST renders+encrypts server-
+  side. Any verified user may author (DV-12b: community authoring,
+  created_by recorded; no case draft/publish gate — exhibits optional,
+  sessions never blocked on them)
+- Seed script now generates a real 3-page dummy PDF under
+  output/cases/devschool/ (LocalStorage-resolvable)
+- Evidence: suite 208 passed ×3 runs (one cold-start flake on the very
+  first run — fitz first-import while WS tests ran; not reproducible);
+  encrypted blobs on disk with non-WebP magic (ciphertext at rest, INV-6);
+  decrypt roundtrip → WEBP magic; direct HTTP to blob path 404;
+  page-beyond-range 400; unauth thumb rejected
+- Deferred: T5.3 rubric-template EDITOR UI → Phase 7 (where all rubric
+  UI lives; generic template + case-override fallback already work
+  server-side since Phase 2)
 
 ## Done — Phase 4 (2026-07-12)
 - `/session/{id}` page (participants only, DV-11) in the myCase brand
