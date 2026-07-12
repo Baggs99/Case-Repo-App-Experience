@@ -1,7 +1,8 @@
 {# Partial: rendered standalone by /search (HTMX) and embedded in index.html.
-   Guide-native casebook rows (rules + whitespace, no cards): caps kicker
-   with a square school swatch, bold title, quiet meta. Unnumbered — owner
-   call 2026-07-12: list position isn't information worth 64px. #}
+   Guide-styled casebook GRID (owner call 2026-07-12: keep the grid density):
+   square hairline tiles, caps kicker, bold tight title, serif firm accents,
+   color-coded usefulness text, school identity as the left accent bar.
+   Unnumbered. #}
 
 {% set school_accent = {
     'Yale':     '#0F4C81',
@@ -38,58 +39,57 @@
 
 {% if cases %}
 {% set _return_to = return_url or "/search" %}
-<div>
+<div class="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
     {% for c in cases %}
     {% set accent = school_accent.get(c.source_school) %}
     <a href="/cases/{{ c.id }}?return_to={{ _return_to|urlencode }}"
-       class="group grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-x-4 gap-y-2 items-baseline
-              border-b border-slate-200 dark:border-slate-800 py-5
-              transition duration-150 hover:bg-white dark:hover:bg-[#101E36]
-              focus-visible:outline-none focus-visible:bg-white dark:focus-visible:bg-[#101E36]
-              animate-fade-up"
-       style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms">
+       class="case-card group flex flex-col animate-fade-up"
+       style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms{% if accent %}; --case-accent: {{ accent }}{% endif %}"
+       {% if accent %}data-school-accent="1"{% endif %}>
 
-        <div class="min-w-0">
-            <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400 mb-1.5">
-                {% if accent %}<span class="inline-block h-[7px] w-[7px] shrink-0" style="background: {{ accent }}" aria-hidden="true"></span>{% endif %}
-                <span class="truncate">{{ c.source_school }}{% if c.source_year %} · {{ c.source_year }}{% endif %}{% if c.case_type %} · {{ c.case_type }}{% endif %}</span>
-            </div>
-
-            <h3 class="text-[17px] sm:text-[19px] font-bold tracking-[-0.02em] leading-[1.15] text-slate-900 dark:text-slate-100
-                       transition-colors group-hover:text-emerald-600 dark:group-hover:text-emerald-300">
-                {{ c.case_title }}
-            </h3>
-
-            <div class="mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px] text-slate-500 dark:text-slate-400">
-                {% if c.industry_display %}
-                <span {% if c.industry_raw and c.industry_raw|string != c.industry_display|string %}title="{{ c.industry_raw }}"{% endif %}>{{ c.industry_display }}</span>
-                {% endif %}
-                {% if c.firm %}<span class="font-serif italic">{{ c.firm }}</span>{% endif %}
-                {% if c.useful_percentage is not none and c.total_votes %}
-                    {% set _pct = c.useful_percentage|round(0)|int %}
-                    <span class="font-semibold tabular-nums
-                        {% if _pct >= 75 %}text-emerald-600 dark:text-emerald-300
-                        {% elif _pct >= 40 %}text-amber-700 dark:text-amber-300
-                        {% else %}text-rose-700 dark:text-rose-300{% endif %}"
-                        title="{{ c.useful_count }} useful · {{ c.not_useful_count }} not useful">
-                        {{ _pct }}% useful · {{ c.total_votes }} {{ "vote" if c.total_votes == 1 else "votes" }}
-                    </span>
-                {% else %}
-                    <span class="text-slate-400 dark:text-slate-600">No ratings yet</span>
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="flex sm:flex-col items-baseline sm:items-end gap-2 sm:gap-1.5 sm:text-right">
+        <div class="flex items-baseline justify-between gap-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+            <span class="truncate">{{ c.source_school }}{% if c.source_year %} · {{ c.source_year }}{% endif %}</span>
             {% if c.difficulty %}
-            <span class="badge
+            <span class="badge shrink-0
                 {% if c.difficulty == 'Easy' %}badge-easy
                 {% elif c.difficulty == 'Medium' %}badge-medium
                 {% else %}badge-hard{% endif %}">
                 {{ c.difficulty }}
             </span>
             {% endif %}
-            <span class="text-[13px] font-semibold text-slate-400 dark:text-slate-600 transition-colors
+        </div>
+
+        <h3 class="mt-2 text-[16px] font-bold tracking-[-0.02em] leading-[1.2] text-slate-900 dark:text-slate-100
+                   transition-colors group-hover:text-emerald-600 dark:group-hover:text-emerald-300">
+            {{ c.case_title }}
+        </h3>
+
+        <div class="mt-1.5 mb-3 flex flex-wrap items-center gap-x-1.5 text-[12.5px] text-slate-500 dark:text-slate-400">
+            {% if c.case_type %}<span>{{ c.case_type }}</span>{% endif %}
+            {% if c.industry_display %}
+                {% if c.case_type %}<span class="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>{% endif %}
+                <span {% if c.industry_raw and c.industry_raw|string != c.industry_display|string %}title="{{ c.industry_raw }}"{% endif %}>{{ c.industry_display }}</span>
+            {% endif %}
+            {% if c.firm %}
+                <span class="text-slate-300 dark:text-slate-700" aria-hidden="true">·</span>
+                <span class="font-serif italic">{{ c.firm }}</span>
+            {% endif %}
+        </div>
+
+        <div class="mt-auto pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-baseline justify-between gap-2 text-[12px]">
+            {% if c.useful_percentage is not none and c.total_votes %}
+                {% set _pct = c.useful_percentage|round(0)|int %}
+                <span class="font-semibold tabular-nums
+                    {% if _pct >= 75 %}text-emerald-600 dark:text-emerald-300
+                    {% elif _pct >= 40 %}text-amber-700 dark:text-amber-300
+                    {% else %}text-rose-700 dark:text-rose-300{% endif %}"
+                    title="{{ c.useful_count }} useful · {{ c.not_useful_count }} not useful">
+                    {{ _pct }}% useful · {{ c.total_votes }}
+                </span>
+            {% else %}
+                <span class="text-slate-400 dark:text-slate-600">No ratings yet</span>
+            {% endif %}
+            <span class="font-semibold text-slate-400 dark:text-slate-600 transition-colors
                          group-hover:text-slate-900 dark:group-hover:text-slate-100 whitespace-nowrap">
                 Open case <span aria-hidden="true">→</span>
             </span>
