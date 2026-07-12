@@ -1,7 +1,14 @@
 # PROGRESS
-Updated: 2026-07-12T02:20:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T12:45:00-04:00 · Branch: feature/caseroom
 
 ## Now
+NEW TRACK — iOS app: approved spec at
+docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md, P1
+implementation plan at
+docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md. Execute on a
+new branch feature/ios-app (from feature/caseroom); web P11 hardening
+below continues independently on this branch.
+
 Phase 10 + Interviewer Console + conformance sweep complete — next is
 Phase 11: hardening (verify script T11.1, cross-browser Chrome+Safari
 pass T11.2 incl. the Safari audio/mp4 recording path, failure-mode
