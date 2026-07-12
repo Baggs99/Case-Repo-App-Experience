@@ -15,12 +15,13 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from webapp.auth.dependencies import require_auth_api
+from webapp.auth.dependencies import require_auth, require_auth_api
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.repositories.cases import get_case_by_id
 from webapp.repositories import practice_sessions as repo
+from webapp.templating import render
 
 router = APIRouter(tags=["practice"])
 
@@ -80,6 +81,29 @@ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_
 def get_practice(session_id: int, user: User = Depends(require_auth_api)):
     session, role = _session_or_404(session_id, user.id)
     return {**_public(session), "your_role": role}
+
+
+@router.get("/session/{session_id}")
+def session_page(session_id: int, request: Request,
+                 user: User = Depends(require_auth)):
+    """The call page (lobby → live → ended). Participants only (DV-11)."""
+    session, role = _session_or_404(session_id, user.id)
+    peer = session["candidate_name"] if role == "interviewer" else session["interviewer_name"]
+    boot = {
+        "sessionId": session["id"],
+        "role": role,
+        "state": session["state"],
+        "selfConsent": session["consent_interviewer" if role == "interviewer"
+                               else "consent_candidate"],
+        "peerName": peer,
+        "caseTitle": session["case_title"],
+    }
+    return render(request, "session.html", {
+        "session": session,
+        "your_role": role,
+        "peer_label": f"You and {peer}",
+        "boot": boot,
+    })
 
 
 @router.post("/api/practice/{session_id}/consent", dependencies=_MUTATING)

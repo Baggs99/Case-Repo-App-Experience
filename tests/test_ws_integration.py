@@ -119,6 +119,15 @@ class TestSignalingIntegration(unittest.TestCase):
             return None
         self.fail("connection was not rejected")
 
+    def test_session_page_participants_only(self):
+        sid = self._new_session()
+        r = self.alice.get(f"/session/{sid}")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("window.CASEROOM", r.text)
+        self.assertIn('"role": "interviewer"', r.text)
+        r = self.cara.get(f"/session/{sid}")
+        self.assertEqual(r.status_code, 404)
+
     def test_full_flow_knock_admit_relay_bye(self):
         sid = self._new_session()
         path = f"/ws/practice/{sid}"

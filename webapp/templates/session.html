@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Case practice · myCase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* myCase dark theme (mycase/myCase Style Guide.html) — call pages are
+   dark-first: video content, less glare. */
+:root {
+  --bg: #081222; --surface: #101E36; --ink: #E9EEF5; --muted: #7C8CA8;
+  --faint: #3D5075; --line: #24365A; --green: #2FC07E; --cobalt: #6C8FEA;
+  --danger: #E2606C;
+}
+* { box-sizing: border-box; }
+/* Explicit display values below would otherwise defeat the hidden attribute. */
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 400 16px/1.6 Archivo, system-ui, sans-serif;
+}
+video { background: #050B16; }
+button {
+  font: 600 14px/1 Archivo, system-ui, sans-serif;
+  min-height: 44px; padding: 0 18px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  cursor: pointer;
+}
+button.primary { background: var(--green); border-color: var(--green); color: #06301C; }
+button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+button.off { background: var(--danger); border-color: var(--danger); color: #fff; }
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--cobalt); outline-offset: 2px;
+}
+.label {
+  font: 600 11px/1 Archivo, sans-serif; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--muted);
+}
+
+/* Banner */
+#banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+  padding: 10px 20px; text-align: center; font-weight: 600; font-size: 14px;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+#banner[data-tone="warn"] { color: #F0B85B; }
+#banner[data-tone="error"] { color: var(--danger); }
+
+/* Lobby */
+[data-view="lobby"] {
+  min-height: 100dvh; display: grid; place-items: center; padding: 24px;
+}
+.lobby-card {
+  width: min(680px, 100%); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 28px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+}
+.lobby-card h1 { font-size: 22px; font-weight: 600; margin: 0 0 2px; }
+.lobby-card .case { color: var(--muted); margin: 0 0 20px; }
+#preview { width: 100%; aspect-ratio: 16/9; border-radius: 8px; border: 1px solid var(--line); }
+.pickers { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; margin: 16px 0; }
+.pickers select {
+  width: 100%; min-height: 44px; padding: 0 10px; border-radius: 8px;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+}
+.consent { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; }
+.consent input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--green); }
+#lobby-status { color: var(--green); font-weight: 600; min-height: 1.6em; }
+
+/* Call */
+[data-view="call"] { position: fixed; inset: 0; }
+#remote { width: 100%; height: 100%; object-fit: cover; }
+#pip {
+  position: absolute; right: 16px; bottom: 96px; width: clamp(120px, 18vw, 240px);
+  aspect-ratio: 16/9; border-radius: 8px; border: 1px solid var(--line);
+  object-fit: cover;
+}
+.controls {
+  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 12px; padding: 10px; background: rgba(8,18,34,.85);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.call-head { position: absolute; top: 14px; left: 20px; }
+#debug-overlay {
+  position: absolute; top: 14px; right: 20px; padding: 6px 10px;
+  font: 500 12px/1.5 ui-monospace, Menlo, monospace;
+  background: rgba(8,18,34,.85); border: 1px solid var(--line); border-radius: 6px;
+}
+
+/* Ended */
+[data-view="ended"] { min-height: 100dvh; display: grid; place-items: center; }
+
+/* Admit modal */
+#admit-modal {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  background: rgba(5,11,22,.7);
+}
+.modal-card {
+  width: min(420px, 90vw); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 24px; text-align: center;
+}
+.modal-card .actions { display: flex; gap: 12px; justify-content: center; margin-top: 18px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .lobby-card, .modal-card { animation: rise .42s cubic-bezier(.22,1,.36,1); }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+}
+</style>
+</head>
+<body>
+
+<div id="banner" hidden></div>
+
+<section data-view="lobby" hidden>
+  <div class="lobby-card">
+    <p class="label">{{ your_role }} · Case practice</p>
+    <h1>{{ peer_label }}</h1>
+    <p class="case">{{ session.case_title }}</p>
+
+    <video id="preview" autoplay muted playsinline></video>
+
+    <div class="pickers">
+      <label>
+        <span class="label">Camera</span>
+        <select id="pick-cam" aria-label="Camera"></select>
+      </label>
+      <label>
+        <span class="label">Microphone</span>
+        <select id="pick-mic" aria-label="Microphone"></select>
+      </label>
+    </div>
+
+    <label class="consent">
+      <input type="checkbox" id="consent">
+      <span>I consent to this session being recorded by both participants
+        for feedback purposes.</span>
+    </label>
+
+    <p id="lobby-status" role="status">Setting up…</p>
+  </div>
+</section>
+
+<section data-view="call" hidden>
+  <video id="remote" autoplay playsinline></video>
+  <video id="pip" autoplay muted playsinline></video>
+  <p class="call-head label">{{ session.case_title }}</p>
+  <div id="debug-overlay" hidden></div>
+  <div class="controls">
+    <button id="btn-mute" aria-pressed="false">Mute</button>
+    <button id="btn-cam" aria-pressed="false">Camera off</button>
+    <button id="btn-end" class="danger">End call</button>
+  </div>
+</section>
+
+<section data-view="ended" hidden>
+  <div class="lobby-card" style="text-align:center">
+    <h1>Call ended</h1>
+    <p class="case">Feedback unlocks once your interviewer finalizes the session.</p>
+    <p><a href="/room" style="color: var(--green)">Back to your room</a></p>
+  </div>
+</section>
+
+<div id="admit-modal" hidden role="dialog" aria-modal="true" aria-labelledby="admit-name">
+  <div class="modal-card">
+    <p class="label">Knocking</p>
+    <h2 id="admit-name" style="margin:6px 0 0"></h2>
+    <p style="color:var(--muted)">wants to join as your candidate.</p>
+    <div class="actions">
+      <button id="btn-admit" class="primary">Admit</button>
+      <button id="btn-deny" class="danger">Deny</button>
+    </div>
+  </div>
+</div>
+
+<script>window.CASEROOM = {{ boot | tojson }};</script>
+<script type="module" src="/static/js/caseroom/session.js"></script>
+</body>
+</html>
