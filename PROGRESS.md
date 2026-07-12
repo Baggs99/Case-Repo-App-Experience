@@ -10,6 +10,16 @@ reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
 still open; rubric-template editor UI still deferred (P11 polish or
 cut for v1 — generic template works server-side).
 
+## Done — Browse rows unnumbered + demo data (2026-07-12, owner call)
+- Result rows lost the %02d index column (owner: position isn't worth
+  numbering). Rows now kicker+title-led, grid [1fr auto]. Commit 8fb0f60
+- 7 realistic DEMO cases seeded in dev (ids 354–360: Nordic Skies /
+  Copper Creek / MedLink / Harbor & Vine / Atlas Freight / Stern Ridge
+  / Brightline Grid) + 11 votes so all three usefulness colorings show.
+  Remove with: DELETE FROM case_votes WHERE case_id BETWEEN 354 AND 360;
+  DELETE FROM cases WHERE id BETWEEN 354 AND 360;
+  Shots: output/evidence/browse-7cases-{light,light-2,dark}.png
+
 ## Done — Browse page redesign (2026-07-12, owner-directed)
 - index.html + _search_results.html moved from card grid to the
   guide-native casebook pattern: hero = green eyebrow + Archivo-800
