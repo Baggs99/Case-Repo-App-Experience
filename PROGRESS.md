@@ -1,12 +1,57 @@
 # PROGRESS
-Updated: 2026-07-12T00:35:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T01:02:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 5 (exhibit authoring) complete — next is Phase 6: in-call reveal
-system. Candidate preload of encrypted blobs + manifest endpoints
-(no keys), interviewer keys endpoint, reveal POST (system of record) +
-ctrl-DataChannel fast path, fallback key endpoint (key iff reveal row),
-poll-when-DC-down (DV-4), reconnect reconciliation, reveal timeline.
+Phase 6 (in-call reveal system) complete — next is Phase 7: rubric,
+feedback, finalize, burn. Interviewer live checklist (PUT /rubric
+debounced draft), finalize → grade normalize + feedback.finalized_at +
+burned row + want-queue removal + full-PDF release (INV-3 flip),
+candidate post-finalize view (grade, breakdown, notes, reveal timeline,
+PDF + recording links). Rubric-template EDITOR UI deferred from P5 also
+lands here.
+
+## Done — Phase 6 (2026-07-12)
+- `webapp/repositories/reveals.py` — INSERT..SELECT computes t_offset_ms
+  from started_at inside the same statement that re-checks state='live'
+  (no route-check race); ON CONFLICT idempotent (returns original row,
+  already_revealed flag); list joins case_exhibits for display idx
+- `webapp/routes/practice_exhibits.py` — GET /exhibits (manifest+iv,
+  no keys) · GET /exhibit-blob/{eid} (ciphertext, participant) ·
+  GET /exhibit-keys (interviewer 403-else) · POST /reveals (system of
+  record, live-only 409, Origin CSRF) · GET /reveals (reconcile + T6.4)
+  · GET /exhibit-key/{eid} (candidate, key IFF reveal row, else 404).
+  DV-11 codes throughout; case_exhibits gained least-privilege
+  accessors (list_manifest / list_keys / get_exhibit)
+- `webapp/static/js/caseroom/exhibits.js` — ExhibitManager: candidate
+  locked tray + preload progress + WebCrypto AES-GCM decrypt + lightbox
+  (no download affordance); interviewer strip w/ locally-decrypted
+  thumbs, Send (DC fast path + POST), sent-state restore on reload,
+  lazy Case-PDF drawer (/api/cases/{id}/open-pdf iframe); DV-4 5s poll
+  only while ctrl DC not open; quiet reconcile on reload vs spotlight
+  on live reveal; reveal timeline in ended view (T6.4). rtc.js gained
+  onCtrlClose; session page boot carries caseId; ?debug=1 now exposes
+  window.__caseroom for evidence/debug driving
+- **DV-13 (new, in INTEGRATION.md):** re-authoring a case 409s once any
+  reveal references its exhibits — reveal timeline is permanent session
+  record; found when the browser pass's reveal rows FK-blocked the
+  authoring test. Also backfilled the DV-12 entry P5 referenced but
+  never wrote. Authoring tests now author their own case row (never the
+  shared dev dummy case)
+- Tests: tests/test_reveals.py (5 integration tests: manifest leaks no
+  keys, blob ≠ WebP magic, keys interviewer-only, full reveal flow incl.
+  decrypt roundtrip via fallback key + cross-origin 403 + idempotence,
+  debrief semantics) + DV-13 regression in test_exhibits. Suite 214
+  passed ×3 consecutive runs
+- Browser evidence (Playwright MCP, tabs localhost vs 127.0.0.1 = two
+  cookie jars, session 105, ?nomedia=1&debug=1): pre-reveal candidate
+  fetches are ciphertext only (first4 ≠ RIFF, no WEBP@8; keys 403,
+  fallback 404) · Send 1 unlocked far side via ctrl DC · ctrl.close()
+  then Send 2 unlocked via fallback poll ≤5 s (ctrl confirmed closed
+  both sides) · candidate reload mid-call restored both slots quietly ·
+  ended view timeline "0:33 Exhibit 1 / 1:44 Exhibit 2" matches DB rows
+  t_offset_ms 33221/103565 = revealed_at−started_at exactly · shots in
+  output/evidence/p6-*.png
+- Commits: a169b97 (backend) · d11a435 (frontend) · 88592cc (DV-13)
 
 ## Done — Phase 5 (2026-07-12)
 - `webapp/exhibits_render.py` — PyMuPDF page → WebP ≤1800px q82 (spec
