@@ -27,7 +27,28 @@ DEV_USERS = [
 ]
 
 
+def _ensure_dummy_pdf() -> None:
+    """Write a real 3-page PDF where LocalStorage resolves the dummy case's
+    key (output/cases/devschool/…) so exhibit rendering works in dev."""
+    pdf = Path(__file__).resolve().parents[1] / "output" / "cases" / "devschool" / "dev-dummy-case.pdf"
+    if pdf.exists():
+        return
+    pdf.parent.mkdir(parents=True, exist_ok=True)
+    import fitz
+    doc = fitz.open()
+    for i, text in enumerate(
+            ["Dev Dummy Case - prompt page",
+             "Exhibit A: revenue by segment (dummy)",
+             "Exhibit B: cost structure (dummy)"], start=1):
+        page = doc.new_page()
+        page.insert_text((72, 100), f"{text} - page {i}", fontsize=20)
+    doc.save(str(pdf))
+    doc.close()
+    print(f"wrote {pdf}")
+
+
 def main() -> None:
+    _ensure_dummy_pdf()
     if not os.environ.get("DATABASE_URL"):
         env = Path(__file__).resolve().parents[1] / ".env"
         for line in env.read_text().splitlines() if env.exists() else []:

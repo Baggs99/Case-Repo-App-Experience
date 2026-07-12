@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mark exhibits · myCase</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root { /* myCase light theme */
+  --bg:#F3F5F8; --surface:#FFFFFF; --ink:#0D1C31; --muted:#7C8CA8;
+  --line:#C9D2DF; --green:#1B9A5F; --cobalt:#2E56C0; --danger:#B3384D;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin:0; background:var(--bg); color:var(--ink);
+  font:400 16px/1.6 Archivo, system-ui, sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 20px 80px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; }
+.sub { color: var(--muted); margin: 2px 0 24px; }
+.label { font:600 11px/1 Archivo; letter-spacing:.15em; text-transform:uppercase; color:var(--muted); }
+.grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); margin:18px 0; }
+.pagecard { position:relative; border:1px solid var(--line); border-radius:8px;
+  background:var(--surface); padding:6px; cursor:pointer; }
+.pagecard img { width:100%; display:block; border-radius:4px; min-height:90px; background:#E9EEF5; }
+.pagecard .pn { font-size:12px; color:var(--muted); text-align:center; padding-top:4px; }
+.pagecard.sel { border-color:var(--green); box-shadow:0 0 0 2px var(--green); }
+.pagecard .badge { position:absolute; top:10px; left:10px; min-width:26px; height:26px;
+  border-radius:50%; background:var(--green); color:#fff; font-weight:700;
+  display:grid; place-items:center; font-size:13px; }
+button { font:600 14px/1 Archivo; min-height:44px; padding:0 18px; border-radius:8px;
+  border:1px solid var(--line); background:var(--surface); color:var(--ink); cursor:pointer; }
+button.primary { background:var(--green); border-color:var(--green); color:#fff; }
+button:disabled { opacity:.5; cursor:default; }
+button:focus-visible { outline:2px solid var(--cobalt); outline-offset:2px; }
+#status { font-weight:600; min-height:1.6em; }
+#status.err { color:var(--danger); }
+#status.ok { color:var(--green); }
+.bar { display:flex; gap:14px; align-items:center; margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+  <p class="label">Mark exhibits</p>
+  <h1>{{ case.case_title }}</h1>
+  <p class="sub">{{ case.source_school }}{% if case.source_year %} {{ case.source_year }}{% endif %}
+    · {{ n_pages }} pages ·
+    {% if existing %}{{ existing | length }} exhibit(s) currently marked{% else %}no exhibits yet{% endif %}</p>
+
+  <p>Click pages in the order candidates should receive them. Exhibits are
+    re-rendered at full quality, encrypted, and only unlocked one by one by
+    the interviewer during a call.</p>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="bar">
+    <button class="primary" id="save" disabled>Save exhibit set</button>
+    <button id="clear">Clear selection</button>
+    <span id="status" role="status"></span>
+  </div>
+</main>
+
+<script>
+const CASE_ID = {{ case.id }};
+const N_PAGES = {{ n_pages }};
+const EXISTING = {{ existing | map(attribute='source_pages') | list | tojson }};
+const grid = document.getElementById('grid');
+const saveBtn = document.getElementById('save');
+const statusEl = document.getElementById('status');
+let order = [];  // selected page numbers, in click order
+
+for (let p = 1; p <= N_PAGES; p++) {
+  const card = document.createElement('div');
+  card.className = 'pagecard';
+  card.dataset.page = p;
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  card.setAttribute('aria-label', `Page ${p}`);
+  card.innerHTML = `<img loading="lazy" src="/api/cases/${CASE_ID}/page-thumb/${p}" alt="Page ${p}">
+                    <div class="pn">p. ${p}</div>`;
+  const toggle = () => {
+    const i = order.indexOf(p);
+    if (i >= 0) order.splice(i, 1); else order.push(p);
+    paint();
+  };
+  card.addEventListener('click', toggle);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+  });
+  grid.appendChild(card);
+}
+
+function paint() {
+  for (const card of grid.children) {
+    const p = Number(card.dataset.page);
+    const i = order.indexOf(p);
+    card.classList.toggle('sel', i >= 0);
+    card.querySelector('.badge')?.remove();
+    if (i >= 0) {
+      const b = document.createElement('div');
+      b.className = 'badge';
+      b.textContent = i + 1;
+      card.appendChild(b);
+    }
+  }
+  saveBtn.disabled = order.length === 0;
+}
+
+document.getElementById('clear').addEventListener('click', () => { order = []; paint(); });
+
+saveBtn.addEventListener('click', async () => {
+  saveBtn.disabled = true;
+  statusEl.className = ''; statusEl.textContent = `Rendering + encrypting ${order.length} exhibit(s)…`;
+  const res = await fetch(`/api/cases/${CASE_ID}/exhibits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pages: order.map((p) => ({ page: p })) }),
+  });
+  const data = await res.json().catch(() => null);
+  if (res.ok) {
+    statusEl.className = 'ok';
+    statusEl.textContent = `Saved ${data.exhibits.length} exhibit(s).`;
+  } else {
+    statusEl.className = 'err';
+    statusEl.textContent = data?.detail || `Save failed (${res.status})`;
+    saveBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

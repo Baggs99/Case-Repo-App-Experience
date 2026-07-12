@@ -66,3 +66,6 @@ Thumbs.db
 # Office temp lockfiles (e.g. ~$deck.pptx while PowerPoint has the file open)
 **/~$*.pptx
 
+
+# CaseRoom encrypted exhibit blobs (keys live in the DB, blobs stay local)
+output/exhibits/
