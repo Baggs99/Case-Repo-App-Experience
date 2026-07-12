@@ -10,6 +10,16 @@ reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
 still open; rubric-template editor UI still deferred (P11 polish or
 cut for v1 — generic template works server-side).
 
+## Done — Calmer school + difficulty palette (2026-07-12, owner call)
+- Difficulty badges: ink RAMP (Easy quiet outline · Medium firm
+  outline · Hard solid ink block — flips to chalk block in dark);
+  ordinal data gets intensity, not three hues. badge-* classes in
+  base.html so case detail inherits
+- School names: one desaturated ink-adjacent band (light) + hand-tuned
+  brighter lifts (dark) via --sc/--scd CSS vars; brightness-filter hack
+  removed. Map in _search_results.html
+- Shots: output/evidence/browse-calm-{light,dark,dark2}.png. Commit e6f47e3
+
 ## Done — Browse tiles: classic soft-card shell (2026-07-12, owner call)
 - Owner: soft-card dialect, no borders, school color moves into the
   school NAME, 3-up on larger screens. .case-card = borderless
