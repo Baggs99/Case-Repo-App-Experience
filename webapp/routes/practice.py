@@ -1,0 +1,117 @@
+"""
+JSON API for practice sessions (CaseRoom spec §5, paths per INTEGRATION.md
+DV-3: /api/practice/…).
+
+Access model: participants only. Non-participants get 404 — session
+existence is not disclosed (DV-11). Wrong-role participants get 403;
+illegal transitions and consent gates get 409.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from webapp.auth.dependencies import require_auth_api
+from webapp.auth.users import User
+from webapp.csrf import require_same_origin
+from webapp.practice_states import TransitionError
+from webapp.repositories.cases import get_case_by_id
+from webapp.repositories import practice_sessions as repo
+
+router = APIRouter(tags=["practice"])
+
+_MUTATING = [Depends(require_same_origin)]
+
+
+class PracticeCreateBody(BaseModel):
+    interviewer_id: int
+    candidate_id: int
+    case_id: int
+    rubric_template_id: Optional[int] = None
+    scheduled_at: Optional[datetime] = None
+
+
+class ConsentBody(BaseModel):
+    consent: bool
+
+
+class StateBody(BaseModel):
+    target: Literal["scheduled", "lobby", "live", "debrief", "finalized", "aborted"]
+
+
+def _session_or_404(session_id: int, user_id: int) -> tuple[dict, str]:
+    session = repo.get_practice_session(session_id)
+    role = repo.role_of(session, user_id) if session else None
+    if session is None or role is None:
+        raise HTTPException(status_code=404, detail="No such session")
+    return session, role
+
+
+def _public(session: dict) -> dict:
+    """Session as JSON — datetimes serialized by FastAPI; nothing here is
+    role-secret (exhibit keys, rubric drafts, grades live elsewhere)."""
+    return session
+
+
+@router.post("/api/practice", dependencies=_MUTATING)
+def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_api)):
+    if user.id not in (body.interviewer_id, body.candidate_id):
+        raise HTTPException(status_code=403, detail="You must be a participant")
+    if body.interviewer_id == body.candidate_id:
+        raise HTTPException(status_code=400, detail="Interviewer and candidate must differ")
+    if get_case_by_id(body.case_id) is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    session = repo.create_practice_session(
+        interviewer_id=body.interviewer_id,
+        candidate_id=body.candidate_id,
+        case_id=body.case_id,
+        rubric_template_id=body.rubric_template_id,
+        scheduled_at=body.scheduled_at,
+    )
+    return _public(session)
+
+
+@router.get("/api/practice/{session_id}")
+def get_practice(session_id: int, user: User = Depends(require_auth_api)):
+    session, role = _session_or_404(session_id, user.id)
+    return {**_public(session), "your_role": role}
+
+
+@router.post("/api/practice/{session_id}/consent", dependencies=_MUTATING)
+def post_consent(session_id: int, body: ConsentBody,
+                 user: User = Depends(require_auth_api)):
+    _, role = _session_or_404(session_id, user.id)
+    try:
+        return _public(repo.set_consent(session_id, role, body.consent))
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.post("/api/practice/{session_id}/state", dependencies=_MUTATING)
+def post_state(session_id: int, body: StateBody,
+               user: User = Depends(require_auth_api)):
+    try:
+        return _public(repo.transition(session_id, user.id, body.target))
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.get("/api/practice/{session_id}/join-config")
+def join_config(session_id: int, request: Request,
+                user: User = Depends(require_auth_api)):
+    """WS path + ICE servers for the call page. No HMAC token (DV-3): the
+    WebSocket handshake authenticates with the same session cookie."""
+    session, role = _session_or_404(session_id, user.id)
+    if session["state"] not in ("scheduled", "lobby", "live"):
+        raise HTTPException(status_code=409, detail="Session is not joinable")
+    return {
+        "session_id": session_id,
+        "your_role": role,
+        "ws_path": f"/ws/practice/{session_id}",
+        "ice_servers": request.app.state.settings.ice_servers,
+    }

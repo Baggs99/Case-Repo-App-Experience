@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ room.owner_name }}'s room · Case Repo{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto px-6 py-10 animate-fade-up">
+    <div class="mb-8">
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+            {{ room.owner_name }}'s room
+        </h1>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            {% if is_own_room %}
+            Your permanent practice room. Share this URL to let others propose cases to you.
+            {% else %}
+            Propose a case session with {{ room.owner_name }} — coming in a later phase.
+            {% endif %}
+        </p>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2">
+        {# Placeholder panels — filled in by later phases:
+           upcoming sessions + proposal inbox (P8), queues (P8),
+           history + trends (P9), recommendations (P9). #}
+        <div class="surface rounded-2xl shadow-card p-6">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">Upcoming sessions</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Nothing scheduled yet.</p>
+        </div>
+        <div class="surface rounded-2xl shadow-card p-6">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">Proposals</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400">No proposals yet.</p>
+        </div>
+        <div class="surface rounded-2xl shadow-card p-6">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">Queues</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Cases you want to receive or can give will appear here.</p>
+        </div>
+        <div class="surface rounded-2xl shadow-card p-6">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">History</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Finished sessions will appear here.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

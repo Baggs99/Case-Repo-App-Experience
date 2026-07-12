@@ -6,6 +6,7 @@ so route handlers don't sprinkle os.environ access everywhere.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,9 @@ class Settings:
     #: Reads ``R2_PUBLIC_BASE_URL`` first, then ``CASE_PREVIEW_PUBLIC_BASE_URL``.
     #: With ``preview_public_slug``, pages load from ``{base}/previews/{slug}/page-NNN.jpg``.
     case_preview_public_base_url: str | None
+    #: RTCPeerConnection.iceServers for practice calls (ICE_SERVERS_JSON env).
+    #: Default is STUN-only; TURN entries are added at launch (INTEGRATION.md A2/O2).
+    ice_servers: tuple
 
     def is_admin(self, email: str | None) -> bool:
         """True iff `email` is in the admin allowlist (case-insensitive)."""
@@ -56,6 +60,12 @@ def load_settings() -> Settings:
         or os.environ.get("CASE_PREVIEW_PUBLIC_BASE_URL", "").strip()
     )
 
+    ice_raw = os.environ.get("ICE_SERVERS_JSON", "").strip()
+    if ice_raw:
+        ice_servers = tuple(json.loads(ice_raw))
+    else:
+        ice_servers = ({"urls": ["stun:stun.l.google.com:19302"]},)
+
     return Settings(
         database_url      = db_url,
         debug             = os.environ.get("WEBAPP_DEBUG", "false").lower() in ("1", "true", "yes"),
@@ -65,4 +75,5 @@ def load_settings() -> Settings:
         search_result_limit = int(os.environ.get("WEBAPP_RESULT_LIMIT", "100")),
         admin_emails      = _parse_admin_emails(os.environ.get("ADMIN_EMAILS")),
         case_preview_public_base_url = preview_base or None,
+        ice_servers       = ice_servers,
     )
