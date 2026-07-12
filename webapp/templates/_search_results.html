@@ -1,8 +1,7 @@
-{# Partial: rendered standalone by /search (HTMX) and embedded in index.html #}
+{# Partial: rendered standalone by /search (HTMX) and embedded in index.html.
+   Guide-native casebook rows (rules + whitespace, no cards): oversized faint
+   index, caps kicker with a square school swatch, bold title, quiet meta. #}
 
-{# School accent color for the left rail. Subtle — saturated tones tuned
-   to feel premium against both light and dark surfaces. Unknown schools
-   fall through to the default slate accent. #}
 {% set school_accent = {
     'Yale':     '#0F4C81',
     'Booth':    '#9B1C2F',
@@ -15,103 +14,89 @@
     'Yale SOM': '#0F4C81',
 } %}
 
-<div class="flex items-baseline justify-between mb-3 px-0.5">
-    <p class="text-[13px] text-slate-600 dark:text-slate-400">
+<div class="border-t-2 border-slate-900 dark:border-slate-100 pt-4 flex items-baseline justify-between gap-4">
+    <span class="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-300">Casebook</span>
+    <p class="text-[13px] text-slate-500 dark:text-slate-400 tabular-nums">
         {% if total == 0 %}
             No cases match your filters.
         {% elif total <= cases|length %}
-            Showing all <strong class="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{{ total }}</strong>
-            matching {{ "case" if total == 1 else "cases" }}.
+            Showing all {{ total }} matching {{ "case" if total == 1 else "cases" }}.
         {% else %}
-            Showing <strong class="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{{ cases|length }}</strong>
-            of <strong class="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{{ total }}</strong>
-            matching cases.
+            Showing {{ cases|length }} of {{ total }} matching cases.
         {% endif %}
     </p>
 </div>
 
 {% if total == 0 %}
-<div class="surface rounded-xl p-8 text-center animate-fade-up">
-    <div class="mx-auto h-9 w-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400">
-        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    </div>
-    <p class="mt-3 text-sm font-medium text-slate-900 dark:text-slate-100">No matches</p>
-    <p class="mt-1 text-[13px] text-slate-500 dark:text-slate-400">Try a broader search term or clear a filter.</p>
-    <a href="/" class="btn-secondary mt-4 inline-flex">Reset filters</a>
+<div class="py-14 text-center">
+    <p class="text-[15px] font-semibold text-slate-900 dark:text-slate-100">Nothing in the casebook matches.</p>
+    <p class="mt-1.5 font-serif italic text-[15px] text-slate-500 dark:text-slate-400">Broaden the search term or drop a filter.</p>
+    <a href="/" class="btn-secondary mt-5 inline-flex">Reset filters</a>
 </div>
 {% endif %}
 
 {% if cases %}
 {% set _return_to = return_url or "/search" %}
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+<div>
     {% for c in cases %}
     {% set accent = school_accent.get(c.source_school) %}
     <a href="/cases/{{ c.id }}?return_to={{ _return_to|urlencode }}"
-       class="case-card group animate-fade-up"
-       style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms{% if accent %}; --case-accent: {{ accent }}{% endif %}"
-       {% if accent %}data-school-accent="1"{% endif %}>
+       class="group grid grid-cols-[44px_1fr] sm:grid-cols-[64px_1fr_auto] gap-x-3 sm:gap-x-4 gap-y-1 items-baseline
+              border-b border-slate-200 dark:border-slate-800 py-5
+              transition duration-150 hover:bg-white dark:hover:bg-[#101E36]
+              focus-visible:outline-none focus-visible:bg-white dark:focus-visible:bg-[#101E36]
+              animate-fade-up"
+       style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms">
 
-        <div class="flex items-start justify-between gap-2.5">
-            <h3 class="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100 leading-snug
-                       group-hover:text-slate-950 dark:group-hover:text-white transition-colors">
+        {# Index — position in this result slice; with a capped list it is
+           the "n of total" cue. #}
+        <span class="row-span-2 sm:row-span-1 text-[30px] sm:text-[38px] font-normal leading-[.9] text-slate-300 dark:text-slate-700 tabular-nums select-none" aria-hidden="true">
+            {{ "%02d"|format(loop.index) }}
+        </span>
+
+        <div class="min-w-0">
+            <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400 mb-1.5">
+                {% if accent %}<span class="inline-block h-[7px] w-[7px] shrink-0" style="background: {{ accent }}" aria-hidden="true"></span>{% endif %}
+                <span class="truncate">{{ c.source_school }}{% if c.source_year %} · {{ c.source_year }}{% endif %}{% if c.case_type %} · {{ c.case_type }}{% endif %}</span>
+            </div>
+
+            <h3 class="text-[17px] sm:text-[19px] font-bold tracking-[-0.02em] leading-[1.15] text-slate-900 dark:text-slate-100
+                       transition-colors group-hover:text-emerald-600 dark:group-hover:text-emerald-300">
                 {{ c.case_title }}
             </h3>
+
+            <div class="mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px] text-slate-500 dark:text-slate-400">
+                {% if c.industry_display %}
+                <span {% if c.industry_raw and c.industry_raw|string != c.industry_display|string %}title="{{ c.industry_raw }}"{% endif %}>{{ c.industry_display }}</span>
+                {% endif %}
+                {% if c.firm %}<span class="font-serif italic">{{ c.firm }}</span>{% endif %}
+                {% if c.useful_percentage is not none and c.total_votes %}
+                    {% set _pct = c.useful_percentage|round(0)|int %}
+                    <span class="font-semibold tabular-nums
+                        {% if _pct >= 75 %}text-emerald-600 dark:text-emerald-300
+                        {% elif _pct >= 40 %}text-amber-700 dark:text-amber-300
+                        {% else %}text-rose-700 dark:text-rose-300{% endif %}"
+                        title="{{ c.useful_count }} useful · {{ c.not_useful_count }} not useful">
+                        {{ _pct }}% useful · {{ c.total_votes }} {{ "vote" if c.total_votes == 1 else "votes" }}
+                    </span>
+                {% else %}
+                    <span class="text-slate-400 dark:text-slate-600">No ratings yet</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="col-start-2 sm:col-start-3 flex sm:flex-col items-baseline sm:items-end gap-2 sm:gap-1.5 sm:text-right">
             {% if c.difficulty %}
-            <span class="badge shrink-0
+            <span class="badge
                 {% if c.difficulty == 'Easy' %}badge-easy
                 {% elif c.difficulty == 'Medium' %}badge-medium
                 {% else %}badge-hard{% endif %}">
                 {{ c.difficulty }}
             </span>
             {% endif %}
-        </div>
-
-        <div class="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11.5px] text-slate-500 dark:text-slate-400">
-            <span class="inline-flex items-center font-medium text-slate-700 dark:text-slate-300">
-                {{ c.source_school }}{% if c.source_year %} <span class="text-slate-400 dark:text-slate-500">&middot; {{ c.source_year }}</span>{% endif %}
-            </span>
-            {% if c.industry_display %}
-                <span class="text-slate-300 dark:text-slate-700" aria-hidden="true">/</span>
-                <span {% if c.industry_raw and c.industry_raw|string != c.industry_display|string %}title="{{ c.industry_raw }}"{% endif %}>{{ c.industry_display }}</span>
-            {% endif %}
-            {% if c.case_type %}
-                <span class="text-slate-300 dark:text-slate-700" aria-hidden="true">/</span>
-                <span>{{ c.case_type }}</span>
-            {% endif %}
-            {% if c.firm %}
-                <span class="text-slate-300 dark:text-slate-700" aria-hidden="true">/</span>
-                <span class="italic text-slate-500 dark:text-slate-400">{{ c.firm }}</span>
-            {% endif %}
-        </div>
-
-        <div class="mt-2.5 flex items-center justify-between gap-2 text-[11px]">
-            {# Public "% useful" badge — rendered only when at least one
-               vote exists, with intensity tied to score so a glance reads
-               quality. Title carries raw counts for power users. #}
-            {% if c.useful_percentage is not none and c.total_votes %}
-                {% set _pct = c.useful_percentage|round(0)|int %}
-                <span class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-medium tabular-nums
-                    {% if _pct >= 75 %}border-emerald-200 bg-emerald-50 text-emerald-700
-                                       dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300
-                    {% elif _pct >= 40 %}border-amber-200 bg-amber-50 text-amber-700
-                                          dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300
-                    {% else %}border-rose-200 bg-rose-50 text-rose-700
-                              dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300{% endif %}"
-                    title="{{ c.useful_count }} useful · {{ c.not_useful_count }} not useful">
-                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M7 10v12"/>
-                        <path d="M15 5.88 14 12h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 24H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/>
-                    </svg>
-                    {{ _pct }}% useful
-                    <span class="text-slate-400 dark:text-slate-500 font-normal">&middot; {{ c.total_votes }}</span>
-                </span>
-            {% else %}
-                <span class="text-slate-400 dark:text-slate-600">No ratings yet</span>
-            {% endif %}
-
-            <span class="inline-flex items-center gap-1 text-slate-400 dark:text-slate-600 transition-colors group-hover:text-slate-700 dark:group-hover:text-slate-300">
-                Open
-                <svg class="h-3 w-3 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            <span class="text-[13px] font-semibold text-slate-400 dark:text-slate-600 transition-colors
+                         group-hover:text-slate-900 dark:group-hover:text-slate-100 whitespace-nowrap">
+                Open case <span aria-hidden="true">→</span>
             </span>
         </div>
     </a>
