@@ -20,6 +20,11 @@ from webapp.exhibit_crypto import encrypt_exhibit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+class ExhibitsInUseError(Exception):
+    """The case's exhibits appear in session reveal history, which is part
+    of the permanent session record — replacing them would break it (DV-13)."""
+
+
 def _exhibits_dir() -> Path:
     d = Path(os.environ.get("EXHIBITS_DIR", REPO_ROOT / "output" / "exhibits"))
     d.mkdir(parents=True, exist_ok=True)
@@ -93,6 +98,15 @@ def replace_for_case(case_id: int, created_by: int,
     try:
         with get_pool().connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT EXISTS (SELECT 1 FROM reveals r"
+                    " JOIN case_exhibits ce ON ce.id = r.exhibit_id"
+                    " WHERE ce.case_id = %s) AS in_use;", (case_id,))
+                if cur.fetchone()["in_use"]:
+                    raise ExhibitsInUseError(
+                        "This case's exhibits have been shown in practice"
+                        " sessions; the reveal record depends on them, so the"
+                        " set can no longer be replaced")
                 cur.execute("SELECT enc_blob_path FROM case_exhibits"
                             " WHERE case_id = %s;", (case_id,))
                 old_files = [r["enc_blob_path"] for r in cur.fetchall()]

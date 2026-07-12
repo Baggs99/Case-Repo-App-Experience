@@ -133,6 +133,21 @@ Postgres idiom throughout: `SERIAL` PKs, `TIMESTAMPTZ`, `JSONB`, `TEXT` +
   semantics: **404** for non-participants (session existence undisclosed —
   same philosophy as `require_admin`'s 404), **403** for a participant acting
   outside their role, **409** for illegal state edges and unmet consent gates.
+- **DV-12 — exhibit authoring adaptations (Phase 5).** (a) The repo's Storage
+  abstraction is read-only, so encrypted exhibit blobs use plain file I/O
+  under gitignored `EXHIBITS_DIR` (default `output/exhibits/`); prod
+  placement is part of O1. (b) Community authoring: any **verified** user may
+  author a library case's exhibit set (`created_by` recorded, admins can
+  re-author); no draft/publish gate — exhibits are optional and sessions are
+  never blocked on them.
+- **DV-13 — exhibit sets freeze once revealed (found in Phase 6).**
+  `reveals.exhibit_id` references `case_exhibits`, and the reveal timeline is
+  part of the permanent session record (T6.4 debrief view, Phase 7 feedback).
+  DV-12b replace-authoring would delete those referenced rows — so replacing
+  a case's exhibit set returns **409** once any reveal references it.
+  Iterating on a much-practiced case's exhibits later would need a schema
+  evolution (snapshot `idx` into reveals + cascade) — an owner call, not
+  needed at v1.
 
 ## 5. Assumptions (recorded per operating rules; flag to overturn)
 

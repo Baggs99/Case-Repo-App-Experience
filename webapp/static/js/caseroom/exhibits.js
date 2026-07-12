@@ -145,6 +145,8 @@ export class ExhibitManager {
       const e = this.manifest.find((x) => x.exhibit_id === exhibitId);
       slot.innerHTML = `<img src="${url}" alt="Exhibit ${e?.idx ?? ''}">`
         + `<span class="ex-num">${e?.idx ?? ''}</span>`;
+      $('tray-status').textContent =
+        `${this.urls.size} of ${this.manifest.length} exhibits revealed`;
     }
     if (spotlight) this._enlarge(exhibitId); // a fresh reveal takes the spotlight
   }

@@ -102,6 +102,9 @@ async def set_exhibits(case_id: int, body: ExhibitSetBody,
             "width": w, "height": h,
         })
 
-    exhibits = await run_in_threadpool(repo.replace_for_case, case_id,
-                                       user.id, rendered)
+    try:
+        exhibits = await run_in_threadpool(repo.replace_for_case, case_id,
+                                           user.id, rendered)
+    except repo.ExhibitsInUseError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"exhibits": exhibits}

@@ -6,6 +6,7 @@ DB-backed parts skip without the seeded dev database, like the WS tests.
 
 from __future__ import annotations
 
+import os
 import unittest
 
 import fitz
@@ -49,8 +50,20 @@ class TestRender(unittest.TestCase):
 @unittest.skipUnless(_READY, "requires seeded dev Postgres")
 @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
 class TestAuthoringFlow(unittest.TestCase):
+    """Authors on its OWN case row (sharing the seeded dummy PDF bytes) so
+    the dev case's authored exhibits are never replaced by a test run — and
+    because replace-after-reveal is now a 409 (DV-13), a shared case would
+    break the suite the moment a dev session revealed from it."""
+
     @classmethod
     def setUpClass(cls):
+        import shutil
+        import tempfile
+        cls._exhibits_dir = tempfile.mkdtemp(prefix="authoring-test-exhibits-")
+        cls._rm = shutil.rmtree
+        cls._prev_exhibits_dir = os.environ.get("EXHIBITS_DIR")
+        os.environ["EXHIBITS_DIR"] = cls._exhibits_dir
+
         from fastapi.testclient import TestClient
         from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
         from webapp.main import app
@@ -62,15 +75,38 @@ class TestAuthoringFlow(unittest.TestCase):
         with psycopg.connect(_DB_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT id FROM users WHERE email = 'a@yale.edu';")
-                uid = cur.fetchone()[0]
-                cur.execute("SELECT id FROM cases WHERE case_title = 'Dev Dummy Case';")
+                cls.uid = cur.fetchone()[0]
+                cur.execute("SELECT id FROM users WHERE email = 'b@yale.edu';")
+                cls.uid_b = cur.fetchone()[0]
+                cur.execute(
+                    "INSERT INTO cases (case_title, normalized_title, source_school,"
+                    " source_year, industry, case_type, difficulty, difficulty_score,"
+                    " page_count, pdf_path)"
+                    " SELECT 'Authoring Test Case', 'authoring test case',"
+                    " 'DevSchool', 2098, industry, case_type, difficulty,"
+                    " difficulty_score, page_count, pdf_path"
+                    " FROM cases WHERE case_title = 'Dev Dummy Case'"
+                    " RETURNING id;")
                 cls.case_id = cur.fetchone()[0]
-        session = create_session(uid, user_agent="exhibit-test", ip_address=None)
+        session = create_session(cls.uid, user_agent="exhibit-test", ip_address=None)
         cls.client.cookies.set(SESSION_COOKIE_NAME, session.id)
 
     @classmethod
     def tearDownClass(cls):
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;",
+                            (cls.case_id,))
+                cur.execute("DELETE FROM case_exhibits WHERE case_id = %s;",
+                            (cls.case_id,))
+                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
         cls._ctx.__exit__(None, None, None)
+        cls._rm(cls._exhibits_dir, ignore_errors=True)
+        if cls._prev_exhibits_dir is None:
+            os.environ.pop("EXHIBITS_DIR", None)
+        else:
+            os.environ["EXHIBITS_DIR"] = cls._prev_exhibits_dir
 
     def test_author_encrypt_store_decrypt(self):
         r = self.client.post(f"/api/cases/{self.case_id}/exhibits",
@@ -110,6 +146,38 @@ class TestAuthoringFlow(unittest.TestCase):
         r = self.client.get(f"/cases/{self.case_id}/exhibits")
         self.assertEqual(r.status_code, 200)
         self.assertIn("Mark exhibits", r.text)
+
+    def test_reauthor_blocked_after_reveal(self):
+        """DV-13: once an exhibit is in a session's reveal record, the
+        case's exhibit set can no longer be replaced."""
+        r = self.client.post(f"/api/cases/{self.case_id}/exhibits",
+                             json={"pages": [{"page": 1}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        exhibit_id = r.json()["exhibits"][0]["id"]
+
+        r = self.client.post("/api/practice", json={
+            "interviewer_id": self.uid, "candidate_id": self.uid_b,
+            "case_id": self.case_id,
+        })
+        self.assertEqual(r.status_code, 200, r.text)
+        sid = r.json()["id"]
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO reveals (session_id, exhibit_id, t_offset_ms)"
+                    " VALUES (%s, %s, 1000);", (sid, exhibit_id))
+
+        r = self.client.post(f"/api/cases/{self.case_id}/exhibits",
+                             json={"pages": [{"page": 1}, {"page": 2}]})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("reveal record", r.json()["detail"])
+
+        # Remove the reveal (via its session) so other tests in this class
+        # can author again regardless of method execution order.
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (sid,))
 
 
 if __name__ == "__main__":
