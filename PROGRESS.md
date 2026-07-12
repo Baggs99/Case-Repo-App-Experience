@@ -1,14 +1,40 @@
 # PROGRESS
-Updated: 2026-07-12T00:20:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T00:35:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 3 (in-app WebSocket signaling) complete — next is Phase 4: the call
-experience. Session page `/session/{id}` with lobby (device pickers,
-consent checkbox, knock state) and live view; `signal.js` / `rtc.js` /
-`ui.js` vanilla modules; perfect negotiation (interviewer impolite);
-1.2 Mbps bitrate cap; negotiated `ctrl` DataChannel; ICE-restart banner;
-teardown → debrief. Thomas keeps a style guide at
-`mycase/myCase Style Guide.html` — consult it for the UI.
+Phase 4 (call experience) complete — next is Phase 5: case authoring as
+exhibit-marking on existing library cases (DV-2): page-picker over the
+per-page previews, server-side PyMuPDF render → WebP → AES-GCM encrypt
+via webapp/exhibit_crypto.py, rubric template editor, publish validation.
+
+## Done — Phase 4 (2026-07-12)
+- `/session/{id}` page (participants only, DV-11) in the myCase brand
+  (mycase/myCase Style Guide.html: Archivo, emerald accent, dark call
+  theme, square-ish corners). CaseRoom pages carry the myCase look; the
+  existing app's pages keep theirs — reconciling brands is an owner call
+- Vanilla modules: `signal.js` (WS client, backoff reconnect, 30 s pings,
+  fatal-close codes), `rtc.js` (perfect negotiation w/ polite=candidate,
+  1.2 Mbps sender cap, negotiated ctrl DataChannel id 0, ICE-restart on
+  disconnected/failed, getStats sampler), `ui.js`, `session.js`
+  (A7 admit ordering: POST /state→live, only then WS admit; ?debug=1
+  stats overlay; ?forceRelay=1; ?nomedia=1 smoke-test flag; no state
+  transition on pagehide so mid-call reload can restore — P6 needs this)
+- Two real-browser evidence pass (Playwright, two tabs = two cookie
+  jars via localhost vs 127.0.0.1, session 48): knock modal on
+  interviewer, consent gating, Admit → DB state=live + started_at,
+  both tabs flip to call view, **ctrl DataChannel echo RTT 1 ms over the
+  P2P connection**, End call → ended view + DB debrief + ended_at
+- Bug caught by the browser pass: explicit `display:` on views/modal
+  defeated the `hidden` attribute (invisible modal swallowed all clicks).
+  Fix: global `[hidden]{display:none!important}`
+- Full suite: 201 passed (incl. session-page auth test)
+- Deferred (reasons): real camera/mic A/V + bitrate-cap numbers need a
+  human with two browser profiles (getUserMedia permission prompts +
+  actual devices) — 2-min script below; `?forceRelay=1` needs TURN (O2)
+- Manual A/V check for Thomas: server on :8077 → two Chrome profiles →
+  log in a@yale.edu / b@yale.edu (pw caseroom-dev-1) → both open
+  /session/<new id>?debug=1 → grant cam/mic → consent both → admit →
+  confirm video/audio both ways and overlay shows ≤ ~1300 kbps ≤ 1280×720
 
 ## Done — Phase 3 (2026-07-12)
 - `webapp/signaling.py` — process-local hub: one socket per (session,
