@@ -1,5 +1,5 @@
 # PROGRESS
-Updated: 2026-07-12T13:00:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T14:32:00-04:00 · Branch: feature/caseroom
 
 ## Now
 NEW TRACK — iOS app: approved spec at
@@ -31,13 +31,54 @@ iOS-track gotchas (this session, not recorded elsewhere):
 - iOS platform claims come from ~/Documents/Projects/AppleDev/
   ios-features.md (evidence-graded); respect its [VERIFY-FIRST] flags.
 
-Phase 10 + Interviewer Console + conformance sweep complete — next is
-Phase 11: hardening (verify script T11.1, cross-browser Chrome+Safari
-pass T11.2 incl. the Safari audio/mp4 recording path, failure-mode
-pass T11.3: wifi drop → ICE restart, signal-server restart → WS
-reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
-still open; rubric-template editor UI still deferred (P11 polish or
-cut for v1 — generic template works server-side).
+WEB TRACK — verified state at session end (2026-07-12 ~14:30 ET, all
+checked by command, not memory):
+- branch feature/caseroom @ a8968e5, `git status` clean
+- `pytest tests/ -q` → 234 passed (fresh run at handoff time)
+- dev server RUNNING on :8077 (curl /login → 200); restart with
+  `pkill -f "main.py serve"; cd ~/dev/Case-Repo-App-Experience &&
+  nohup .venv/bin/python main.py serve --port 8077 >
+  output/devserver.log 2>&1 & disown`
+- dev DB: 8 cases (id 1 dummy + demo 354–360), 0 stale scheduled
+  sessions; demo-removal SQL in the "unnumbered + demo data" section
+- spec phases 1–10 of 11 DONE (evidence per phase in sections below);
+  whole app on the myCase brand; browse tiles final form = transparent
+  square tiles w/ full hairline outline (commit a8968e5)
+- 26 evidence screenshots in output/evidence/ (gitignored)
+
+## Handoff partition (web track, written 2026-07-12)
+| Chunk | Spec state | Tier | Next concrete action |
+|---|---|---|---|
+| P11 T11.1 verify script | complete (spec §Phase 11, adapt PHP greps to Python/FastAPI) | worker | Write scripts/verify_caseroom.sh per spec T11.1; run it; fix-or-justify each finding in PROGRESS |
+| P11 T11.2 cross-browser Chrome+Safari | complete (spec) — NEEDS THOMAS AT MACHINE (Safari, camera prompts) | session-model + Thomas | Thomas runs two browser profiles per the Phase 4 manual-check recipe; agent drives checklist: call, reveal, Safari audio/mp4 recording path, authoring |
+| P11 T11.3 failure-mode pass | complete (spec) — wifi toggle needs Thomas | session-model + Thomas | Wifi drop mid-call → ICE-restart recovery; `pkill -f "main.py serve"` mid-call + restart → WS reconnect; candidate reload restore (re-verify P6) |
+| Guide rule-05 polish: staircase favicon + Lucide icon sweep | complete (guide is the spec) | worker | Add SVG staircase favicon route/link in base.html + session.html; remove/replace remaining Lucide icons (search, votes, PDF btns, theme toggle) |
+| Rubric-template editor UI (deferred since P5) | needs-spec (which fields, who may author, where it lives) | session-model | Draft 10-line spec w/ Thomas, THEN implement (generic template already works server-side) |
+| Usefulness % color calming | needs-decision (owner flagged it as loudest remaining color; no call made) | Thomas → worker | If yes: mute emerald/amber/rose usefulness text in _search_results.html + case_detail to the calm band |
+| Owner decisions O1 (prod host/deploy), O2 (TURN), O3 (consent copy) | needs-decision | Thomas | Answers unblock deploy runbook (T11.4-ish) and real launch |
+| Demo cases 354–360 keep-or-delete | needs-decision | Thomas | Delete SQL recorded in "unnumbered + demo data" section |
+
+Web-track gotchas (this session, not recorded elsewhere):
+- Dev server has NO reload — after ANY backend/template change, restart
+  it (command above) or you'll debug phantom stale behavior (bit twice
+  this session: P9 dashboard panels, P10 routes).
+- Tailwind CDN recompiles after a JS theme toggle — screenshots taken
+  immediately after toggling can show pre-recompile colors. Trust
+  getComputedStyle checks, not pixels, right after a toggle.
+- The two design HTMLs in mycase/ are React bundles: decode
+  `<script type="__bundler/template">` JSON for markup; brand tokens
+  verbatim in the guide's Implementation-spec section.
+- Browser-automation two-user trick: same Chrome, tab A localhost /
+  tab B 127.0.0.1 = separate cookie jars. `?nomedia=1&debug=1` gives an
+  oscillator mic (records for real) + window.__caseroom debug hook.
+  element.click() via evaluate is NOT a user gesture (AudioContext).
+- Playwright-MCP screenshots save to the CWD of the MCP server
+  (~/Documents/Projects/mycase) — move them to output/evidence/.
+- httpx, pytest, icalendar are dev-only in .venv, deliberately NOT in
+  requirements.txt.
+- .venv one-off scripts touching the DB must init_pool first (see any
+  seeding snippet in the Done sections); pool-shutdown warnings on exit
+  are harmless.
 
 ## Done — Browse tiles: open rule-bounded tiles (2026-07-12, owner call)
 - Owner: keep the calm palette, drop the rounded/bg card shell — tiles
