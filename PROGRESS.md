@@ -1,5 +1,5 @@
 # PROGRESS
-Updated: 2026-07-12T12:45:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T13:00:00-04:00 · Branch: feature/caseroom
 
 ## Now
 NEW TRACK — iOS app: approved spec at
@@ -8,6 +8,28 @@ implementation plan at
 docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md. Execute on a
 new branch feature/ios-app (from feature/caseroom); web P11 hardening
 below continues independently on this branch.
+
+## Handoff partition (iOS track, written 2026-07-12)
+| Chunk | Spec state | Tier | Next concrete action |
+|---|---|---|---|
+| P1 Tasks 1–8 (backend: migration, APNs, /api/v1) | complete (plan) | worker | `cd /Users/thomaskgould/dev/Case-Repo-App-Experience && git checkout feature/caseroom && git checkout -b feature/ios-app`, then plan Task 1 Step 1 |
+| P1 Tasks 9–15 (iOS app in ios/) | complete (plan) | worker | After Task 8: `brew install xcodegen`, plan Task 9 |
+| P1 execution mode choice | needs-decision | Thomas | Pick subagent-driven (recommended, plan header) vs inline; default subagent-driven if unstated |
+| P2 plan (session core, no media) | needs-spec→plan | session-model | Write plan from spec P2 section only after P1 merges |
+| Apple dev account + .p8 into .env | manual | Thomas | Not blocking — simulator covers all P1 verification except real-device push |
+
+iOS-track gotchas (this session, not recorded elsewhere):
+- Plan interface names (require_auth_api, search_cases, public_stats,
+  cookie case_repo_session) were verified against the codebase on
+  2026-07-12. If backend files change before execution, re-verify the
+  named signatures in each plan task's Interfaces block before coding.
+- Proposals accept/decline are ALREADY JSON routes (/api/proposals/{id}/
+  accept|decline) — plan reuses them; do not duplicate under /api/v1.
+- "Page loads stand in for cron" cannot drive starting-soon pushes; the
+  plan's 60s asyncio startup loop depends on the app staying
+  single-worker (existing signaling constraint, INTEGRATION.md).
+- iOS platform claims come from ~/Documents/Projects/AppleDev/
+  ios-features.md (evidence-graded); respect its [VERIFY-FIRST] flags.
 
 Phase 10 + Interviewer Console + conformance sweep complete — next is
 Phase 11: hardening (verify script T11.1, cross-browser Chrome+Safari
