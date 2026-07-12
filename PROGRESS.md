@@ -10,6 +10,18 @@ reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
 still open; rubric-template editor UI still deferred (P11 polish or
 cut for v1 — generic template works server-side).
 
+## Done — Browse tiles: classic soft-card shell (2026-07-12, owner call)
+- Owner: soft-card dialect, no borders, school color moves into the
+  school NAME, 3-up on larger screens. .case-card = borderless
+  rounded-[0.75rem] + soft/lift shadows w/ explicit values (THE one
+  documented exception to guide rules 01/02 — global radius/shadow
+  scales remain zeroed elsewhere); accent-bar CSS removed; school name
+  inline-colored + dark:[filter:brightness(1.9)] for midnight
+  legibility; Columbia hue → #0369A1 (light-mode contrast); grid
+  md:2 → lg:3; internal footer hairline dropped. Interior typography
+  (kicker/bold title/serif firm/coded usefulness) unchanged.
+  Shots: output/evidence/browse-soft-{light,dark}.png. Commit 7a7e510
+
 ## Done — Browse results back to a GRID (2026-07-12, owner call)
 - Owner: results should stay grid-like. Rows → guide-styled tiles
   (md:2 / xl:3): .case-card square hairline + school accent bar, caps
