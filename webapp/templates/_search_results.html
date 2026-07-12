@@ -1,6 +1,7 @@
 {# Partial: rendered standalone by /search (HTMX) and embedded in index.html.
-   Guide-native casebook rows (rules + whitespace, no cards): oversized faint
-   index, caps kicker with a square school swatch, bold title, quiet meta. #}
+   Guide-native casebook rows (rules + whitespace, no cards): caps kicker
+   with a square school swatch, bold title, quiet meta. Unnumbered — owner
+   call 2026-07-12: list position isn't information worth 64px. #}
 
 {% set school_accent = {
     'Yale':     '#0F4C81',
@@ -41,18 +42,12 @@
     {% for c in cases %}
     {% set accent = school_accent.get(c.source_school) %}
     <a href="/cases/{{ c.id }}?return_to={{ _return_to|urlencode }}"
-       class="group grid grid-cols-[44px_1fr] sm:grid-cols-[64px_1fr_auto] gap-x-3 sm:gap-x-4 gap-y-1 items-baseline
+       class="group grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-x-4 gap-y-2 items-baseline
               border-b border-slate-200 dark:border-slate-800 py-5
               transition duration-150 hover:bg-white dark:hover:bg-[#101E36]
               focus-visible:outline-none focus-visible:bg-white dark:focus-visible:bg-[#101E36]
               animate-fade-up"
        style="animation-delay: {{ 30 + (loop.index0 % 9) * 22 }}ms">
-
-        {# Index — position in this result slice; with a capped list it is
-           the "n of total" cue. #}
-        <span class="row-span-2 sm:row-span-1 text-[30px] sm:text-[38px] font-normal leading-[.9] text-slate-300 dark:text-slate-700 tabular-nums select-none" aria-hidden="true">
-            {{ "%02d"|format(loop.index) }}
-        </span>
 
         <div class="min-w-0">
             <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400 mb-1.5">
@@ -85,7 +80,7 @@
             </div>
         </div>
 
-        <div class="col-start-2 sm:col-start-3 flex sm:flex-col items-baseline sm:items-end gap-2 sm:gap-1.5 sm:text-right">
+        <div class="flex sm:flex-col items-baseline sm:items-end gap-2 sm:gap-1.5 sm:text-right">
             {% if c.difficulty %}
             <span class="badge
                 {% if c.difficulty == 'Easy' %}badge-easy
