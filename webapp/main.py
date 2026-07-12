@@ -53,6 +53,7 @@ from webapp.routes import pages as pages_routes
 from webapp.routes import practice as practice_routes
 from webapp.routes import rooms as rooms_routes
 from webapp.routes import search as search_routes
+from webapp.routes import signal_ws as signal_ws_routes
 from webapp.routes import votes as votes_routes
 from webapp.settings import load_settings
 
@@ -115,6 +116,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_routes.router)
     app.include_router(rooms_routes.router)
     app.include_router(practice_routes.router)
+    app.include_router(signal_ws_routes.router)
 
     return app
 
