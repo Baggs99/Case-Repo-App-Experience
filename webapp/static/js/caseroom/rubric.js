@@ -213,6 +213,7 @@ export async function renderFeedbackView(api, boot) {
     ${fb.notes_md ? `<p class="label" style="margin-top:18px">Notes</p>
       <p class="fb-notes">${esc(fb.notes_md)}</p>` : ''}
     ${timeline}
+    <div id="recording-links-fb" hidden style="margin-top:18px"></div>
     <p style="margin-top:22px">
       <a class="fb-link" href="/api/cases/${fb.case_id}/open-pdf" target="_blank" rel="noopener">Open the full case PDF ↗</a>
       · <a class="fb-link" href="/room">Back to your room</a></p>`;

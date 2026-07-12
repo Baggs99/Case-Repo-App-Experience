@@ -11,6 +11,7 @@ import { SignalClient } from './signal.js';
 import { RtcSession } from './rtc.js';
 import { ExhibitManager, wireLightbox, renderRevealTimeline } from './exhibits.js';
 import { RubricPanel, renderFeedbackView } from './rubric.js';
+import { Recorder, renderRecordingLinks } from './recorder.js';
 import * as ui from './ui.js';
 
 const BOOT = window.CASEROOM;
@@ -22,6 +23,7 @@ let signal = null;
 let rtc = null;
 let exhibits = null;
 let rubric = null;
+let recorder = null;
 let localStream = null;
 let joinConfig = null;
 let admitted = false;
@@ -45,12 +47,17 @@ function getRubric() {
 // ── Debrief & feedback views (Phase 7) ───────────────────────────────────────
 
 async function showFeedback() {
-  if (await renderFeedbackView(api, BOOT)) ui.showView('feedback');
-  else ui.banner('Could not load feedback — try reloading.', 'error');
+  if (await renderFeedbackView(api, BOOT)) {
+    ui.showView('feedback');
+    renderRecordingLinks(api, API, 'recording-links-fb');
+  } else {
+    ui.banner('Could not load feedback — try reloading.', 'error');
+  }
 }
 
 function renderDebriefZone() {
   renderRevealTimeline(api);
+  renderRecordingLinks(api, API, 'recording-links');
   const zone = ui.$('debrief-zone');
   if (!IS_CANDIDATE) {
     ui.$('ended-sub').textContent = 'Score the rubric, then finalize to release feedback.';
@@ -204,6 +211,20 @@ function startCall() {
 
   exhibits.start();
 
+  // §4.6: record own mic from the moment the call is live; visible
+  // indicator whenever active (T10.1); failures never touch the call (A9).
+  recorder = new Recorder({
+    apiBase: API,
+    stream: localStream,
+    onState: (state) => {
+      const badge = ui.$('rec-badge');
+      badge.hidden = state === 'off' || state === 'done';
+      badge.dataset.state = state;
+      badge.textContent = state === 'failed' ? 'REC UPLOAD FAILED' : 'REC';
+    },
+  });
+  recorder.start();
+
   if (!IS_CANDIDATE) {
     ui.$('btn-rubric').addEventListener('click', () => getRubric().toggleDrawer());
     ui.$('btn-rubric-close').addEventListener('click', () => getRubric().toggleDrawer(false));
@@ -233,9 +254,13 @@ function onCtrl(msg) {
 
 async function endCall() {
   await api('/state', { target: 'debrief' }).catch(() => {});
+  // Flush the final chunk + complete BEFORE tracks stop; the ended view
+  // renders meanwhile and the links appear when the flush lands.
+  const flush = recorder?.stopAndComplete().catch(() => {});
   teardown();
   ui.showView('ended');
   renderDebriefZone(); // T6.4 timeline + T7.1 rubric editor / waiting note
+  flush?.then(() => renderRecordingLinks(api, API, 'recording-links'));
 }
 
 function teardown() {
@@ -269,9 +294,19 @@ async function boot() {
   ui.$('consent').checked = BOOT.selfConsent;
 
   if (PARAMS.get('nomedia') === '1') {
-    // Dev/smoke-test flag: exercise signaling, admit flow, and the ctrl
-    // DataChannel on machines with no camera. Real calls never set this.
-    localStream = new MediaStream();
+    // Dev/smoke-test flag: exercise signaling, admit flow, ctrl DataChannel
+    // AND the recording pipeline on machines with no camera/mic — a quiet
+    // oscillator stands in for the mic. Real calls never set this.
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const dest = ctx.createMediaStreamDestination();
+    osc.frequency.value = 440;
+    gain.gain.value = 0.05;
+    osc.connect(gain).connect(dest);
+    osc.start();
+    document.addEventListener('click', () => ctx.resume(), { once: true });
+    localStream = dest.stream;
   } else {
     try {
       await acquireMedia();
