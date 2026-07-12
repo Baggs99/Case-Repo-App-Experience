@@ -1,14 +1,64 @@
 # PROGRESS
-Updated: 2026-07-12T01:02:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-12T01:28:00-04:00 · Branch: feature/caseroom
 
 ## Now
-Phase 6 (in-call reveal system) complete — next is Phase 7: rubric,
-feedback, finalize, burn. Interviewer live checklist (PUT /rubric
-debounced draft), finalize → grade normalize + feedback.finalized_at +
-burned row + want-queue removal + full-PDF release (INV-3 flip),
-candidate post-finalize view (grade, breakdown, notes, reveal timeline,
-PDF + recording links). Rubric-template EDITOR UI deferred from P5 also
-lands here.
+Phase 7 (rubric/feedback/finalize/burn) complete — next is Phase 8:
+queues, proposals, room visiting, .ics. Queue endpoints + buttons on
+case pages; visiting view w/ two intersection lists (exclude burned);
+proposal create/inbox/accept/decline/expire (page-load sweep, no cron)
+w/ nav badge; accept → session + .ics via Resend (§4.7).
+NOTE deferred from P7: rubric-template EDITOR UI (originally T5.3, was
+slated for P7) still unbuilt — generic template works server-side;
+slot it into P8 or the P10 polish pass.
+
+## Done — Phase 7 (2026-07-12)
+- `webapp/repositories/feedback.py` — draft validation against the
+  session's template (unknown ids/out-of-range 400), A5 grade = 5·Σp/Σmax
+  (Decimal, half-up to 1 dp), save_draft upsert guarded by
+  `WHERE finalized_at IS NULL` (a racing finalize can't be overwritten),
+  finalize as ONE transaction under FOR UPDATE: debrief+interviewer
+  check → grade (override or computed) + finalized_at → burned insert →
+  queue_want delete → state='finalized' (edge deliberately outside the
+  generic /state endpoint, as practice_states documents). is_burned for A6
+- `webapp/routes/practice_feedback.py` — GET/PUT /rubric (interviewer
+  only; PUT allowed until finalize, incl. pre-call prep; 409 after),
+  POST /finalize (optional grade override, pydantic 0–5 → 422 outside),
+  GET /feedback (both participants, 409 pre-finalize; payload = grade,
+  per-item breakdown w/ labels, notes_md, reveal timeline, case link).
+  A6 in POST /api/practice: burned case for candidate → 409
+- Frontend: `rubric.js` RubricPanel — in-call left drawer (mutually
+  exclusive w/ PDF drawer), 800 ms debounced autosave w/ Saved ✓ + live
+  draft-grade, debrief editor w/ prefilled editable grade + two-click
+  armed Finalize; renderFeedbackView (grade hero, per-item bars, notes,
+  timeline, PDF link). session.js boot branches: debrief → editor/
+  waiting (candidate polls 15 s and auto-flips), finalized → feedback
+  view, aborted → notice; no media/WS in post-call states. exhibits.js:
+  interviewer panel now shows with 0 exhibits (hosts PDF/Rubric btns),
+  timeline extracted as standalone renderRevealTimeline
+- Tests: tests/test_feedback.py (4 tests: role gating + draft
+  persistence + preview math 18/25→3.6; validation 400s; full finalize
+  transaction incl. burned row, queue_want removal, released payload,
+  read-only draft, double-finalize 409, A6 409 + per-candidate scope;
+  debrief-requirement + override range). Suite 218 passed ×3 total runs
+- Browser evidence (Playwright MCP, session 206, two tabs, nomedia):
+  rubric drawer filled → "Saved ✓, draft 3.6/5" → interviewer reload
+  mid-live → all five scores + notes restored (draft survives reload ✓)
+  → Send exhibit → End call → debrief editor grade prefilled 3.6,
+  timeline "0:52 Exhibit 1" → candidate End → waiting note, GET
+  /feedback 409 pre-finalize → armed confirm "Confirm 3.6 / 5" →
+  interviewer flips to released view → candidate auto-flips ≤15 s (poll)
+  → candidate reload boots straight into feedback view w/ PDF link →
+  A6 fetch: new session on burned case → 409 "burned for the candidate".
+  DB: state=finalized · grade 3.6 · finalized_at set · burned_via=206 ·
+  want_queue_cleared=t. Shot: output/evidence/p7-candidate-feedback.png
+- Dev-data hygiene: evidence sessions 105/206 deleted + dummy case
+  unburned afterwards, so A6/DV-13 don't wedge future dev sessions on
+  the single seeded case
+- Spec's P7 done-when "candidate PDF 403 pre-finalize" is impossible
+  here by DV-5 (repo serves all PDFs to any authed user; no new gate
+  added, none removed) — the release gate is enforced on FEEDBACK
+  instead (409→200 evidenced above)
+- Commits: c0cbe73 (backend) · 3b8d2d1 (frontend) · ce4c877 (evidence)
 
 ## Done — Phase 6 (2026-07-12)
 - `webapp/repositories/reveals.py` — INSERT..SELECT computes t_offset_ms
