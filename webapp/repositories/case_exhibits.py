@@ -37,6 +37,43 @@ def list_for_case(case_id: int) -> list[dict]:
             return cur.fetchall()
 
 
+def list_manifest(case_id: int) -> list[dict]:
+    """Session-time manifest fields (spec §4.4 step 1): everything a
+    candidate needs to preload and later decrypt — EXCEPT the key. The IV is
+    not key material (GCM nonces are public metadata); keys never leave the
+    interviewer-only / reveal-gated paths."""
+    sql = """
+        SELECT id, idx, source_pages, width, height, bytes, enc_iv
+        FROM case_exhibits WHERE case_id = %s ORDER BY idx;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (case_id,))
+            return cur.fetchall()
+
+
+def list_keys(case_id: int) -> list[dict]:
+    """Key material for every exhibit — interviewer call-start use only."""
+    sql = """
+        SELECT id, enc_key, enc_iv
+        FROM case_exhibits WHERE case_id = %s ORDER BY idx;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (case_id,))
+            return cur.fetchall()
+
+
+def get_exhibit(case_id: int, exhibit_id: int) -> dict | None:
+    """One exhibit, full row incl. secrets — the case_id predicate makes
+    cross-case exhibit IDs a miss, not a leak."""
+    sql = "SELECT * FROM case_exhibits WHERE case_id = %s AND id = %s;"
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (case_id, exhibit_id))
+            return cur.fetchone()
+
+
 def replace_for_case(case_id: int, created_by: int,
                      rendered: list[dict]) -> list[dict]:
     """Replace a case's exhibit set atomically. `rendered` items:

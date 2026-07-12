@@ -97,6 +97,7 @@ def session_page(session_id: int, request: Request,
                                else "consent_candidate"],
         "peerName": peer,
         "caseTitle": session["case_title"],
+        "caseId": session["case_id"],
     }
     return render(request, "session.html", {
         "session": session,

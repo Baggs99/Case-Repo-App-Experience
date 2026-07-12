@@ -52,6 +52,7 @@ from webapp.routes import files as files_routes
 from webapp.routes import exhibits as exhibits_routes
 from webapp.routes import pages as pages_routes
 from webapp.routes import practice as practice_routes
+from webapp.routes import practice_exhibits as practice_exhibits_routes
 from webapp.routes import rooms as rooms_routes
 from webapp.routes import search as search_routes
 from webapp.routes import signal_ws as signal_ws_routes
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_routes.router)
     app.include_router(rooms_routes.router)
     app.include_router(practice_routes.router)
+    app.include_router(practice_exhibits_routes.router)
     app.include_router(signal_ws_routes.router)
     app.include_router(exhibits_routes.router)
 
