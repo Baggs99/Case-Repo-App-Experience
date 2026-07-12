@@ -151,7 +151,38 @@ function casePdfNavigate(caseId, action) {
                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                 Download
             </button>
+
+            {# ── CaseRoom queues (spec §4.7 T8.1) ─────────────────────────── #}
+            <button type="button" id="queue-want-btn" data-in="{{ 1 if queue_state.want else 0 }}"
+                    class="btn-secondary">
+                {{ 'In your Want queue ✓' if queue_state.want else 'Add to Want' }}
+            </button>
+            <button type="button" id="queue-give-btn" data-in="{{ 1 if queue_state.give else 0 }}"
+                    class="btn-secondary">
+                {{ 'In your Give queue ✓' if queue_state.give else 'Add to Give' }}
+            </button>
         </div>
+        <script>
+        (function () {
+            const wire = (btn, kind, addLabel, inLabel, confirmMsg) => {
+                btn.addEventListener('click', async () => {
+                    const inQueue = btn.dataset.in === '1';
+                    if (!inQueue && confirmMsg && !window.confirm(confirmMsg)) return;
+                    const res = await fetch(`/api/queues/${kind}/{{ case.id }}`,
+                                            { method: inQueue ? 'DELETE' : 'POST' });
+                    if (!res.ok) return;
+                    const state = await res.json();
+                    btn.dataset.in = state[kind] ? '1' : '0';
+                    btn.textContent = state[kind] ? inLabel : addLabel;
+                });
+            };
+            wire(document.getElementById('queue-want-btn'), 'want',
+                 'Add to Want', 'In your Want queue ✓', null);
+            wire(document.getElementById('queue-give-btn'), 'give',
+                 'Add to Give', 'In your Give queue ✓',
+                 "Give means you're prepped to RUN this case as interviewer — confirm you've read it.");
+        })();
+        </script>
     </div>
 
     {# ── Preview ─────────────────────────────────────────────────────────── #}

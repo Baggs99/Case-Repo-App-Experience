@@ -10,6 +10,7 @@ serialize; validation itself is the pure webapp.practice_states module.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import Optional
 
 from psycopg.rows import dict_row
@@ -187,6 +188,78 @@ def transition(session_id: int, actor_id: int, target: str) -> dict:
                 (target, session_id),
             )
             return cur.fetchone()
+
+
+def public_stats(user_id: int) -> dict:
+    """Room-page public stats (spec §4.7): finalized-session count and the
+    A8 streak — consecutive calendar weeks with ≥ 1 finalized session,
+    counted back from the current week (a still-sessionless current week
+    doesn't break a streak that ran through last week). Never grades."""
+    sql = """
+        SELECT DISTINCT date_trunc('week', ended_at) AS week
+        FROM practice_sessions
+        WHERE state = 'finalized' AND ended_at IS NOT NULL
+          AND (interviewer_id = %(u)s OR candidate_id = %(u)s)
+        ORDER BY week DESC;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, {"u": user_id})
+            weeks = [row[0] for row in cur.fetchall()]
+            cur.execute("SELECT date_trunc('week', NOW());")
+            this_week = cur.fetchone()[0]
+
+    streak = 0
+    expected = this_week
+    for week in weeks:
+        if week == expected:
+            streak += 1
+            expected -= timedelta(weeks=1)
+        elif streak == 0 and week == this_week - timedelta(weeks=1):
+            # Current week has no session yet — start counting from last week.
+            streak = 1
+            expected = week - timedelta(weeks=1)
+        else:
+            break
+    return {"sessions_finalized": count_finalized(user_id), "streak_weeks": streak}
+
+
+def count_finalized(user_id: int) -> int:
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM practice_sessions"
+                " WHERE state = 'finalized'"
+                "   AND (interviewer_id = %(u)s OR candidate_id = %(u)s);",
+                {"u": user_id},
+            )
+            return cur.fetchone()[0]
+
+
+def list_upcoming_for_user(user_id: int) -> list[dict]:
+    """Sessions the user can still join (scheduled/lobby/live), soonest
+    first, for the own-room panel."""
+    sql = """
+        SELECT ps.id, ps.state, ps.scheduled_at, ps.created_at,
+               c.case_title,
+               CASE WHEN ps.interviewer_id = %(u)s THEN 'interviewer'
+                    ELSE 'candidate' END AS your_role,
+               CASE WHEN ps.interviewer_id = %(u)s
+                    THEN COALESCE(uc.display_name, split_part(uc.email::text, '@', 1))
+                    ELSE COALESCE(ui.display_name, split_part(ui.email::text, '@', 1))
+               END AS counterpart
+        FROM practice_sessions ps
+        JOIN cases c ON c.id = ps.case_id
+        JOIN users ui ON ui.id = ps.interviewer_id
+        JOIN users uc ON uc.id = ps.candidate_id
+        WHERE (ps.interviewer_id = %(u)s OR ps.candidate_id = %(u)s)
+          AND ps.state IN ('scheduled', 'lobby', 'live')
+        ORDER BY ps.scheduled_at NULLS FIRST, ps.created_at;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, {"u": user_id})
+            return cur.fetchall()
 
 
 def sweep_stale_sessions() -> int:

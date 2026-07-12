@@ -84,11 +84,13 @@ def case_detail(
 
     knit_u = preview_knit_url(case_row=dict(case), settings=request.app.state.settings)
 
+    from webapp.repositories.queues import membership
     return render(request, "case_detail.html", {
         "case": case,
         "preview_knit_url": knit_u,
         "vote_state": vote_state,
         "back_url": _safe_back_url(return_to),
+        "queue_state": membership(user.id, case_id),
     })
 
 

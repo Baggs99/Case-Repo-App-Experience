@@ -34,6 +34,14 @@ def render(
     is_admin = bool(settings and user and settings.is_admin(user.email))
     ctx.setdefault("current_user_is_admin", is_admin)
 
+    if user:
+        # Nav proposal badge (spec §4.7) — one indexed COUNT per page render.
+        from webapp.repositories.proposals import pending_count
+        try:
+            ctx.setdefault("pending_proposal_count", pending_count(user.id))
+        except Exception:
+            ctx.setdefault("pending_proposal_count", 0)
+
     tr_kw: dict[str, Any] = {}
     if response_headers:
         tr_kw["headers"] = response_headers

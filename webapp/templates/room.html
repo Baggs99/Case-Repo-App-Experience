@@ -8,34 +8,164 @@
             {{ room.owner_name }}'s room
         </h1>
         <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            {% if is_own_room %}
-            Your permanent practice room. Share this URL to let others propose cases to you.
-            {% else %}
-            Propose a case session with {{ room.owner_name }} — coming in a later phase.
-            {% endif %}
+            {{ stats.sessions_finalized }} finalized session{{ '' if stats.sessions_finalized == 1 else 's' }}
+            · {{ stats.streak_weeks }}-week streak
+            {% if is_own_room %}· share this URL so others can propose cases to you{% endif %}
         </p>
     </div>
 
+    {% if is_own_room %}
     <div class="grid gap-4 sm:grid-cols-2">
-        {# Placeholder panels — filled in by later phases:
-           upcoming sessions + proposal inbox (P8), queues (P8),
-           history + trends (P9), recommendations (P9). #}
         <div class="surface rounded-2xl shadow-card p-6">
-            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">Upcoming sessions</h2>
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">Upcoming sessions</h2>
+            {% if upcoming %}
+            <ul class="space-y-3">
+                {% for s in upcoming %}
+                <li class="text-sm">
+                    <a href="/session/{{ s.id }}" class="font-medium text-slate-900 dark:text-slate-100 hover:underline">{{ s.case_title }}</a>
+                    <div class="text-slate-500 dark:text-slate-400 text-[13px]">
+                        You {{ 'interview' if s.your_role == 'interviewer' else 'are interviewed by' }} {{ s.counterpart }}
+                        · {% if s.scheduled_at %}{{ s.scheduled_at.strftime('%a %b %-d, %H:%M') }}{% else %}join anytime{% endif %}
+                        · <a class="hover:underline" href="/ics/session-{{ s.id }}.ics">.ics</a>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
             <p class="text-sm text-slate-500 dark:text-slate-400">Nothing scheduled yet.</p>
+            {% endif %}
         </div>
+
         <div class="surface rounded-2xl shadow-card p-6">
-            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">Proposals</h2>
-            <p class="text-sm text-slate-500 dark:text-slate-400">No proposals yet.</p>
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">
+                Proposals{% if inbox %} <span class="badge badge-easy align-middle">{{ inbox|length }}</span>{% endif %}
+            </h2>
+            {% if inbox %}
+            <ul class="space-y-4">
+                {% for p in inbox %}
+                <li class="text-sm" data-proposal="{{ p.id }}">
+                    <div class="font-medium text-slate-900 dark:text-slate-100">
+                        {{ p.from_name }} proposes <span class="italic">{{ p.case_title }}</span>
+                    </div>
+                    <div class="text-[13px] text-slate-500 dark:text-slate-400 mb-1.5">
+                        They'd be the {{ p.from_role }} — you'd be the
+                        {{ 'candidate' if p.from_role == 'interviewer' else 'interviewer' }}.
+                        {% if p.message %}<span class="block mt-0.5">“{{ p.message }}”</span>{% endif %}
+                    </div>
+                    {% if p.proposed_times_json %}
+                    <div class="flex flex-wrap gap-1.5 mb-2" data-times>
+                        {% for t in p.proposed_times_json %}
+                        <label class="btn-pill btn-pill-default cursor-pointer">
+                            <input type="radio" name="time-{{ p.id }}" value="{{ t }}" class="sr-only">
+                            <span data-iso="{{ t }}">{{ t }}</span>
+                        </label>
+                        {% endfor %}
+                        <label class="btn-pill btn-pill-active cursor-pointer">
+                            <input type="radio" name="time-{{ p.id }}" value="" class="sr-only" checked>
+                            <span>Now / unscheduled</span>
+                        </label>
+                    </div>
+                    {% endif %}
+                    <div class="flex gap-2">
+                        <button class="btn-primary !py-1 !px-2.5 !text-[13px]" data-accept="{{ p.id }}">Accept</button>
+                        <button class="btn-secondary !py-1 !px-2.5 !text-[13px]" data-decline="{{ p.id }}">Decline</button>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">No pending proposals.</p>
+            {% endif %}
         </div>
+
+        {% for kind, rows, blurb in [('want', queue_want, 'Cases you hope to receive'),
+                                     ('give', queue_give, 'Cases you can run as interviewer')] %}
         <div class="surface rounded-2xl shadow-card p-6">
-            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">Queues</h2>
-            <p class="text-sm text-slate-500 dark:text-slate-400">Cases you want to receive or can give will appear here.</p>
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">
+                {{ 'Want queue' if kind == 'want' else 'Give queue' }}</h2>
+            <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-3">{{ blurb }}.</p>
+            {% if rows %}
+            <ul class="space-y-2">
+                {% for c in rows %}
+                <li class="text-sm flex items-center justify-between gap-2">
+                    <a href="/cases/{{ c.id }}" class="hover:underline text-slate-800 dark:text-slate-200 truncate">{{ c.case_title }}</a>
+                    <button class="btn-ghost text-[13px] shrink-0" data-unqueue="{{ kind }}:{{ c.id }}"
+                            aria-label="Remove from {{ kind }} queue">✕</button>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">Empty — add cases from any
+                <a href="/" class="underline">case page</a>.</p>
+            {% endif %}
         </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    {# ── Visiting view (spec §4.7 T8.2): public stats + intersections only #}
+    <div class="grid gap-4 sm:grid-cols-2">
+        {% for rows, title, blurb, role in [
+            (intersections.give_to_them,
+             'You could interview ' ~ room.owner_name,
+             'In your Give queue and their Want queue', 'interviewer'),
+            (intersections.receive_from_them,
+             room.owner_name ~ ' could interview you',
+             'In your Want queue and their Give queue', 'candidate')] %}
         <div class="surface rounded-2xl shadow-card p-6">
-            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">History</h2>
-            <p class="text-sm text-slate-500 dark:text-slate-400">Finished sessions will appear here.</p>
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">{{ title }}</h2>
+            <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-3">{{ blurb }}.</p>
+            {% if rows %}
+            <ul class="space-y-2.5">
+                {% for c in rows %}
+                <li class="text-sm flex items-center justify-between gap-2">
+                    <span class="truncate">
+                        <a href="/cases/{{ c.id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ c.case_title }}</a>
+                        <span class="text-[12px] text-slate-500 dark:text-slate-500">· {{ c.difficulty }}</span>
+                    </span>
+                    <button class="btn-primary !py-1 !px-2.5 !text-[13px] shrink-0"
+                            data-propose="{{ c.id }}" data-role="{{ role }}"
+                            data-title="{{ c.case_title }}">Propose</button>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="text-sm text-slate-500 dark:text-slate-400">No overlap yet — queues on
+                <a href="/" class="underline">case pages</a> feed these lists.</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    {# ── Propose modal ───────────────────────────────────────────────────── #}
+    <div id="propose-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/50 p-4">
+        <div class="surface-2 rounded-2xl shadow-lift p-6 w-full max-w-md">
+            <h3 class="text-base font-semibold text-slate-900 dark:text-slate-100 mb-1" id="propose-title"></h3>
+            <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-4" id="propose-role-line"></p>
+            <label class="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">Message (optional)</label>
+            <textarea id="propose-message" maxlength="500" rows="2" class="input-base mb-3"
+                      placeholder="Any context or preferences…"></textarea>
+            <label class="block text-[13px] font-medium text-slate-700 dark:text-slate-300 mb-1">Suggest up to 3 times (optional)</label>
+            <div class="space-y-2 mb-4">
+                <input type="datetime-local" class="input-base" data-propose-time>
+                <input type="datetime-local" class="input-base" data-propose-time>
+                <input type="datetime-local" class="input-base" data-propose-time>
+            </div>
+            <p id="propose-error" class="text-[13px] text-rose-600 dark:text-rose-400 mb-2 hidden" role="alert"></p>
+            <div class="flex justify-end gap-2">
+                <button class="btn-secondary" id="propose-cancel">Cancel</button>
+                <button class="btn-primary" id="propose-send">Send proposal</button>
+            </div>
         </div>
     </div>
+    {% endif %}
 </div>
+
+<script>
+window.ROOM = {
+    ownerId: {{ room.owner_user_id }},
+    isOwn: {{ 'true' if is_own_room else 'false' }},
+};
+</script>
+<script src="/static/js/caseroom/room.js"></script>
 {% endblock %}

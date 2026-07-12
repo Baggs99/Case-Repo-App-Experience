@@ -35,10 +35,14 @@ class EmailSender(ABC):
         subject: str,
         text_body: str,
         html_body: str | None = None,
+        attachments: list[tuple[str, str, bytes]] | None = None,
     ) -> None:
         """Send an email. Synchronous so callers don't have to manage tasks
         for what is rarely a hot path. Switch to async if you start sending
         large volumes.
+
+        `attachments` is a list of (filename, mimetype, content) tuples —
+        added for CaseRoom .ics invites (spec T8.4).
 
         Always provide both `text_body` (fallback for plain-text clients
         and accessibility) and `html_body` (what most clients render).
@@ -70,6 +74,7 @@ class ConsoleEmailSender(EmailSender):
         subject: str,
         text_body: str,
         html_body: str | None = None,
+        attachments: list[tuple[str, str, bytes]] | None = None,
     ) -> None:
         logger.info(
             "─" * 70 + "\n"
@@ -93,6 +98,12 @@ class ConsoleEmailSender(EmailSender):
             html_path = self.output_dir / f"{timestamp}-{safe_to}.html"
             html_path.write_text(html_body, encoding="utf-8")
             logger.info("    (html saved to %s)", html_path)
+
+        for filename, _mimetype, content in attachments or []:
+            safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", filename)
+            att_path = self.output_dir / f"{timestamp}-{safe_to}-{safe_name}"
+            att_path.write_bytes(content)
+            logger.info("    (attachment saved to %s)", att_path)
 
 
 # ── Resend: production backend ─────────────────────────────────────────────────
@@ -140,6 +151,7 @@ class ResendEmailSender(EmailSender):
         subject: str,
         text_body: str,
         html_body: str | None = None,
+        attachments: list[tuple[str, str, bytes]] | None = None,
     ) -> None:
         payload: dict = {
             "from":    self._sender,
@@ -149,6 +161,13 @@ class ResendEmailSender(EmailSender):
         }
         if html_body:
             payload["html"] = html_body
+        if attachments:
+            import base64
+            payload["attachments"] = [
+                {"filename": name, "content": base64.b64encode(content).decode(),
+                 "content_type": mimetype}
+                for name, mimetype, content in attachments
+            ]
 
         try:
             response = self._resend.Emails.send(payload)

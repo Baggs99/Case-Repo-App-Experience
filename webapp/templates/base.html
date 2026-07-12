@@ -237,6 +237,13 @@
                 <a href="/" class="hidden sm:inline-flex px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Browse</a>
 
                 {% if current_user %}
+                    <a href="/room" class="relative inline-flex items-center px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
+                        My room
+                        {% if pending_proposal_count %}
+                        <span class="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold text-white"
+                              aria-label="{{ pending_proposal_count }} pending proposals">{{ pending_proposal_count }}</span>
+                        {% endif %}
+                    </a>
                     <span class="text-slate-500 hidden lg:inline px-2 text-[13px] truncate max-w-[200px]">{{ current_user.email }}</span>
                     {% if current_user_is_admin %}
                         <a href="/admin/cases" class="px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Cases</a>
