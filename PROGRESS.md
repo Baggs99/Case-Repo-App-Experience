@@ -39,6 +39,17 @@ reconnect, candidate mid-call reload re-verify). Owner decisions O1–O3
 still open; rubric-template editor UI still deferred (P11 polish or
 cut for v1 — generic template works server-side).
 
+## Done — Browse tiles: open rule-bounded tiles (2026-07-12, owner call)
+- Owner: keep the calm palette, drop the rounded/bg card shell — tiles
+  now use the guide's top+bottom hairlines, transparent, no radius or
+  shadow (guide rule 02 fully in force again; the earlier "soft-card
+  exception" note in base.html is superseded). Hover = surface wash.
+  Grid gutters gap-x-10/gap-y-5 so the rules read as columns.
+  NOTE: dark-mode screenshots taken immediately after a JS theme
+  toggle can catch Tailwind-CDN pre-recompile colors (HARD badge
+  looked ink; computed style confirmed chalk #E9EEF5 — verified).
+  Shots: output/evidence/browse-rules-{light,dark}.png. Commit 5100509
+
 ## Done — Calmer school + difficulty palette (2026-07-12, owner call)
 - Difficulty badges: ink RAMP (Easy quiet outline · Medium firm
   outline · Hard solid ink block — flips to chalk block in dark);
