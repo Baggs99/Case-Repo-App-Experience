@@ -70,9 +70,18 @@ class SignalingHub:
         self._calls: dict[int, _Call] = {}
 
     async def connect(self, session_id: int, role: str, display_name: str,
-                      socket: PeerSocket) -> dict:
-        """Register a socket; returns the `ok` message to send to it."""
+                      socket: PeerSocket, admitted: bool = False) -> dict:
+        """Register a socket; returns the `ok` message to send to it.
+
+        `admitted` lets the caller rebuild call state from the DB on connect:
+        the hub is process-local, so a server restart mid-call would otherwise
+        forget the admit (candidate re-knocks, sdp/ice relay gated). A session
+        already in `live` passes admitted=True to restore it. Only ever
+        upgrades — a reconnect never revokes an in-process admit.
+        """
         call = self._calls.setdefault(session_id, _Call())
+        if admitted:
+            call.admitted = True
 
         old = call.sockets.get(role)
         if old is not None:

@@ -54,7 +54,13 @@ async def practice_ws(websocket: WebSocket, session_id: int):
         return
 
     await websocket.accept()
-    ok = await hub.connect(session_id, role, session[f"{role}_name"], websocket)
+    # A `live` session means the call was already admitted; pass that so a
+    # reconnect after a server restart restores admit state (FM-1) rather than
+    # forcing a re-knock and gating sdp/ice relay.
+    ok = await hub.connect(
+        session_id, role, session[f"{role}_name"], websocket,
+        admitted=session["state"] == "live",
+    )
     await websocket.send_json(ok)
 
     try:

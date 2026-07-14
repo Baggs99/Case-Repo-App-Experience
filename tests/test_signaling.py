@@ -68,6 +68,18 @@ class TestConnect(HubTestCase):
         ok = await self.hub.connect(1, "candidate", "Bob", newer)
         self.assertTrue(ok["admitted"])
 
+    async def test_admitted_hint_rebuilds_state_after_restart(self):
+        # FM-1: the hub is process-local, so a server restart forgets the
+        # admit. A fresh hub (a restarted process) rebuilds admitted=True from
+        # the DB session state on reconnect — the reconnecting clients see
+        # admitted (no re-knock) and sdp/ice relay works with no new 'admit'.
+        ok_i = await self.hub.connect(1, "interviewer", "Alice", self.ivr, admitted=True)
+        ok_c = await self.hub.connect(1, "candidate", "Bob", self.cand, admitted=True)
+        self.assertTrue(ok_i["admitted"])
+        self.assertTrue(ok_c["admitted"])
+        await self.hub.handle(1, "interviewer", self.ivr, {"type": "sdp", "description": "offer"})
+        self.assertIn({"type": "sdp", "description": "offer"}, self.cand.sent)
+
 
 class TestKnockAdmitDeny(HubTestCase):
     async def test_candidate_knock_reaches_interviewer_with_name(self):
