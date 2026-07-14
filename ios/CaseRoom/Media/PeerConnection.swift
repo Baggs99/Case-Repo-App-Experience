@@ -53,9 +53,9 @@ protocol MediaTrackHandle {}
 /// on, so it (and its test stub) never import WebRTC.
 protocol MediaTransport: AnyObject {
     var signalingState: MediaSignalingState { get }
-    var onRemoteTrack: ((MediaTrackHandle) -> Void)? { get set }
-    var onLocalICECandidate: ((ICECandidate) -> Void)? { get set }
-    var onShouldNegotiate: (() -> Void)? { get set }
+    var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)? { get set }
+    var onLocalICECandidate: (@MainActor (ICECandidate) -> Void)? { get set }
+    var onShouldNegotiate: (@MainActor () -> Void)? { get set }
 
     func createOffer() async throws -> SDP
     func createAnswer() async throws -> SDP
@@ -77,9 +77,9 @@ final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
 
     private let peerConnection: RTCPeerConnection
 
-    var onRemoteTrack: ((MediaTrackHandle) -> Void)?
-    var onLocalICECandidate: ((ICECandidate) -> Void)?
-    var onShouldNegotiate: (() -> Void)?
+    var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)?
+    var onLocalICECandidate: (@MainActor (ICECandidate) -> Void)?
+    var onShouldNegotiate: (@MainActor () -> Void)?
 
     var signalingState: MediaSignalingState {
         Self.map(peerConnection.signalingState)
@@ -246,13 +246,16 @@ extension RTCPeerConnectionWrapper: RTCPeerConnectionDelegate {
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         guard let track = stream.videoTracks.first ?? stream.audioTracks.first else { return }
-        onRemoteTrack?(TrackHandle(track: track))
+        let handle = TrackHandle(track: track)
+        guard let callback = onRemoteTrack else { return }
+        Task { @MainActor in callback(handle) }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
 
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        onShouldNegotiate?()
+        guard let callback = onShouldNegotiate else { return }
+        Task { @MainActor in callback() }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
@@ -260,11 +263,13 @@ extension RTCPeerConnectionWrapper: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        onLocalICECandidate?(ICECandidate(
+        let neutral = ICECandidate(
             candidate: candidate.sdp,
             sdpMid: candidate.sdpMid,
             sdpMLineIndex: candidate.sdpMLineIndex
-        ))
+        )
+        guard let callback = onLocalICECandidate else { return }
+        Task { @MainActor in callback(neutral) }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}

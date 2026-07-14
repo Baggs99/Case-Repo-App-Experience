@@ -13,9 +13,9 @@ import XCTest
 
 private final class NegotiatorStubTransport: MediaTransport {
     var signalingState: MediaSignalingState = .stable
-    var onRemoteTrack: ((MediaTrackHandle) -> Void)?
-    var onLocalICECandidate: ((ICECandidate) -> Void)?
-    var onShouldNegotiate: (() -> Void)?
+    var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)?
+    var onLocalICECandidate: (@MainActor (ICECandidate) -> Void)?
+    var onShouldNegotiate: (@MainActor () -> Void)?
 
     var offerToReturn = SDP(type: "offer", sdp: "offer-sdp")
     var answerToReturn = SDP(type: "answer", sdp: "answer-sdp")
@@ -99,6 +99,23 @@ final class NegotiatorTests: XCTestCase {
         XCTAssertEqual(transport.setLocalDescriptionCalls, [transport.offerToReturn])
         XCTAssertEqual(signaling.sentSDP, [transport.offerToReturn])
         _ = negotiator // keep alive through the assertions above
+    }
+
+    // MARK: - makingOffer flips synchronously (regression guard for the
+    // late-flag threading bug: onShouldNegotiate must set makingOffer before
+    // any subsequently-scheduled inbound-offer handling can read it).
+
+    @MainActor
+    func testOnShouldNegotiateSetsMakingOfferSynchronously() {
+        let transport = NegotiatorStubTransport()
+        let signaling = NegotiatorStubSignaling()
+        let negotiator = Negotiator(transport: transport, signaling: signaling, polite: false)
+
+        transport.onShouldNegotiate?()
+
+        // No await/yield here: makingOffer must already be true the instant
+        // the callback returns, without waiting on the offer I/O Task.
+        XCTAssertTrue(negotiator.makingOffer)
     }
 
     // MARK: - collision: impolite side ignores a colliding offer

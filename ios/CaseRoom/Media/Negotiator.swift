@@ -31,7 +31,7 @@ final class Negotiator {
         self.polite = polite
 
         transport.onShouldNegotiate = { [weak self] in
-            Task { await self?.negotiationNeeded() }
+            self?.negotiationNeeded()
         }
         transport.onLocalICECandidate = { [weak self] candidate in
             self?.signaling.sendICE(candidate)
@@ -51,9 +51,17 @@ final class Negotiator {
         }
     }
 
-    /// Mirrors rtc.js's pc.onnegotiationneeded.
-    private func negotiationNeeded() async {
+    /// Mirrors rtc.js's pc.onnegotiationneeded. Sets `makingOffer` synchronously
+    /// (the wrapper marshals `onShouldNegotiate` onto the main actor before
+    /// invoking this) so a concurrently-scheduled inbound offer can never
+    /// observe a stale `makingOffer == false` — then does the offer I/O in a
+    /// Task, mirroring rtc.js's async onnegotiationneeded ordering.
+    private func negotiationNeeded() {
         makingOffer = true
+        Task { await sendOffer() }
+    }
+
+    private func sendOffer() async {
         defer { makingOffer = false }
         do {
             let offer = try await transport.createOffer()
