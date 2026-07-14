@@ -70,6 +70,7 @@ def claim(token: str, candidate_id: int) -> dict:
                 interviewer_id=row["interviewer_id"],
                 candidate_id=candidate_id,
                 case_id=row["case_id"],
+                mode="in_person",
             )
             cur.execute(
                 "UPDATE pairing_tokens SET claimed_session_id = %s WHERE id = %s;",

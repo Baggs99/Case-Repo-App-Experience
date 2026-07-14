@@ -185,6 +185,7 @@ def join_config(session_id: int, request: Request,
     return {
         "session_id": session_id,
         "your_role": role,
+        "mode": session["mode"],
         "ws_path": f"/ws/practice/{session_id}",
         "ice_servers": request.app.state.settings.ice_servers,
     }

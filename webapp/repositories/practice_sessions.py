@@ -34,7 +34,7 @@ _SESSION_COLS = """
     ps.id, ps.room_id, ps.interviewer_id, ps.candidate_id, ps.case_id,
     ps.rubric_template_id, ps.state, ps.consent_interviewer,
     ps.consent_candidate, ps.scheduled_at, ps.started_at, ps.ended_at,
-    ps.state_changed_at, ps.created_at
+    ps.state_changed_at, ps.created_at, ps.mode
 """
 
 
@@ -76,6 +76,7 @@ def create_practice_session(
     case_id: int,
     rubric_template_id: Optional[int] = None,
     scheduled_at: Optional[str] = None,
+    mode: str = "remote",
 ) -> dict:
     """Create a session in 'scheduled'. The room is the interviewer's (A1),
     auto-created if they never visited theirs."""
@@ -86,14 +87,14 @@ def create_practice_session(
     sql = f"""
         INSERT INTO practice_sessions
             (room_id, interviewer_id, candidate_id, case_id,
-             rubric_template_id, scheduled_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
+             rubric_template_id, scheduled_at, mode)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING {_SESSION_COLS.replace('ps.', '')};
     """
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, (room["id"], interviewer_id, candidate_id,
-                              case_id, rubric_template_id, scheduled_at))
+                              case_id, rubric_template_id, scheduled_at, mode))
             return cur.fetchone()
 
 
