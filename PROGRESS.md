@@ -11,9 +11,11 @@ session prompt doesn't say, ASK which track before touching anything.
   call, all 4 legs pass; findings CB-1..4 in INTEGRATION.md §9; knock-race
   bug CB-2 fixed in session.js). P11 T11.3 failure-mode DONE (2026-07-14 —
   candidate-reload + server-restart PASS; wifi/ICE-restart not reproducible
-  on one Mac (loopback); finding FM-1 hub-state-loss on restart; §10). NOW:
-  remaining P11 = T11.4 DEPLOY.md (BLOCKED on O1 host + O2 TURN), T11.5
-  housekeeping (agent can do), + decisions (usefulness-color, O1–O3, demo-case deletion,
+  on one Mac (loopback); finding FM-1 hub-state-loss on restart; §10). P11
+  T11.5 housekeeping DONE + follow-up fixes CB-3 (recording keepalive,
+  329d959), FM-1 (hub rebuild admitted from DB, b3c0508) SHIPPED; suite 235
+  green. NOW: **only P11 item left is T11.4 DEPLOY.md — BLOCKED on O1 host +
+  O2 TURN** (Thomas). Plus decisions (usefulness-color, O1–O3, demo-case deletion,
   rubric-editor spec). Full table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
@@ -90,6 +92,25 @@ Web-track gotchas (this session, not recorded elsewhere):
 - .venv one-off scripts touching the DB must init_pool first (see any
   seeding snippet in the Done sections); pool-shutdown warnings on exit
   are harmless.
+
+## Done — Phase 11 T11.5 housekeeping + CB-3/FM-1 fixes (2026-07-14)
+- T11.5: TODO/stub sweep of CaseRoom code — only real hit was a stale
+  docstring calling `ResendEmailSender` a "TODO stub … uncomment below" when
+  it's fully implemented (Phase 8); corrected (commit 7566b32). All other
+  `placeholder`/`stub` matches are legit HTML/CSS. Commit log clean.
+- CB-3 FIXED (329d959): `/recordings/complete` POST now `{keepalive:true}` so
+  the completion marker survives page unload (was leaving interviewer
+  recording `completed=f`). Not on chunk POST (keepalive ~64 KB body cap).
+- FM-1 FIXED (b3c0508): WS route passes `admitted=(state=='live')` to
+  `hub.connect()` so a reconnect after a server restart rebuilds the admit
+  from the DB (no spurious admit prompt, no relay gate). Test added.
+- Suite **235 passed** (was 234 + the FM-1 test). Dev server restarted onto
+  the fixed code.
+- Dev-data hygiene: session 1012 was finalized during the T11.3 wrap-up, which
+  burned candidate b(2) on case 1 and broke the ws-integration tests (A6 409);
+  cleared that burn (`DELETE FROM burned WHERE user_id=2 AND case_id=1`).
+  Throwaway T11.2/T11.3 sessions 983/984/1012 still linger in dev
+  (debrief/finalized) — harmless; delete if desired.
 
 ## Done — Phase 11 T11.3 failure-mode pass (2026-07-14)
 - Session 1012, Chrome (interviewer) ↔ Safari (candidate). Agent drove +

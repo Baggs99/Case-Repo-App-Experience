@@ -265,9 +265,10 @@ Findings / quirks:
   navigates/reloads right after End, the in-flight `complete` POST is
   cancelled and the row stays `completed=f` (chunks are still on disk, content
   preserved). Hit once (984 interviewer) when the Chrome page churned; 983
-  completed cleanly both sides. Recommended fix: send the final `complete`
-  with `fetch(..., {keepalive:true})` (survives unload), or await the flush in
-  `endCall` with a short timeout. Not fixed inline — wants a clean repro+test.
+  completed cleanly both sides. **FIXED (commit 329d959):** the final
+  `/recordings/complete` POST now uses `{keepalive:true}` so the completion
+  marker lands even if the page unloads. (Kept off the chunk POST — keepalive
+  caps the body at ~64 KB; chunks are multi-MB.)
 
 - **CB-4 — Stale/back-button session page shows "Session is not joinable"
   (minor).** `boot()` keys off the state baked into the page at load
@@ -297,9 +298,10 @@ Session 1012, Chrome (interviewer) ↔ Safari (candidate), one Mac.
   auto-re-knocks and the interviewer gets a **spurious "Admit" prompt
   mid-call**; and until re-admitted the hub **gates SDP/ICE relay** (handle()
   requires `call.admitted` for sdp/ice), so an ICE-restart renegotiation would
-  be blocked. Clicking Admit restores both. Acceptable for a dev restart;
-  for prod, rebuilding `admitted` from the DB session state on WS connect
-  would remove the spurious prompt and the relay gate.
+  be blocked. **FIXED (commit b3c0508):** the WS route now passes
+  `admitted=(state=='live')` to `hub.connect()`, so a reconnect rebuilds the
+  admit from the DB — no spurious prompt, relay works. Only upgrades, never
+  revokes an in-process admit (test in test_signaling.py).
 
 - **Network drop / ICE restart (wifi toggle) — NOT REPRODUCIBLE on one Mac.**
   Both peers + server are local and the P2P selected a **loopback** path, so
