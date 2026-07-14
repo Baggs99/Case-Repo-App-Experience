@@ -46,29 +46,65 @@ session prompt doesn't say, ASK which track before touching anything.
   .superpowers/sdd/task-15-report.md. Next: **P3 — remote WebRTC media +
   Live Activities + TURN provider decision**.
 
-## Handoff partition (iOS track, written 2026-07-12)
+## HANDOFF — current (2026-07-14, end of P1+P2 build + P3 plan)
+Supersedes the 2026-07-12 iOS partition. Three iOS phases now exist:
+**P1 DONE · P2 DONE · P3 PLANNED (not started).**
+
+### Verified state (re-checked with commands THIS session — not recalled)
+- **Branch chain (NOT pushed — Thomas merges in order):**
+  `feature/caseroom` (web, b37bc0c) → `feature/ios-app` (P1; tip 084c0de is
+  the P2-plan doc commit, P1 CODE ends at 4a74d8e) → `feature/ios-p2` (P2;
+  tip 1816c33 is the P3-plan doc commit, P2 CODE ends at a7a97fe). `git log`
+  confirms lineage; working tree clean.
+- **Plans (all committed):** docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md
+  (+ .RECON.md), 2026-07-14-caseroom-ios-p2-session-core-plan.md,
+  2026-07-14-caseroom-ios-p3-remote-media-plan.md. Migrations through 014.
+- **Tests were GREEN on these exact commits this session:** backend **290**,
+  iOS **112** (Task 15 capstone AND both final whole-branch reviews ran them
+  green independently). All 30 tasks (P1×15, P2×15) were TDD'd + individually
+  reviewed; both final whole-branch reviews returned **READY TO MERGE**.
+- ⚠️ **CURRENT `pytest tests/` = 6 failed / 284 passed — VERIFIED this is
+  dev-DB DATA POLLUTION, NOT a code regression.** 5 failures are
+  `409 "This case is burned for the candidate"`; 1 is a row-count assertion
+  (`2192 != 2349`). Root cause (verified): `is_burned` reads the `burned`
+  table; `finalize` permanently INSERTs a `burned` row; this session's live
+  E2E runs + repeated suite runs accumulated `burned` rows for the seeded
+  candidate on shared dev cases. **The suite is not hermetic against the
+  shared dev Postgres.** Clearing the pollution is EXPECTED to restore green
+  but is **UNVERIFIED** — the cleanup DELETE was blocked by the sandbox this
+  session.
+
+### Handoff partition
 | Chunk | Spec state | Tier | Next concrete action |
 |---|---|---|---|
-| P1 Tasks 1–8 (backend: migration, APNs, /api/v1) | complete (plan) | worker | DONE — merged to feature/ios-app |
-| P1 Task 9 (XcodeGen scaffold) | complete (plan) | worker | DONE — commits e9391bd/431647e |
-| P1 Task 10 (networking layer) | complete (plan) | worker | DONE — commit affea8b, report at .superpowers/sdd/task-10-report.md |
-| P1 Tasks 11–15 (iOS app in ios/) | **DONE 2026-07-14** | worker | Task 15 capstone verification complete — see "P1 (iOS app) — DONE" below |
-| P2 (session core, no media) | **DONE 2026-07-14** | worker | Task 15 capstone verification complete — see "P2 (in-person session core) — DONE" below |
-| P3 plan (remote WebRTC media, Live Activities, TURN decision) | needs-spec→plan | session-model | Write plan from spec P3 section once owner picks a TURN provider |
-| Apple dev account + .p8 into .env | manual | Thomas | Not blocking — simulator covers all P1/P2 verification except real-device push |
+| Reset dev-DB test pollution | complete | worker | With DB-write permission: `export $(grep -E '^DATABASE_URL=' .env \| xargs); psql "$DATABASE_URL" -c "DELETE FROM burned;"` then delete the E2E finalized session id 2193 (feedback/reveals/recordings/practice_sessions rows), then `.venv/bin/python -m pytest tests/ -q` → expect ~290 green. |
+| Harden test hermeticity (follow-up) | needs-spec | session-model | Decide: make finalize-touching tests (`test_ws_integration.py` + the count test) clean up their `burned` rows in tearDown, OR run the suite against a per-run fresh DB. Ambiguous → session-model. |
+| Merge branch chain | complete | Thomas | Merge `feature/ios-app` → `feature/ios-p2` → (later) `feature/ios-p3`. |
+| Execute P3 (remote WebRTC media) | complete (plan) | session-model → worker | FIRST resolve the plan's OWNER DECISIONS **OD-1** (iOS WebRTC framework) + **OD-2** (TURN provider) — session-model. THEN subagent-driven per the P3 plan: backend Tasks 1–3 = worker; iOS media Tasks 5–10 = worker once OD-1 is set. |
+| Apple portal .p8 → .env (real push) | manual | Thomas | Carried from P1; not blocking sim/backend work. |
+| Real-device P2/P3 manual checks | manual | Thomas | P2: QR scan + room-mic (no sim camera). P3: iPhone↔desktop video over cellular (needs OD-2 TURN key). |
 
-iOS-track gotchas (this session, not recorded elsewhere):
-- Plan interface names (require_auth_api, search_cases, public_stats,
-  cookie case_repo_session) were verified against the codebase on
-  2026-07-12. If backend files change before execution, re-verify the
-  named signatures in each plan task's Interfaces block before coding.
-- Proposals accept/decline are ALREADY JSON routes (/api/proposals/{id}/
-  accept|decline) — plan reuses them; do not duplicate under /api/v1.
-- "Page loads stand in for cron" cannot drive starting-soon pushes; the
-  plan's 60s asyncio startup loop depends on the app staying
-  single-worker (existing signaling constraint, INTEGRATION.md).
-- iOS platform claims come from ~/Documents/Projects/AppleDev/
-  ios-features.md (evidence-graded); respect its [VERIFY-FIRST] flags.
+### Gotchas learned this session (not recorded elsewhere in the repo)
+- **Non-hermetic tests + shared dev Postgres:** running the suite / the E2E
+  FINALIZES sessions, which inserts permanent `burned` rows for the seeded
+  users; enough accumulation makes `test_ws_integration.py` + a count test
+  fail with data-shaped 409s. Reset `burned` (+ stray finalized sessions)
+  before ever trusting a red suite as a code regression.
+- **iOS-build subagents sometimes BACKGROUND `xcodebuild`** and return a
+  non-terminal "waiting" message without committing. Verify (`git log`, no
+  running xcodebuild), then resume the agent instructing it to run the build
+  in the FOREGROUND and commit — do NOT assume it committed.
+- Recon-verified P2/P3 interface names (WS message shapes, `/api/practice/*`,
+  `rtc.js` perfect-negotiation candidate=polite/interviewer=impolite,
+  `ice_servers`/`join-config`, session `mode` is MISSING and added by P3
+  Task 1) live in the P2/P3 plans' "Verified existing interfaces" blocks —
+  re-verify if backend files change before P3 execution.
+- `/api/practice/*` endpoints are native-compatible (cookie +
+  `require_same_origin` passes on a missing Origin header) — the iOS session
+  screen reuses them directly; no `/api/v1` mirror needed.
+- P3 has TWO consequential owner decisions (OD-1 WebRTC framework — the one
+  unavoidable heavy dependency; OD-2 TURN provider — default Cloudflare
+  Calls) that GATE tasks; resolve before executing the gated tasks.
 
 ## P1 (iOS app) — DONE (2026-07-14, Task 15 capstone verification)
 
