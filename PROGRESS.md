@@ -1,5 +1,5 @@
 # PROGRESS
-Updated: 2026-07-14T14:20:00-04:00 · Branch: feature/caseroom (iOS work on feature/ios-p2, off feature/ios-app)
+Updated: 2026-07-14T19:15:00-04:00 · Branch: feature/ios-p3 (off feature/ios-p2 off feature/ios-app off feature/caseroom). **iOS P3 (remote WebRTC media) BUILD COMPLETE — see the P3 HANDOFF section directly below.**
 
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
@@ -46,8 +46,97 @@ session prompt doesn't say, ASK which track before touching anything.
   .superpowers/sdd/task-15-report.md. Next: **P3 — remote WebRTC media +
   Live Activities + TURN provider decision**.
 
-## HANDOFF — current (2026-07-14, end of P1+P2 build + P3 plan)
-Supersedes the 2026-07-12 iOS partition. Three iOS phases now exist:
+## P3 (remote WebRTC media) — DONE (2026-07-14) · HANDOFF
+Supersedes the P1+P2 HANDOFF below. **iOS P3 built + fully reviewed on branch
+`feature/ios-p3` (off `feature/ios-p2`), NOT pushed — Thomas merges.**
+Executed subagent-driven (SDD): all 12 tasks TDD'd + per-task reviewed; Tasks 6
+and 8 each took an adversarial-review fix cycle (see below). Plan:
+`docs/superpowers/plans/2026-07-14-caseroom-ios-p3-remote-media-plan.md`.
+
+### Verified state (commands run this session)
+- Backend suite `pytest tests/` = **308 passed / 0 failed**. iOS suite
+  `xcodebuild ... -destination 'platform=iOS Simulator,name=iPhone 17' test`
+  = **154 passed / 0 failed (TEST SUCCEEDED)**. Both on tip `2cd04cb`+this commit.
+- Migrations through **016**. Dev-DB test pollution reset at session start
+  (sessions 2192/2193 + burned row purged — the non-hermetic-suite issue).
+
+### What shipped
+- **Phase A (backend):** session `mode` col (migration 015 `remote|in_person`,
+  exposed in join-config + session detail); short-lived TURN credential minting
+  (`webapp/turn.py`, **Cloudflare** provider, STUN-only degrade); `/join-config`
+  merges STUN+TURN for remote sessions only (handler now async +
+  `run_in_threadpool`).
+- **Phase B (iOS media):** WebRTC via SPM **`stasel/WebRTC` pinned 150.0.0**
+  (Package.resolved force-committed; the one sanctioned heavy dep — OD-1);
+  `RTCPeerConnectionWrapper` behind a framework-neutral `MediaTransport`;
+  `Negotiator` mirroring `rtc.js` perfect negotiation byte-for-byte
+  (polite=candidate; collision/ignoreOffer; sdp/ice over the existing signaling
+  WS); camera/mic capture (`WebRTCMediaCapture`) + `VideoCallView` (remote
+  full-screen + local PIP + mute/cam); wired into the session screen for
+  `mode=='remote'` only (in-person stays media-free), video-off = audio-only.
+- **Phase C (Live Activities):** backend ActivityKit push-token registration
+  (migration 016 `live_activity_tokens`, `POST /api/v1/live-activity`) + update
+  pushes on state change (reuses P1 APNs, `liveactivity` push type); iOS Live
+  Activity widget (`CaseRoomWidgets` extension) — lock-screen banner + Dynamic
+  Island, lobby countdown / live elapsed timer rendered CLIENT-SIDE.
+
+### Review catches (fixed this session)
+- **Task 6 CRITICAL threading race:** WebRTC delegate callbacks fire on a bg
+  thread; `makingOffer` was set late (glare race) + `sendICE` crossed into the
+  `@MainActor` signaling client off-thread (data race). Fixed: marshal delegate
+  callbacks to main + set `makingOffer` synchronously (`0fb1024`); + `@unchecked
+  Sendable` TrackHandle for the safe delegate→main track handoff (`417c4d2`).
+- **Task 8 Important:** video-off toggle was dead VM code (UI toggled a separate
+  unsynced `@State`) → routed through the VM as single source of truth; also
+  closed a wrapper leak on capture-start failure + surfaced media-start errors
+  with retry (`e16a6cb`).
+
+### ⚠️ THOMAS — manual, in order (P3 not done-done until these pass)
+1. **OD-2 TURN provider (Cloudflare Calls default):** create the account/key,
+   put `TURN_KEY_ID` + `TURN_TOKEN` (and optional `TURN_PROVIDER=cloudflare`)
+   in `.env`. Required before real-device CELLULAR testing (a same-LAN/sim
+   session works STUN-only). Alternatives if you veto: self-hosted coturn (VPS
+   ~$5/mo) or Twilio — code implements Cloudflare only.
+2. **Carried from P1 (still open):** Apple portal App ID `studio.ogee.caseroom`
+   + Push (+ Time-Sensitive) capability, APNs `.p8` → `.env` — needed for real
+   push (incl. Live Activity updates) on a device.
+3. **Real-device verification (the phase's "done when"):** iPhone (on CELLULAR,
+   not wifi) ↔ desktop-web run a full remote case → both see/hear each other,
+   video-off toggles audio-only, the Live Activity shows in the Dynamic Island,
+   finalizes into history. Also verify **QR-pair + room-mic** from P2 (no sim
+   camera).
+4. **Merge the branch chain (Thomas merges):** `feature/ios-app` →
+   `feature/ios-p2` → `feature/ios-p3`.
+
+### Known real-device RISKS to watch (unit tests can't reach these)
+- **Perfect-negotiation rollback:** the polite side's implicit rollback via
+  `setRemoteDescription(offer)` during a collision assumes native libwebrtc
+  supports implicit rollback like browsers. Documented in `Negotiator.handleSDP`.
+  If a real-device call deadlocks at start (glare), an explicit
+  `setLocalDescription(rollback)` on the polite path is the fix.
+- **App Store size:** the WebRTC binary adds tens of MB — note for submission.
+
+### Owner sign-off pending (non-blocking, defaults applied)
+- Live Activity has **no periodic server push**; the elapsed/countdown timer
+  renders client-side (idiomatic ActivityKit; the plan's "periodic timer" prose
+  was interpreted this way). Confirm this is the desired behavior.
+
+### Carried Minors (final-cleanup sweep — none blocking)
+- `turn.py` normalization assumes Cloudflare `urls` is a list, not a bare string
+  (cheap 1-line hardening; only bites on real Cloudflare).
+- `live_activity_tokens.delete_token(push_token)` unscoped vs the codebase's
+  `token+user_id` convention.
+- `VideoCallView.swift` docblock stale after its init-signature change (CLAUDE.md
+  header rule). Fresh `ISO8601DateFormatter` per widget render. `ContentState`
+  marked `public` inconsistently. join-config test stub JSON omits the `mode` key.
+
+### Next: **P4 — Foundation-Models drills, widgets, App Intents/Entities, "free
+now" instant-match** (session-spine roadmap P1→P2→P3 done → P4).
+
+---
+
+## HANDOFF — P1+P2 (2026-07-14, superseded by the P3 section above)
+Three iOS phases now exist:
 **P1 DONE · P2 DONE · P3 PLANNED (not started).**
 
 ### Verified state (re-checked with commands THIS session — not recalled)
