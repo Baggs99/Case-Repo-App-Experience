@@ -5,6 +5,8 @@ routes here; keep this module's `router` a clean import point for them.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -21,7 +23,7 @@ _MUTATING = [Depends(require_same_origin)]
 
 class DeviceTokenBody(BaseModel):
     token: str
-    platform: str = Field(default="ios")
+    platform: Literal["ios"] = Field(default="ios")
 
 
 @router.post("/devices", status_code=204, dependencies=_MUTATING)
@@ -32,5 +34,5 @@ def register_device(body: DeviceTokenBody, user: User = Depends(require_auth_api
 
 @router.delete("/devices/{token}", status_code=204, dependencies=_MUTATING)
 def unregister_device(token: str, user: User = Depends(require_auth_api)):
-    repo.delete_token(token)
+    repo.delete_token(user.id, token)
     return Response(status_code=204)

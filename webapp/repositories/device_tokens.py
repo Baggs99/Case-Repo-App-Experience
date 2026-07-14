@@ -34,7 +34,10 @@ def tokens_for_user(user_id: int) -> list[str]:
             return [row["token"] for row in cur.fetchall()]
 
 
-def delete_token(token: str) -> None:
+def delete_token(user_id: int, token: str) -> None:
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM device_tokens WHERE token = %s;", (token,))
+            cur.execute(
+                "DELETE FROM device_tokens WHERE token = %s AND user_id = %s;",
+                (token, user_id),
+            )

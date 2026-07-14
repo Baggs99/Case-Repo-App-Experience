@@ -23,20 +23,27 @@ class TestApiV1Devices(unittest.TestCase):
 
         cls._ctx = TestClient(app)
         cls.alice = cls._ctx.__enter__()
+        cls.bob = TestClient(app)  # separate cookie jar
 
         import psycopg
         with psycopg.connect(_DB_URL) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM users WHERE email = %s;", ("a@yale.edu",))
-                cls.aid = cur.fetchone()[0]
+                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
+                            (["a@yale.edu", "b@yale.edu"],))
+                ids = dict(cur.fetchall())
+        cls.aid = ids["a@yale.edu"]
+        cls.bid = ids["b@yale.edu"]
 
         session = create_session(cls.aid, user_agent="p3-test", ip_address=None)
         cls.alice.cookies.set(SESSION_COOKIE_NAME, session.id)
 
+        bob_session = create_session(cls.bid, user_agent="p3-test", ip_address=None)
+        cls.bob.cookies.set(SESSION_COOKIE_NAME, bob_session.id)
+
     @classmethod
     def tearDownClass(cls):
         from webapp.repositories.device_tokens import delete_token
-        delete_token("abc123")
+        delete_token(cls.aid, "abc123")
         cls._ctx.__exit__(None, None, None)
 
     def test_register_list_reregister_delete(self):
@@ -54,6 +61,24 @@ class TestApiV1Devices(unittest.TestCase):
         self.assertEqual(tokens_for_user(self.aid), ["abc123"])
 
         r = self.alice.delete("/api/v1/devices/abc123")
+        self.assertEqual(r.status_code, 204, r.text)
+        self.assertEqual(tokens_for_user(self.aid), [])
+
+    def test_delete_scoped_to_owner(self):
+        from webapp.repositories.device_tokens import tokens_for_user
+
+        r = self.alice.post("/api/v1/devices",
+                             json={"token": "owner-tok-1", "platform": "ios"})
+        self.assertEqual(r.status_code, 204, r.text)
+        self.assertEqual(tokens_for_user(self.aid), ["owner-tok-1"])
+
+        # Bob deleting Alice's token must be a no-op for Alice's rows.
+        r = self.bob.delete("/api/v1/devices/owner-tok-1")
+        self.assertEqual(r.status_code, 204, r.text)
+        self.assertEqual(tokens_for_user(self.aid), ["owner-tok-1"])
+
+        # Alice deleting her own token succeeds.
+        r = self.alice.delete("/api/v1/devices/owner-tok-1")
         self.assertEqual(r.status_code, 204, r.text)
         self.assertEqual(tokens_for_user(self.aid), [])
 
