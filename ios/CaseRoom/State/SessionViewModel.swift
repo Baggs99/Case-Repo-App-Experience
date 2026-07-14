@@ -26,6 +26,8 @@ protocol SignalingChannel {
     func connect(sessionId: Int) async -> AsyncStream<SignalMessage>
     func send(_ data: Data) async
     func disconnect() async
+    func sendSDP(_ description: SDP)
+    func sendICE(_ candidate: ICECandidate?)
 }
 
 extension SignalingClient: SignalingChannel {}
@@ -201,6 +203,10 @@ final class SessionViewModel {
             if let detail = try? await service.sessionDetail(id: sessionId) {
                 await apply(detail)
             }
+        case .sdp, .ice:
+            // Media negotiation frames — routed to Negotiator once the
+            // session screen wires it up (Task 8), not handled here.
+            break
         case .pong, .unknown:
             break
         }

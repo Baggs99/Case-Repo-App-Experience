@@ -89,10 +89,55 @@ final class SignalMessageTests: XCTestCase {
         XCTAssertEqual(parse(#"{"type":"session-update"}"#), .sessionUpdate)
     }
 
+    // MARK: - sdp
+
+    func testParseSDPOffer() {
+        let message = parse(#"{"type":"sdp","description":{"type":"offer","sdp":"v=0..."}}"#)
+        XCTAssertEqual(message, .sdp(description: SDP(type: "offer", sdp: "v=0...")))
+    }
+
+    func testParseSDPAnswer() {
+        let message = parse(#"{"type":"sdp","description":{"type":"answer","sdp":"v=0..."}}"#)
+        XCTAssertEqual(message, .sdp(description: SDP(type: "answer", sdp: "v=0...")))
+    }
+
+    func testParseSDPMissingDescriptionFails() {
+        XCTAssertNil(parse(#"{"type":"sdp"}"#))
+    }
+
+    func testParseSDPMissingSdpFieldFails() {
+        XCTAssertNil(parse(#"{"type":"sdp","description":{"type":"offer"}}"#))
+    }
+
+    // MARK: - ice
+
+    func testParseICECandidate() {
+        let message = parse(#"{"type":"ice","candidate":{"candidate":"candidate:1 1 UDP...","sdpMid":"0","sdpMLineIndex":0}}"#)
+        XCTAssertEqual(message, .ice(candidate: ICECandidate(candidate: "candidate:1 1 UDP...", sdpMid: "0", sdpMLineIndex: 0)))
+    }
+
+    func testParseICECandidateWithStringSdpMLineIndex() {
+        let message = parse(#"{"type":"ice","candidate":{"candidate":"candidate:1 1 UDP...","sdpMid":"0","sdpMLineIndex":"2"}}"#)
+        XCTAssertEqual(message, .ice(candidate: ICECandidate(candidate: "candidate:1 1 UDP...", sdpMid: "0", sdpMLineIndex: 2)))
+    }
+
+    func testParseICENullCandidateIsEndOfCandidates() {
+        let message = parse(#"{"type":"ice","candidate":null}"#)
+        XCTAssertEqual(message, .ice(candidate: nil))
+    }
+
+    func testParseICEMissingCandidateKeyFails() {
+        XCTAssertNil(parse(#"{"type":"ice"}"#))
+    }
+
+    func testParseICECandidateMissingCandidateFieldFails() {
+        XCTAssertNil(parse(#"{"type":"ice","candidate":{"sdpMid":"0"}}"#))
+    }
+
     // MARK: - unrecognized / malformed
 
     func testParseUnrecognizedTypeReturnsUnknown() {
-        XCTAssertEqual(parse(#"{"type":"sdp","sdp":"..."}"#), .unknown)
+        XCTAssertEqual(parse(#"{"type":"future-thing","payload":"..."}"#), .unknown)
     }
 
     func testParseMissingTypeFails() {
@@ -144,6 +189,22 @@ final class SignalMessageTests: XCTestCase {
     func testPingOutboundJSON() {
         let data = SignalMessage.ping()
         XCTAssertEqual(decodeType(data), "ping")
+    }
+
+    func testSDPOutboundJSON() {
+        let data = SignalMessage.sdp(SDP(type: "offer", sdp: "v=0..."))
+        XCTAssertEqual(parse(String(decoding: data, as: UTF8.self)), .sdp(description: SDP(type: "offer", sdp: "v=0...")))
+    }
+
+    func testICEOutboundJSON() {
+        let candidate = ICECandidate(candidate: "candidate:1 1 UDP...", sdpMid: "0", sdpMLineIndex: 0)
+        let data = SignalMessage.ice(candidate)
+        XCTAssertEqual(parse(String(decoding: data, as: UTF8.self)), .ice(candidate: candidate))
+    }
+
+    func testICENilOutboundJSON() {
+        let data = SignalMessage.ice(nil)
+        XCTAssertEqual(parse(String(decoding: data, as: UTF8.self)), .ice(candidate: nil))
     }
 
     func testOutboundHelpersNeverProduceSdpOrIce() {

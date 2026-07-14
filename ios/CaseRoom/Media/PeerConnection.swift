@@ -55,6 +55,7 @@ protocol MediaTransport: AnyObject {
     var signalingState: MediaSignalingState { get }
     var onRemoteTrack: ((MediaTrackHandle) -> Void)? { get set }
     var onLocalICECandidate: ((ICECandidate) -> Void)? { get set }
+    var onShouldNegotiate: (() -> Void)? { get set }
 
     func createOffer() async throws -> SDP
     func createAnswer() async throws -> SDP
@@ -78,6 +79,7 @@ final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
 
     var onRemoteTrack: ((MediaTrackHandle) -> Void)?
     var onLocalICECandidate: ((ICECandidate) -> Void)?
+    var onShouldNegotiate: (() -> Void)?
 
     var signalingState: MediaSignalingState {
         Self.map(peerConnection.signalingState)
@@ -249,7 +251,9 @@ extension RTCPeerConnectionWrapper: RTCPeerConnectionDelegate {
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
 
-    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
+    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
+        onShouldNegotiate?()
+    }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
 

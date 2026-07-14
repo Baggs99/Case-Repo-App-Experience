@@ -124,6 +124,10 @@ final class StubSignalingChannel: SignalingChannel {
         continuation?.finish()
     }
 
+    // Unused by SessionViewModel — required by the SignalingChannel protocol.
+    func sendSDP(_ description: SDP) {}
+    func sendICE(_ candidate: ICECandidate?) {}
+
     /// Test-only helper — scripts an inbound message onto the stream handed
     /// back from connect(sessionId:).
     func push(_ message: SignalMessage) {

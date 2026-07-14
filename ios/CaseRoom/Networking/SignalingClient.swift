@@ -48,10 +48,20 @@ final class SignalingClient {
     }
 
     /// Sends a pre-encoded outbound frame (from SignalMessage's outbound
-    /// helpers). Never call this with sdp/ice payloads — those are P3 media
-    /// concerns and out of scope for this client.
+    /// helpers). For sdp/ice payloads, prefer sendSDP/sendICE below.
     func send(_ data: Data) {
         task?.send(.data(data)) { _ in }
+    }
+
+    /// Sends an sdp offer/answer produced by Negotiator (Task 6).
+    func sendSDP(_ description: SDP) {
+        send(SignalMessage.sdp(description))
+    }
+
+    /// Sends a local ICE candidate (or end-of-candidates nil) produced by
+    /// Negotiator (Task 6).
+    func sendICE(_ candidate: ICECandidate?) {
+        send(SignalMessage.ice(candidate))
     }
 
     func disconnect() {

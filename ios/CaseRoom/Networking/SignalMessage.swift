@@ -18,6 +18,8 @@ enum SignalMessage: Equatable {
     case reveal(exhibitId: Int, keyB64: String)
     case sessionUpdate
     case pong
+    case sdp(description: SDP)
+    case ice(candidate: ICECandidate?)
     case unknown
 
     /// Pure decoder — no socket/session dependency. Malformed JSON or a
@@ -61,6 +63,27 @@ enum SignalMessage: Equatable {
             return .sessionUpdate
         case "pong":
             return .pong
+        case "sdp":
+            guard let description = json["description"] as? [String: Any],
+                  let sdpType = description["type"] as? String,
+                  let sdp = description["sdp"] as? String else {
+                return nil
+            }
+            return .sdp(description: SDP(type: sdpType, sdp: sdp))
+        case "ice":
+            guard let candidateValue = json["candidate"] else {
+                return nil
+            }
+            if candidateValue is NSNull {
+                return .ice(candidate: nil)
+            }
+            guard let candidateDict = candidateValue as? [String: Any],
+                  let candidate = candidateDict["candidate"] as? String else {
+                return nil
+            }
+            let sdpMid = candidateDict["sdpMid"] as? String
+            let sdpMLineIndex = intValue(candidateDict["sdpMLineIndex"]).map { Int32($0) }
+            return .ice(candidate: ICECandidate(candidate: candidate, sdpMid: sdpMid, sdpMLineIndex: sdpMLineIndex))
         default:
             return .unknown
         }
@@ -79,8 +102,9 @@ enum SignalMessage: Equatable {
     }
 
     // MARK: - Outbound helpers
-    // Only these five types are ever emitted — sdp/ice are P3 media-only
-    // and must never be produced by this client.
+    // knock/admit/deny/bye/ping are the lobby-control set. sdp/ice are P3
+    // media-negotiation payloads, produced only by Negotiator via
+    // SignalingChannel.sendSDP/sendICE — never by the lobby-control paths.
 
     static func knock() -> Data {
         encode(["type": "knock"])
@@ -102,7 +126,31 @@ enum SignalMessage: Equatable {
         encode(["type": "ping"])
     }
 
-    private static func encode(_ dict: [String: String]) -> Data {
+    /// Wire shape for sdp matches the web peer's rtc.js:
+    /// {"type":"sdp","description":{"type":"offer"|"answer","sdp":"..."}}.
+    static func sdp(_ description: SDP) -> Data {
+        encode([
+            "type": "sdp",
+            "description": ["type": description.type, "sdp": description.sdp],
+        ])
+    }
+
+    /// Wire shape for ice matches what the web peer's rtc.js feeds to
+    /// addIceCandidate: {"type":"ice","candidate":{candidate,sdpMid,sdpMLineIndex}}
+    /// or {"type":"ice","candidate":null} for end-of-candidates.
+    static func ice(_ candidate: ICECandidate?) -> Data {
+        guard let candidate else {
+            return encode(["type": "ice", "candidate": NSNull()])
+        }
+        let candidateDict: [String: Any] = [
+            "candidate": candidate.candidate,
+            "sdpMid": candidate.sdpMid ?? NSNull(),
+            "sdpMLineIndex": candidate.sdpMLineIndex.map { NSNumber(value: $0) } ?? NSNull(),
+        ]
+        return encode(["type": "ice", "candidate": candidateDict])
+    }
+
+    private static func encode(_ dict: [String: Any]) -> Data {
         (try? JSONSerialization.data(withJSONObject: dict)) ?? Data()
     }
 }
