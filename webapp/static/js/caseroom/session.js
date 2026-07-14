@@ -288,9 +288,9 @@ function onCtrl(msg) {
   else if (msg.type === 'echo-ack') {
     lastRtt = Math.round(performance.now() - msg.t);
     console.info(`ctrl DataChannel echo RTT: ${lastRtt} ms`);
-  } else if (msg.type === 'reveal') {
-    exhibits?.handleCtrl(msg);
   }
+  // Exhibit reveal moved to the signaling WebSocket (P2, decision 5); the
+  // DataChannel ctrl path no longer carries 'reveal'.
 }
 
 async function endCall() {
