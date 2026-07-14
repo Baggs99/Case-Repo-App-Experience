@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="myCase">
+  <!-- The staircase — the system's only mark; last riser fades ink to uptick green.
+       Colors are the brand tokens (base.html): ink/chalk + uptick.
+       Media query tracks the OS theme so the tab mark reads in light and dark. -->
+  <style>
+    .mc-ink   { stop-color: #0D1C31; }
+    .mc-green { stop-color: #1B9A5F; }
+    @media (prefers-color-scheme: dark) {
+      .mc-ink   { stop-color: #E9EEF5; }
+      .mc-green { stop-color: #2FC07E; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="mc" gradientUnits="userSpaceOnUse" x1="0" y1="39" x2="0" y2="8">
+      <stop offset="0" class="mc-ink"/>
+      <stop offset="1" class="mc-green"/>
+    </linearGradient>
+  </defs>
+  <path d="M4 39 H15 V29 H26 V19 H37 V8 H45" fill="none" stroke="url(#mc)" stroke-width="6"/>
+</svg>

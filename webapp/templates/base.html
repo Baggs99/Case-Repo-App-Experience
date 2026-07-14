@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}myCase{% endblock %}</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 
     {# Avoid FOUC: apply saved theme before paint. #}
     <script>
@@ -186,10 +187,6 @@
                  dark:bg-[#101E36] dark:text-slate-100
                  dark:hover:border-slate-600 dark:focus-visible:border-emerald-300;
         }
-        .vote-pill .vote-icon {
-          @apply h-4 w-4 shrink-0 text-slate-500 transition-colors duration-150 dark:text-slate-400;
-        }
-        .vote-pill:hover .vote-icon { @apply text-slate-900 dark:text-slate-200; }
         .vote-pill .vote-count {
           @apply min-w-[1.25ch] text-center text-[12px] font-semibold tabular-nums text-slate-500
                  transition-colors duration-150 dark:text-slate-400;
@@ -204,9 +201,6 @@
         .vote-pill[data-state="useful"] .vote-count {
           @apply text-emerald-800 dark:text-emerald-300;
         }
-        .vote-pill[data-state="useful"] .vote-icon {
-          @apply text-emerald-600 dark:text-emerald-400;
-        }
 
         .vote-pill[data-state="not_useful"] {
           @apply border-rose-300/70 text-rose-700
@@ -216,9 +210,6 @@
         }
         .vote-pill[data-state="not_useful"] .vote-count {
           @apply text-rose-800 dark:text-rose-300;
-        }
-        .vote-pill[data-state="not_useful"] .vote-icon {
-          @apply text-rose-600 dark:text-rose-400;
         }
 
         #case-vote-root[data-voted="useful"] #vote-not,
@@ -294,19 +285,21 @@
                         <a href="/admin/users" class="px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Users</a>
                     {% endif %}
                     <a href="/change-password" class="hidden sm:inline-flex px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Change password</a>
-                    <button id="theme-toggle" type="button" aria-label="Toggle theme"
-                        class="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
-                        <svg class="h-4 w-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-                        <svg class="h-4 w-4 block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    {# Rule 05: the staircase is the only icon — theme control is a caps text label.
+                       Label swap is pure CSS (like the old sun/moon), so it reads correctly before paint. #}
+                    <button id="theme-toggle" type="button" aria-label="Switch color theme"
+                        class="px-2 py-1 rounded-md text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
+                        <span class="dark:hidden">Dark</span><span class="hidden dark:inline">Light</span>
                     </button>
                     <form method="POST" action="/logout" class="inline">
                         <button type="submit" class="btn-secondary !py-1 !px-2.5 !text-[13px]">Sign out</button>
                     </form>
                 {% else %}
-                    <button id="theme-toggle" type="button" aria-label="Toggle theme"
-                        class="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
-                        <svg class="h-4 w-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-                        <svg class="h-4 w-4 block dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    {# Rule 05: the staircase is the only icon — theme control is a caps text label.
+                       Label swap is pure CSS (like the old sun/moon), so it reads correctly before paint. #}
+                    <button id="theme-toggle" type="button" aria-label="Switch color theme"
+                        class="px-2 py-1 rounded-md text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">
+                        <span class="dark:hidden">Dark</span><span class="hidden dark:inline">Light</span>
                     </button>
                     <a href="/login" class="px-2 py-1 rounded-md text-[13px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800">Sign in</a>
                     <a href="/signup" class="btn-primary !py-1 !px-2.5 !text-[13px]">Sign up</a>
