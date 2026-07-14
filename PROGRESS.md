@@ -14,9 +14,12 @@ session prompt doesn't say, ASK which track before touching anything.
   on one Mac (loopback); finding FM-1 hub-state-loss on restart; §10). P11
   T11.5 housekeeping DONE + follow-up fixes CB-3 (recording keepalive,
   329d959), FM-1 (hub rebuild admitted from DB, b3c0508) SHIPPED; suite 235
-  green. NOW: **only P11 item left is T11.4 DEPLOY.md — BLOCKED on O1 host +
-  O2 TURN** (Thomas). Plus decisions (usefulness-color, O1–O3, demo-case deletion,
-  rubric-editor spec). Full table: "Handoff partition (web track)".
+  green. Branch **pushed to GitHub 2026-07-14** (origin/feature/caseroom @
+  5b0e782; Baggs99/Case-Repo-App-Experience). NOW: owner call — **no prod
+  deploy yet, just uploaded to GitHub for later deployment**, so T11.4
+  DEPLOY.md is DEFERRED (still needs O1 host + O2 TURN when it happens).
+  Web build otherwise complete. Open decisions (usefulness-color, O1–O3,
+  demo-case deletion, rubric-editor spec). Full table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
   P1 plan docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md.
