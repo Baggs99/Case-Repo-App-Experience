@@ -12,6 +12,9 @@ import secrets
 from psycopg.rows import dict_row
 
 from webapp.db import get_pool
+from webapp.practice_states import TransitionError
+from webapp.repositories.feedback import is_burned
+from webapp.repositories.practice_sessions import create_practice_session
 
 
 def mint_token(interviewer_id: int, case_id: int, ttl_minutes: int = 10) -> dict:
@@ -25,3 +28,50 @@ def mint_token(interviewer_id: int, case_id: int, ttl_minutes: int = 10) -> dict
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, (token, interviewer_id, case_id, ttl_minutes))
             return cur.fetchone()
+
+
+def claim(token: str, candidate_id: int) -> dict:
+    """Claim a token: creates the practice session in one transaction.
+
+    The token row is locked with SELECT ... FOR UPDATE for the whole
+    transaction — this is the anti-double-claim mechanism. A concurrent
+    second claim of the same token blocks on the lock until this one
+    commits, then sees claimed_session_id already set and gets a 409.
+
+    create_practice_session() opens its OWN connection/transaction (repo
+    convention) and commits independently of the lock we're holding here.
+    Accepted caveat: if the process crashes after that commit but before
+    our UPDATE ... claimed_session_id below commits, a stray 'scheduled'
+    session can be left behind while the token remains claimable. Rare
+    crash window, low harm (an orphaned scheduled session, not a data
+    corruption), acceptable for v1.
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT *, (expires_at < now()) AS expired"
+                " FROM pairing_tokens WHERE token = %s FOR UPDATE;",
+                (token,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise TransitionError(404, "No such pairing token")
+            if row["expired"]:
+                raise TransitionError(409, "Pairing token has expired")
+            if row["claimed_session_id"] is not None:
+                raise TransitionError(409, "Pairing token already claimed")
+            if row["interviewer_id"] == candidate_id:
+                raise TransitionError(409, "Cannot claim your own pairing token")
+            if is_burned(candidate_id, row["case_id"]):
+                raise TransitionError(409, "You have already completed this case")
+
+            session = create_practice_session(
+                interviewer_id=row["interviewer_id"],
+                candidate_id=candidate_id,
+                case_id=row["case_id"],
+            )
+            cur.execute(
+                "UPDATE pairing_tokens SET claimed_session_id = %s WHERE id = %s;",
+                (session["id"], row["id"]),
+            )
+            return {"session_id": session["id"]}

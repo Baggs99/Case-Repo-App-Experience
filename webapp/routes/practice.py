@@ -46,6 +46,10 @@ class PairCreateBody(BaseModel):
     case_id: int
 
 
+class PairClaimBody(BaseModel):
+    token: str
+
+
 class StateBody(BaseModel):
     target: Literal["scheduled", "lobby", "live", "debrief", "finalized", "aborted"]
 
@@ -143,6 +147,15 @@ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_ap
     if get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
+
+
+@router.post("/api/practice/pair/claim", dependencies=_MUTATING)
+def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
+    """Claim a pairing token, creating the practice session (§ pairing)."""
+    try:
+        return pairing_repo.claim(token=body.token, candidate_id=user.id)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
 @router.get("/api/practice/{session_id}/join-config")
