@@ -66,3 +66,37 @@ async def send_push(token, *, title, body, data=None, interruption_level: str | 
     finally:
         if owns:
             await client.aclose()
+
+
+async def send_live_activity_push(token, *, event: str, content_state: dict,
+                                    timestamp: int | None = None,
+                                    settings=None, client=None) -> int:
+    """ActivityKit update/end push for a Live Activity (P3 T9). `event` is
+    "update" or "end"; `timestamp` is an injectable epoch-seconds int so
+    callers/tests can assert a fixed payload instead of depending on
+    wall-clock time."""
+    if settings is None:
+        from webapp.settings import load_settings
+        settings = load_settings()
+    host = ("https://api.sandbox.push.apple.com" if settings.apns_use_sandbox
+            else "https://api.push.apple.com")
+    if timestamp is None:
+        timestamp = int(time.time())
+    payload = {"aps": {"timestamp": timestamp, "event": event, "content-state": content_state}}
+    if event == "end":
+        payload["aps"]["dismissal-date"] = timestamp
+    headers = {
+        "authorization": f"bearer {_cached_jwt(settings)}",
+        "apns-topic": f"{settings.apns_bundle_id}.push-type.liveactivity",
+        "apns-push-type": "liveactivity",
+        "apns-priority": "10",
+    }
+    owns = client is None
+    if owns:
+        client = httpx.AsyncClient(http2=True, timeout=10.0)
+    try:
+        resp = await client.post(f"{host}/3/device/{token}", json=payload, headers=headers)
+        return resp.status_code
+    finally:
+        if owns:
+            await client.aclose()

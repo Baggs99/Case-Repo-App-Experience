@@ -20,6 +20,7 @@ from webapp.auth.dependencies import require_auth, require_auth_api
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
+from webapp.push.live_activity import push_live_activity_update
 from webapp.repositories.cases import get_case_by_id
 from webapp.repositories import feedback as feedback_repo
 from webapp.repositories import pairing_tokens as pairing_repo
@@ -145,6 +146,10 @@ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     background.add_task(hub.broadcast_session_update, session_id)
+    # ActivityKit update push (P3 T9): state changes (lobby→live→debrief→
+    # finalized) refresh the Live Activity; "end" dismisses it on finalize.
+    event = "end" if body.target == "finalized" else "update"
+    background.add_task(push_live_activity_update, session_id, event=event)
     return _public(result)
 
 
