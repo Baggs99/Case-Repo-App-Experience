@@ -2,6 +2,7 @@
 .env
 .env.*
 *.key
+*.p8
 
 # Python
 __pycache__/
