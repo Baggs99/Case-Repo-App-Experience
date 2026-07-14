@@ -219,3 +219,60 @@ paths, and later phases seed dummy cases/PDFs for flows that need bytes.
   all-party consent).
 - **O4** Casebook copyright / distribution posture (spec D4) — unchanged by
   this build.
+
+## 9. Cross-browser pass — T11.2 (2026-07-14)
+
+Real two-browser call on this Mac, session 984 on case 1 (Dev Dummy Case):
+**Chrome 149 (interviewer, Alice)** ↔ **Safari 27 / AppleWebKit 605.1.15
+(candidate, Bob)** — browsers confirmed from the stored session User-Agents,
+not assumed. All four checklist legs pass:
+
+- **Call** — Chrome↔Safari WebRTC negotiated, media both ways, went live.
+- **Reveal** — interviewer released exhibit 21; Safari decrypted (WebCrypto
+  AES-GCM) and displayed it. No HTTP key-fetch in the log → the key came over
+  the P2P **DataChannel fast path**, so cross-browser DC works.
+- **Recording** — Safari recorded and uploaded real audio (1.14 MB, chunked,
+  completed), download served intact. **See finding CB-1.**
+- **Authoring (WebP)** — Safari rendered the PDF→WebP page thumbnails, page
+  selection worked, and a re-author **save** succeeded (encrypt+store
+  round-trip). DV-13 correctly blocked the first save because exhibit 21 had
+  just been revealed; cleared the two test reveals to complete the leg.
+
+Findings / quirks:
+
+- **CB-1 — Safari 27 records `audio/webm;codecs=opus`, not `audio/mp4`.**
+  `MediaRecorder.isTypeSupported('audio/webm;codecs=opus')` now returns true
+  in current Safari, so `recorder.js` takes the webm branch and the
+  `audio/mp4` fallback (recorder.js:19) is effectively **dead code on Safari
+  ≥ ~18** — only legacy Safari (≤17) would hit it. Recording itself is fine.
+  The download endpoint forces `Content-Disposition: attachment` for all
+  browsers, so "downloads instead of plays inline" is by design, not a Safari
+  limitation. (Safari playing back a downloaded webm/opus is an OS/QuickTime
+  concern, outside the app.)
+
+- **CB-2 — Knock had no delivery guarantee (FIXED).** The candidate knocked
+  once, on its own WS `ok`; the hub drops a knock if the interviewer socket
+  isn't present yet (no queue/replay, signaling.py:126), and the candidate's
+  `peer-joined` handler never re-knocked. So a candidate who opened **before**
+  the interviewer could never be admitted (hangs at "Knocking…"). Browser-
+  agnostic (reproduced Chrome↔Chrome). Fix: candidate re-knocks on
+  `peer-joined` (session.js `onSignalMessage`). Verified: after the fix the
+  candidate-first order admits normally.
+
+- **CB-3 — Interviewer's own recording can be left `completed=f` (TO FIX).**
+  `endCall` fires `recorder.stopAndComplete()` fire-and-forget (session.js:297,
+  deliberately, so the ended view renders immediately). If that participant
+  navigates/reloads right after End, the in-flight `complete` POST is
+  cancelled and the row stays `completed=f` (chunks are still on disk, content
+  preserved). Hit once (984 interviewer) when the Chrome page churned; 983
+  completed cleanly both sides. Recommended fix: send the final `complete`
+  with `fetch(..., {keepalive:true})` (survives unload), or await the flush in
+  `endCall` with a short timeout. Not fixed inline — wants a clean repro+test.
+
+- **CB-4 — Stale/back-button session page shows "Session is not joinable"
+  (minor).** `boot()` keys off the state baked into the page at load
+  (session.js:320-367). A page rendered mid-call (state live), if restored
+  from bfcache / back-button after the call ended, falls through to the join
+  path and `/join-config` 409s → "not joinable" banner instead of the debrief
+  editor. A fresh load renders the correct post-call view. Low priority;
+  could branch on a re-fetched state before joining.

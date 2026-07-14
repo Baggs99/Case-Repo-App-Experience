@@ -7,9 +7,10 @@ session prompt doesn't say, ASK which track before touching anything.
   complete. P11 T11.1 verify script DONE (2026-07-14). P11 guide rule-05
   polish DONE (2026-07-14, commit 872d1e7 — favicon + swept votes/PDF/
   back-arrow; theme toggle reverted to sun/moon per owner, b9097db).
-  NOW: T11.2 cross-browser pass IN PROGRESS — Thomas at the machine,
-  agent drives the checklist. Then T11.3 (failure-mode, also at-machine);
-  rest are decisions (usefulness-color, O1–O3, demo-case deletion,
+  P11 T11.2 cross-browser DONE (2026-07-14 — real Chrome 149 ↔ Safari 27
+  call, all 4 legs pass; findings CB-1..4 in INTEGRATION.md §9; knock-race
+  bug CB-2 fixed in session.js). NOW: T11.3 (failure-mode, at-machine)
+  is next; then decisions (usefulness-color, O1–O3, demo-case deletion,
   rubric-editor spec). Full table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
@@ -57,7 +58,7 @@ checked by command, not memory):
 | Chunk | Spec state | Tier | Next concrete action |
 |---|---|---|---|
 | P11 T11.1 verify script | ✅ DONE 2026-07-14 — script committed, ran clean (exit 0), 13 advisory hits all JUSTIFIED (details in "Done — Phase 11 T11.1") | — | — |
-| P11 T11.2 cross-browser Chrome+Safari | complete (spec) — NEEDS THOMAS AT MACHINE (Safari, camera prompts) | session-model + Thomas | Thomas runs two browser profiles per the Phase 4 manual-check recipe; agent drives checklist: call, reveal, Safari audio/mp4 recording path, authoring |
+| P11 T11.2 cross-browser Chrome+Safari | ✅ DONE 2026-07-14 — real Chrome 149 ↔ Safari 27, all 4 legs pass (call/reveal/recording/authoring). Findings CB-1..4 in INTEGRATION.md §9: CB-1 Safari 27 records webm not mp4 (mp4 fallback now dead code); CB-2 knock-race FIXED (session.js re-knock on peer-joined); CB-3 interviewer recording completed=f on immediate-navigate (TO FIX, keepalive); CB-4 stale-page "not joinable" (minor) | — | CB-3 + CB-4 are follow-up fixes (not blocking) |
 | P11 T11.3 failure-mode pass | complete (spec) — wifi toggle needs Thomas | session-model + Thomas | Wifi drop mid-call → ICE-restart recovery; `pkill -f "main.py serve"` mid-call + restart → WS reconnect; candidate reload restore (re-verify P6) |
 | Guide rule-05 polish: staircase favicon + Lucide icon sweep | ✅ DONE 2026-07-14 — commit 872d1e7 (favicon + swept votes/PDF/back-arrow). Theme toggle briefly went to a text label; **owner reverted it to sun/moon** (commit b9097db) — the icon stays as the documented rule-05 exception. Nothing outstanding. | — | — |
 | Rubric-template editor UI (deferred since P5) | needs-spec (which fields, who may author, where it lives) | session-model | Draft 10-line spec w/ Thomas, THEN implement (generic template already works server-side) |
@@ -86,6 +87,34 @@ Web-track gotchas (this session, not recorded elsewhere):
 - .venv one-off scripts touching the DB must init_pool first (see any
   seeding snippet in the Done sections); pool-shutdown warnings on exit
   are harmless.
+
+## Done — Phase 11 T11.2 cross-browser pass (2026-07-14)
+- Real two-browser call, session 984 on case 1: **Chrome 149 (interviewer) ↔
+  Safari 27 (candidate)** — browsers verified via stored session User-Agents,
+  not assumed. Agent drove the checklist + verified every leg server-side
+  (DB state, reveals, recordings mime/bytes, exhibit rows); Thomas ran the
+  two browsers. All 4 legs pass: call (cross-browser WebRTC + media both
+  ways), reveal (Safari WebCrypto decrypt + DataChannel key fast-path),
+  recording (Safari captured 1.14 MB, completed, downloads), authoring
+  (Safari PDF→WebP thumbnails render + save round-trip).
+- Full findings in INTEGRATION.md §9. Summary:
+  - CB-1: Safari 27 records `audio/webm;codecs=opus` — the `audio/mp4`
+    fallback (recorder.js:19) is now dead code on modern Safari. Recording
+    works; "downloads not inline" is the endpoint's `attachment` header.
+  - CB-2 (FIXED): knock-race — candidate knocked once on its own `ok`; hub
+    drops it if the interviewer isn't connected yet, and the candidate never
+    re-knocked, so candidate-first → permanent hang at "Knocking…". Fix:
+    re-knock on `peer-joined` (session.js). Browser-agnostic. Verified.
+  - CB-3 (TO FIX): interviewer's own recording left `completed=f` if the page
+    navigates right after End (fire-and-forget `stopAndComplete`, session.js:
+    297). Content preserved on disk. Fix later with `{keepalive:true}`.
+  - CB-4 (minor): stale/back-button session page → "Session is not joinable"
+    instead of the debrief editor (boot keys off page-load state). Fresh load
+    is correct.
+- Dev-data note: deleted 2 test reveals (exhibit 21, sessions 983/984) to lift
+  the DV-13 authoring lock for the Safari save leg — DV-13 itself confirmed
+  working (it blocked the save until cleared). Sessions 983 (all webm, both
+  completed) + 984 are throwaway T11.2 artifacts in `debrief`.
 
 ## Done — Phase 11 rule-05 polish (2026-07-14, commit 872d1e7)
 - Guide rule 05 = the staircase is the system's ONLY icon. This finishes the
