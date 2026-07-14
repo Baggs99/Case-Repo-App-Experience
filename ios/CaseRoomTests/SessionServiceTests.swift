@@ -243,6 +243,19 @@ final class SessionServiceTests: XCTestCase {
         XCTAssertTrue(bodyString.hasSuffix("--\(boundary)--\r\n"))
     }
 
+    func testUploadRecordingChunkSeqMismatchThrowsTypedError() async {
+        stubJSON(#"{"detail": "expected seq 3"}"#, status: 409)
+
+        do {
+            try await client.uploadRecordingChunk(id: 42, seq: 0, mime: "audio/mp4", blob: Data([0xAA]))
+            XCTFail("expected seqMismatch")
+        } catch RecordingChunkError.seqMismatch(let expected) {
+            XCTAssertEqual(expected, 3)
+        } catch {
+            XCTFail("expected RecordingChunkError.seqMismatch, got \(error)")
+        }
+    }
+
     // MARK: - completeRecording
 
     func testCompleteRecordingRequest() async throws {

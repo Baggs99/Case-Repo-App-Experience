@@ -19,6 +19,9 @@ targets:
           NSAllowsLocalNetworking: true
         NSCalendarsWriteOnlyAccessUsageDescription: >-
           Adds your accepted practice sessions to your calendar.
+        NSMicrophoneUsageDescription: >-
+          Records the room audio of your in-person practice session for
+          later review.
         UIBackgroundModes: [remote-notification]
   CaseRoomTests:
     type: bundle.unit-test

@@ -16,6 +16,13 @@ enum APIError: Error {
     case transport(Error)
 }
 
+// Thrown by uploadRecordingChunk when the server rejects a chunk with
+// 409 {"detail": "expected seq N"} — the client is out of sync and must
+// resend starting at N (RecordingUploader does this resync).
+enum RecordingChunkError: Error, Equatable {
+    case seqMismatch(expected: Int)
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -239,7 +246,7 @@ actor APIClient: SessionService {
         var request = try makeRequest(path: "/api/practice/\(id)/recordings/chunk", method: "POST")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.multipartRecordingBody(boundary: boundary, seq: seq, mime: mime, blob: blob)
-        _ = try await performRaw(request)
+        _ = try await performRaw(request, allowConflictDetail: true)
     }
 
     func completeRecording(id: Int) async throws {
@@ -336,7 +343,7 @@ actor APIClient: SessionService {
         }
     }
 
-    private func performRaw(_ request: URLRequest) async throws -> Data {
+    private func performRaw(_ request: URLRequest, allowConflictDetail: Bool = false) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
@@ -350,9 +357,24 @@ actor APIClient: SessionService {
         if httpResponse.statusCode == 401 {
             throw APIError.unauthorized
         }
+        if allowConflictDetail, httpResponse.statusCode == 409,
+           let expected = Self.expectedSeq(from: data) {
+            throw RecordingChunkError.seqMismatch(expected: expected)
+        }
         guard (200...299).contains(httpResponse.statusCode) else {
             throw APIError.server(httpResponse.statusCode)
         }
         return data
+    }
+
+    // Parses {"detail": "expected seq N"} from a 409 chunk-upload response.
+    private static func expectedSeq(from data: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = object["detail"] as? String,
+              let match = detail.range(of: #"expected seq (\d+)"#, options: .regularExpression) else {
+            return nil
+        }
+        let numberString = detail[match].split(separator: " ").last.map(String.init) ?? ""
+        return Int(numberString)
     }
 }
