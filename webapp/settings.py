@@ -38,12 +38,21 @@ class Settings:
     apns_bundle_id: str | None
     #: True for the APNs sandbox host (dev builds); False for production.
     apns_use_sandbox: bool
+    #: TURN provider for short-lived ICE credentials (Cloudflare Calls). Empty when unset -> STUN-only degrade.
+    turn_provider: str
+    turn_key_id: str | None
+    turn_token: str | None
 
     def is_admin(self, email: str | None) -> bool:
         """True iff `email` is in the admin allowlist (case-insensitive)."""
         if not email:
             return False
         return email.strip().lower() in self.admin_emails
+
+    @property
+    def turn_enabled(self) -> bool:
+        """True iff both TURN key id and token are configured."""
+        return bool(self.turn_key_id and self.turn_token)
 
 
 def _parse_admin_emails(raw: str | None) -> frozenset[str]:
@@ -88,4 +97,7 @@ def load_settings() -> Settings:
         apns_team_id      = os.environ.get("APNS_TEAM_ID") or None,
         apns_bundle_id    = os.environ.get("APNS_BUNDLE_ID") or None,
         apns_use_sandbox  = os.environ.get("APNS_USE_SANDBOX", "true").lower() in ("1", "true"),
+        turn_provider     = os.environ.get("TURN_PROVIDER", "cloudflare"),
+        turn_key_id       = os.environ.get("TURN_KEY_ID") or None,
+        turn_token        = os.environ.get("TURN_TOKEN") or None,
     )
