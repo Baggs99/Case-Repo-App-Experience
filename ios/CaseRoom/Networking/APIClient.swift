@@ -21,6 +21,12 @@ enum APIError: Error {
 // resend starting at N (RecordingUploader does this resync).
 enum RecordingChunkError: Error, Equatable {
     case seqMismatch(expected: Int)
+    /// Server repeated the same `expected` seq with no forward progress —
+    /// resuming would loop forever, so RecordingUploader gives up.
+    case stalled(seq: Int)
+    /// Server's `expected` seq is past the end of the chunk list — a
+    /// malformed resync that would otherwise silently truncate the upload.
+    case invalidExpectedSeq(expected: Int)
 }
 
 struct CaseQuery {

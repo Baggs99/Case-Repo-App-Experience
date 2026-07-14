@@ -25,14 +25,31 @@ enum RecordingUploader {
         let chunks = chunked(data, size: chunkSize)
 
         var seq = 0
+        // Tracks the `expected` seq from the prior mismatch so we can detect
+        // a non-converging server: if it hands back the same `expected`
+        // again with no progress in between, retrying forever would hang.
+        var lastMismatchExpected: Int?
         while seq < chunks.count {
             do {
                 try await service.uploadRecordingChunk(id: sessionId, seq: seq, mime: mime, blob: chunks[seq])
                 seq += 1
+                lastMismatchExpected = nil
             } catch RecordingChunkError.seqMismatch(let expected) {
+                guard expected <= chunks.count else {
+                    // A malformed resync target would fall past the array,
+                    // exit the loop, and let completeRecording fire as if
+                    // every chunk had been applied. Fail loudly instead.
+                    throw RecordingChunkError.invalidExpectedSeq(expected: expected)
+                }
+                guard lastMismatchExpected != expected else {
+                    // Same expected seq twice in a row — the server isn't
+                    // converging. Never retry the identical chunk forever.
+                    throw RecordingChunkError.stalled(seq: expected)
+                }
                 // Already-applied (expected < seq) or a gap (expected > seq) —
                 // either way, resync to what the server says is next and
                 // never re-send a chunk it already has.
+                lastMismatchExpected = expected
                 seq = expected
             }
         }
