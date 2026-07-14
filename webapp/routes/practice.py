@@ -21,6 +21,7 @@ from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.repositories.cases import get_case_by_id
 from webapp.repositories import feedback as feedback_repo
+from webapp.repositories import pairing_tokens as pairing_repo
 from webapp.repositories import practice_sessions as repo
 from webapp.templating import render
 
@@ -39,6 +40,10 @@ class PracticeCreateBody(BaseModel):
 
 class ConsentBody(BaseModel):
     consent: bool
+
+
+class PairCreateBody(BaseModel):
+    case_id: int
 
 
 class StateBody(BaseModel):
@@ -130,6 +135,14 @@ def post_state(session_id: int, body: StateBody,
         return _public(repo.transition(session_id, user.id, body.target))
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+
+@router.post("/api/practice/pair/create", dependencies=_MUTATING)
+def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_api)):
+    """Mint a short-TTL pairing token for in-person QR pairing (§ pairing)."""
+    if get_case_by_id(body.case_id) is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
 
 
 @router.get("/api/practice/{session_id}/join-config")
