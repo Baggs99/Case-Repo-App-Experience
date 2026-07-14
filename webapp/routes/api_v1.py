@@ -128,12 +128,20 @@ def list_cases(
         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
     )
     rows, total = search_cases(filters, limit=limit)
-    return {"cases": rows, "total": total}
+    # rows carry internal columns (e.g. pdf_path) from the repository layer —
+    # strip them before they reach the client; the list is a summary with no
+    # PDF field at all.
+    cases = []
+    for row in rows:
+        row = dict(row)
+        row.pop("pdf_path", None)
+        cases.append(row)
+    return {"cases": cases, "total": total}
 
 
 _CASE_DETAIL_FIELDS = (
     "id", "case_title", "source_school", "source_year", "industry", "case_type",
-    "difficulty", "difficulty_score", "firm", "page_count", "pdf_path",
+    "difficulty", "difficulty_score", "firm", "page_count",
     "industry_raw", "industry_display",
 )
 

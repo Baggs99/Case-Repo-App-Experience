@@ -57,7 +57,7 @@ class TestApiV1Cases(unittest.TestCase):
         self.assertIn("industry", item)
         self.assertIn("case_type", item)
         self.assertIn("difficulty", item)
-        self.assertIn("pdf_path", item)
+        self.assertNotIn("pdf_path", item)
         self.assertNotIn("title", item)
 
     def test_q_filter_narrows_results(self):
@@ -87,6 +87,7 @@ class TestApiV1Cases(unittest.TestCase):
         self.assertIsInstance(body["preview_urls"], list)
         self.assertIsInstance(body["pdf_url"], str)
         self.assertTrue(body["pdf_url"])
+        self.assertNotIn("pdf_path", body)
         # Internal/admin-only columns from get_case_by_id must not leak into
         # the locked iOS API contract.
         for internal_field in (
