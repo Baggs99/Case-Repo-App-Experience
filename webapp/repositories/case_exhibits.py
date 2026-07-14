@@ -130,3 +130,13 @@ def replace_for_case(case_id: int, created_by: int,
 
 def read_blob(enc_blob_path: str) -> bytes:
     return (_exhibits_dir() / enc_blob_path).read_bytes()
+
+
+def key_for_exhibit(exhibit_id: int) -> bytes:
+    """The exhibit's AES key alone — for broadcasting a reveal over the
+    signaling WS (webapp/signaling.py), where only the exhibit_id is known."""
+    sql = "SELECT enc_key FROM case_exhibits WHERE id = %s;"
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (exhibit_id,))
+            return bytes(cur.fetchone()["enc_key"])

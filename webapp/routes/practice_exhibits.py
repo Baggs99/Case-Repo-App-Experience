@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -24,6 +24,7 @@ from webapp.practice_states import TransitionError
 from webapp.repositories import case_exhibits
 from webapp.repositories import reveals as reveals_repo
 from webapp.routes.practice import _session_or_404
+from webapp.routes.signal_ws import hub
 
 router = APIRouter(tags=["practice-exhibits"])
 
@@ -87,18 +88,24 @@ def exhibit_keys(session_id: int, user: User = Depends(require_auth_api)):
 
 @router.post("/api/practice/{session_id}/reveals",
              dependencies=[Depends(require_same_origin)])
-def post_reveal(session_id: int, body: RevealBody,
+def post_reveal(session_id: int, body: RevealBody, background: BackgroundTasks,
                 user: User = Depends(require_auth_api)):
     """Log a reveal (system of record; the DataChannel key message is only
-    the fast path). Idempotent per (session, exhibit)."""
+    the fast path). Idempotent per (session, exhibit). Also broadcasts the
+    key over the signaling WS so exhibits work with no WebRTC peer
+    connection (in-person / video-off sessions)."""
     session, role = _session_or_404(session_id, user.id)
     if role != "interviewer":
         raise HTTPException(status_code=403, detail="Interviewer only")
     _exhibit_or_404(session, body.exhibit_id)
     try:
-        return reveals_repo.create_reveal(session_id, body.exhibit_id)
+        result = reveals_repo.create_reveal(session_id, body.exhibit_id)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    key = case_exhibits.key_for_exhibit(body.exhibit_id)
+    background.add_task(
+        hub.broadcast_reveal, session_id, body.exhibit_id, base64.b64encode(key).decode())
+    return result
 
 
 @router.get("/api/practice/{session_id}/reveals")

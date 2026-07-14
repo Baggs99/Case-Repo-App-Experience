@@ -157,3 +157,16 @@ class SignalingHub:
             # Unknown type, wrong role, or sdp/ice before admit: drop.
             logger.debug("dropped message type=%r sid=%s role=%s",
                          mtype, session_id, role)
+
+    async def broadcast_reveal(self, session_id: int, exhibit_id: int, key_b64: str) -> bool:
+        """Push an exhibit decryption key to the candidate over the signaling WS.
+        Key travels here instead of the WebRTC DataChannel so exhibits work with
+        no peer connection (in-person / video-off sessions)."""
+        call = self._calls.get(session_id)
+        if call is None:
+            return False
+        sock = call.sockets.get("candidate")
+        if sock is None:
+            return False
+        await _safe_send(sock, {"type": "reveal", "exhibit_id": exhibit_id, "key_b64": key_b64})
+        return True
