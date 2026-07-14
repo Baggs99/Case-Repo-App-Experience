@@ -61,8 +61,12 @@ export class Recorder {
     this.recorder.stop();          // fires a final ondataavailable
     await stopped;                 // queue empty (or failed)
     if (this.failed) return;
+    // keepalive lets the completion marker land even if the page is
+    // navigating/unloading right after End (else the row is stuck
+    // completed=f). Safe here: empty body, well under the ~64 KB keepalive
+    // cap — which is exactly why we do NOT set it on the multi-MB chunk POST.
     const res = await fetch(`${this.opts.apiBase}/recordings/complete`,
-                            { method: 'POST' }).catch(() => null);
+                            { method: 'POST', keepalive: true }).catch(() => null);
     this.opts.onState?.(res?.ok ? 'done' : 'failed');
   }
 
