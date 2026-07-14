@@ -6,8 +6,9 @@ import unittest
 from dataclasses import dataclass
 
 import httpx
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric import ec, utils
+from cryptography.hazmat.primitives import hashes, serialization
 
 from webapp.push.apns import make_provider_jwt, send_push
 
@@ -47,6 +48,20 @@ class TestJwt(unittest.TestCase):
         self.assertEqual(header, {"alg": "ES256", "kid": "KEYID12345"})
         self.assertEqual(claims, {"iss": "TEAMID1234", "iat": 1700000000})
 
+    def test_jwt_signature_verifies(self):
+        key, pem = _test_key()
+        tok = make_provider_jwt(pem, "KEYID12345", "TEAMID1234", now=1700000000.0)
+        header, claims, sig = tok.split(".")
+        raw = base64.urlsafe_b64decode(sig + "==")
+        r = int.from_bytes(raw[:32], "big")
+        s = int.from_bytes(raw[32:], "big")
+        der = utils.encode_dss_signature(r, s)
+        public_key = key.public_key()
+        try:
+            public_key.verify(der, f"{header}.{claims}".encode(), ec.ECDSA(hashes.SHA256()))
+        except InvalidSignature:
+            self.fail("JWT signature did not verify against the signing input")
+
 
 class TestSend(unittest.IsolatedAsyncioTestCase):
     async def test_send_push_posts_correct_shape(self):
@@ -60,10 +75,13 @@ class TestSend(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200)
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        status = await send_push(
-            "ff00" * 16, title="Knock", body="Dan is knocking",
-            data={"kind": "knock", "session_id": 7},
-            settings=_FakeSettings(pem), client=client)
+        try:
+            status = await send_push(
+                "ff00" * 16, title="Knock", body="Dan is knocking",
+                data={"kind": "knock", "session_id": 7},
+                settings=_FakeSettings(pem), client=client)
+        finally:
+            await client.aclose()
         self.assertEqual(status, 200)
         self.assertEqual(seen["path"], "/3/device/" + "ff00" * 16)
         self.assertEqual(seen["topic"], "studio.ogee.caseroom")
@@ -79,9 +97,12 @@ class TestSend(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200)
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        await send_push(
-            "ff00" * 16, title="Knock", body="Dan is knocking",
-            data={"kind": "knock", "session_id": 7},
-            interruption_level="time-sensitive",
-            settings=_FakeSettings(pem), client=client)
+        try:
+            await send_push(
+                "ff00" * 16, title="Knock", body="Dan is knocking",
+                data={"kind": "knock", "session_id": 7},
+                interruption_level="time-sensitive",
+                settings=_FakeSettings(pem), client=client)
+        finally:
+            await client.aclose()
         self.assertEqual(seen["payload"]["aps"]["interruption-level"], "time-sensitive")

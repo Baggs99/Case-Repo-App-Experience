@@ -10,7 +10,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 _JWT_TTL = 45 * 60  # Apple: refresh 20–60 min
-_jwt_cache: dict[str, tuple[str, float]] = {}
+_jwt_cache: dict[tuple[str, str, str], tuple[str, float]] = {}
 
 
 def _b64url(b: bytes) -> str:
@@ -31,11 +31,12 @@ def make_provider_jwt(key_pem: bytes, key_id: str, team_id: str, now: float) -> 
 
 def _cached_jwt(settings) -> str:
     key_id = settings.apns_key_id
-    tok, born = _jwt_cache.get(key_id, ("", 0.0))
+    cache_key = (key_id, settings.apns_team_id, settings.apns_key_path)
+    tok, born = _jwt_cache.get(cache_key, ("", 0.0))
     if time.time() - born > _JWT_TTL:
         pem = open(settings.apns_key_path, "rb").read()
         tok = make_provider_jwt(pem, key_id, settings.apns_team_id, time.time())
-        _jwt_cache[key_id] = (tok, time.time())
+        _jwt_cache[cache_key] = (tok, time.time())
     return tok
 
 
