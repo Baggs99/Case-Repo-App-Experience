@@ -27,7 +27,9 @@ struct CaseQuery {
 actor APIClient {
     static let shared = APIClient()
 
-    private let baseURL: URL
+    // Immutable and Sendable, so safe to read from outside actor isolation
+    // (e.g. resolving relative preview/PDF URLs from a SwiftUI view).
+    nonisolated let baseURL: URL
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
@@ -119,6 +121,12 @@ actor APIClient {
 
     func caseDetail(id: Int) async throws -> CaseDetail {
         try await send(path: "/api/v1/cases/\(id)", method: "GET")
+    }
+
+    // Preview/PDF URLs from the API may be relative same-origin paths;
+    // resolve them against baseURL so AsyncImage/ShareLink get absolute URLs.
+    nonisolated func resolveURL(_ path: String) -> URL? {
+        URL(string: path, relativeTo: baseURL)?.absoluteURL
     }
 
     // MARK: - Proposals

@@ -39,13 +39,9 @@ struct RootTabView: View {
     }
 }
 
-// Placeholder tab views — replaced with real implementations in Tasks 11-14.
+// Placeholder tab views — replaced with real implementations in Tasks 12-14.
 struct TodayView: View {
     var body: some View { Text("Today") }
-}
-
-struct CasesListView: View {
-    var body: some View { Text("Cases") }
 }
 
 struct SessionsView: View {
