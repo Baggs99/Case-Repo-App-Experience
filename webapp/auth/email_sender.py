@@ -5,9 +5,11 @@ Backends:
   - ConsoleEmailSender (default in dev): logs the email to stdout AND
     writes it to output/emails/<timestamp>-<email>.txt so you can grab
     the verification link without setting up SMTP.
-  - ResendEmailSender (TODO): production-ready stub. Sign up at
-    https://resend.com (free tier: 3,000 emails/month), set RESEND_API_KEY,
-    and uncomment the implementation below.
+  - ResendEmailSender (production): sends via the `resend` package
+    (`pip install resend`). Sign up at https://resend.com (free tier:
+    3,000 emails/month), set RESEND_API_KEY + EMAIL_FROM, and select it with
+    EMAIL_BACKEND=resend. Implemented below; raises RuntimeError on missing
+    config or API rejection.
 
 Env-driven selection:
   EMAIL_BACKEND=console (default)
