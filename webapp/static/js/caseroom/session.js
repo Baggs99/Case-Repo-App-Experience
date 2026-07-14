@@ -137,6 +137,10 @@ function onSignalMessage(msg) {
       ui.setStatus('The interviewer declined to admit you this time.');
       break;
     case 'peer-joined':
+      // Knock retry: the candidate knocks once on its own 'ok', but the hub
+      // drops it if the interviewer isn't connected yet (no queue/replay). If
+      // the candidate landed first, re-knock the moment the interviewer joins.
+      if (IS_CANDIDATE && !admitted && !inCall) signal.send({ type: 'knock' });
       if (!inCall) refreshFromServer();
       break;
     case 'peer-left':
