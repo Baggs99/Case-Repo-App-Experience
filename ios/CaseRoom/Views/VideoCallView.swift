@@ -30,13 +30,25 @@ final class RemoteMediaSlot {
 struct VideoCallView: View {
     let capture: MediaCapturing
     var remoteMediaSlot: RemoteMediaSlot
+    let videoEnabled: Bool
+    let audioEnabled: Bool
+    let onToggleVideo: () -> Void
+    let onToggleAudio: () -> Void
 
-    @State private var isAudioEnabled = true
-    @State private var isVideoEnabled = true
-
-    init(capture: MediaCapturing, remoteMediaSlot: RemoteMediaSlot = RemoteMediaSlot()) {
+    init(
+        capture: MediaCapturing,
+        remoteMediaSlot: RemoteMediaSlot = RemoteMediaSlot(),
+        videoEnabled: Bool,
+        audioEnabled: Bool,
+        onToggleVideo: @escaping () -> Void,
+        onToggleAudio: @escaping () -> Void
+    ) {
         self.capture = capture
         self.remoteMediaSlot = remoteMediaSlot
+        self.videoEnabled = videoEnabled
+        self.audioEnabled = audioEnabled
+        self.onToggleVideo = onToggleVideo
+        self.onToggleAudio = onToggleAudio
     }
 
     var body: some View {
@@ -58,13 +70,11 @@ struct VideoCallView: View {
 
     private var controls: some View {
         HStack(spacing: 24) {
-            Button(isAudioEnabled ? "Mute" : "Unmute") {
-                isAudioEnabled.toggle()
-                capture.setAudioEnabled(isAudioEnabled)
+            Button(audioEnabled ? "Mute" : "Unmute") {
+                onToggleAudio()
             }
-            Button(isVideoEnabled ? "Camera off" : "Camera on") {
-                isVideoEnabled.toggle()
-                capture.setVideoEnabled(isVideoEnabled)
+            Button(videoEnabled ? "Camera off" : "Camera on") {
+                onToggleVideo()
             }
         }
         .buttonStyle(.borderedProminent)
@@ -117,5 +127,11 @@ private struct RTCVideoRepresentable: UIViewRepresentable {
 }
 
 #Preview {
-    VideoCallView(capture: WebRTCMediaCapture())
+    VideoCallView(
+        capture: WebRTCMediaCapture(),
+        videoEnabled: true,
+        audioEnabled: true,
+        onToggleVideo: {},
+        onToggleAudio: {}
+    )
 }

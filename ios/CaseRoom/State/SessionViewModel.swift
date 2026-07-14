@@ -115,6 +115,7 @@ final class SessionViewModel {
     var videoEnabled = true
     var audioEnabled = true
     var remoteTrack: MediaTrackHandle?
+    var mediaStartError: String?
 
     /// Set by the hosting view to the candidate's ExhibitsViewModel so
     /// inbound .reveal signaling messages reach its decrypt path. nil for
@@ -212,6 +213,7 @@ final class SessionViewModel {
     }
 
     private func startRemoteMedia() async {
+        mediaStartError = nil
         let remoteMedia = makeRemoteMedia()
         remoteMedia.onRemoteTrack = { [weak self] handle in
             self?.remoteTrack = handle
@@ -221,8 +223,16 @@ final class SessionViewModel {
             let config = try await service.joinConfig(id: sessionId)
             try await remoteMedia.start(signaling: signaling, iceServers: config.iceServers, polite: role == "candidate")
         } catch {
-            errorMessage = "Couldn't start video. Try again."
+            mediaStartError = "Couldn't start video. Try again."
         }
+    }
+
+    /// Retries a failed media start: clears the error, resets the
+    /// once-per-lifetime guard, and re-invokes the media-start path.
+    func retryStartMedia() async {
+        mediaStartError = nil
+        mediaStarted = false
+        await startRemoteMedia()
     }
 
     private func connectSignaling() async {

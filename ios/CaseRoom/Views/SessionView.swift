@@ -105,8 +105,21 @@ struct SessionView: View {
             if let localCapture = viewModel.localCapture {
                 VideoCallView(
                     capture: localCapture,
-                    remoteMediaSlot: RemoteMediaSlot(trackHandle: viewModel.remoteTrack)
+                    remoteMediaSlot: RemoteMediaSlot(trackHandle: viewModel.remoteTrack),
+                    videoEnabled: viewModel.videoEnabled,
+                    audioEnabled: viewModel.audioEnabled,
+                    onToggleVideo: { viewModel.toggleVideo() },
+                    onToggleAudio: { viewModel.toggleAudio() }
                 )
+                .frame(height: 320)
+            } else if let mediaStartError = viewModel.mediaStartError {
+                ContentUnavailableView {
+                    Label(mediaStartError, systemImage: "video.slash")
+                } actions: {
+                    Button("Retry") {
+                        Task { await viewModel.retryStartMedia() }
+                    }
+                }
                 .frame(height: 320)
             } else {
                 ProgressView()

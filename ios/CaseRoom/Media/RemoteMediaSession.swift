@@ -20,11 +20,12 @@ final class RemoteMediaSession: RemoteMediaControlling {
     var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)?
 
     func start(signaling: SignalingChannel, iceServers: [ICEServer], polite: Bool) async throws {
-        guard let wrapper = RTCPeerConnectionWrapper(iceServers: iceServers, forceRelay: false) else {
-            throw MediaTransportError.unknown
-        }
         let mediaCapture = WebRTCMediaCapture()
         try mediaCapture.start(video: true, audio: true)
+        guard let wrapper = RTCPeerConnectionWrapper(iceServers: iceServers, forceRelay: false) else {
+            mediaCapture.stop()
+            throw MediaTransportError.unknown
+        }
         wrapper.addLocalTracks(mediaCapture.localTrackHandles)
         wrapper.onRemoteTrack = { [weak self] handle in
             self?.onRemoteTrack?(handle)

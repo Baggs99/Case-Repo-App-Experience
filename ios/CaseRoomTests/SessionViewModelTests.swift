@@ -623,4 +623,35 @@ final class SessionViewModelTests: XCTestCase {
         let handledMessages = await media.handledMessages
         XCTAssertEqual(handledMessages, [.sdp(description: sdp), .ice(candidate: nil)])
     }
+
+    // A failed media start must surface as mediaStartError (not the generic
+    // errorMessage) and retryStartMedia() must reset the mediaStarted guard
+    // so it actually re-invokes media.start(), not silently no-op.
+    func testMediaStartFailureSetsErrorAndRetryClearsItAndReattemptsStart() async {
+        struct StubStartError: Error {}
+        let service = StubSessionService(
+            detail: makeDetail(state: "live", yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        await MainActor.run { media.startError = StubStartError() }
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+
+        await viewModel.load()
+
+        var mediaStartError = await viewModel.mediaStartError
+        XCTAssertNotNil(mediaStartError)
+        var startCallCount = await media.startCallCount
+        XCTAssertEqual(startCallCount, 1)
+
+        await MainActor.run { media.startError = nil }
+        await viewModel.retryStartMedia()
+
+        mediaStartError = await viewModel.mediaStartError
+        XCTAssertNil(mediaStartError)
+        startCallCount = await media.startCallCount
+        XCTAssertEqual(startCallCount, 2)
+    }
 }
