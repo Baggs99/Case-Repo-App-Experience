@@ -206,6 +206,31 @@ final class APIClientTests: XCTestCase {
         }
     }
 
+    // MARK: - resolveURL
+
+    func testResolveURLRelativePathResolvesAgainstBaseURL() {
+        let resolved = client.resolveURL("/files/cases/5/preview/1?v=abc")
+
+        XCTAssertEqual(resolved?.absoluteString, "\(client.baseURL.absoluteString)/files/cases/5/preview/1?v=abc")
+    }
+
+    func testResolveURLAbsoluteCDNURLPassesThroughUnchanged() {
+        let absolute = "https://cdn.example.com/previews/foo/1.jpg"
+
+        let resolved = client.resolveURL(absolute)
+
+        XCTAssertEqual(resolved?.absoluteString, absolute)
+    }
+
+    func testResolveURLPathWithoutLeadingSlashStillResolvesAgainstBaseURLHost() {
+        // RFC 3986 §5.3 merge: base has a defined authority and an empty path,
+        // so the relative path is prefixed with "/" before merging — same
+        // result as the leading-slash case above.
+        let resolved = client.resolveURL("files/cases/5/preview/1")
+
+        XCTAssertEqual(resolved?.absoluteString, "\(client.baseURL.absoluteString)/files/cases/5/preview/1")
+    }
+
     // MARK: - Real-fixture decode tests
 
     private func loadFixture(_ name: String) throws -> Data {
