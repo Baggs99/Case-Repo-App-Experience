@@ -250,4 +250,8 @@ def dashboard(user: User = Depends(require_auth_api)):
     # FIRST — an unscheduled "now" session is the most urgent, then earliest
     # scheduled_at); the first row is the soonest.
     next_session = _upcoming_session_json(upcoming[0]) if upcoming else None
-    return {**stats, "next_session": next_session}
+    return {
+        "sessions_finalized": stats["sessions_finalized"],
+        "streak_weeks": stats["streak_weeks"],
+        "next_session": next_session,
+    }

@@ -12,6 +12,8 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
 
+import httpx
+
 from tests.test_ws_integration import _DB_URL, _READY
 
 
@@ -115,6 +117,24 @@ class TestPushToUser(unittest.IsolatedAsyncioTestCase):
             await events.push_to_user(self.uid, title="t", body="b", data={"kind": "x"})
 
         self.assertEqual(calls, [])
+
+    async def test_one_token_raising_does_not_block_the_others(self):
+        from webapp.push import events
+
+        calls = []
+
+        async def recorder(token, *, title, body, data=None,
+                           interruption_level=None, settings=None, client=None):
+            calls.append(token)
+            if token == "push-tok-1":
+                raise httpx.ConnectTimeout("simulated timeout")
+            return 200
+
+        with patch.object(events, "load_settings", lambda: _FakeSettings()), \
+             patch.object(events, "send_push", recorder):
+            await events.push_to_user(self.uid, title="t", body="b", data={"kind": "x"})
+
+        self.assertEqual(sorted(calls), ["push-tok-1", "push-tok-2"])
 
     async def test_interruption_level_passed_through(self):
         from webapp.push import events

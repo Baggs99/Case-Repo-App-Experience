@@ -44,11 +44,18 @@ async def push_to_user(user_id: int, *, title: str, body: str, data: dict | None
         client = httpx.AsyncClient(http2=True, timeout=10.0)
         try:
             for token in tokens_for_user(user_id):
-                status = await send_push(
-                    token, title=title, body=body, data=data,
-                    interruption_level=interruption_level,
-                    settings=settings, client=client,
-                )
+                try:
+                    status = await send_push(
+                        token, title=title, body=body, data=data,
+                        interruption_level=interruption_level,
+                        settings=settings, client=client,
+                    )
+                except Exception:
+                    # One token's transient failure (e.g. a connect timeout)
+                    # must not block push to the user's other devices.
+                    logger.exception(
+                        "Push failed for user_id=%s token=%s", user_id, token)
+                    continue
                 if status == 410:
                     delete_token(user_id, token)
         finally:
