@@ -76,11 +76,12 @@
 
 ## Environment
 
-- **E1** iOS simulator runtime was absent; iOS 26.5 runtime downloading
-  (`xcodebuild -downloadPlatform iOS`, ~8.5 GB) — blocks iOS Tasks 9–15 only.
-- **E2** Plan hardcodes simulator `iPhone 16`; with iOS 26.5 use an available
-  device (create/boot one, e.g. `iPhone 17`, or `xcrun simctl` a named device).
-  Fix the `-destination` in Task 9 build/test commands accordingly.
+- **E1** iOS simulator runtime was absent; iOS 26.5 runtime now INSTALLED
+  (`com.apple.CoreSimulator.SimRuntime.iOS-26-5`). iOS Tasks 9–15 unblocked.
+- **E2** RESOLVED: plan hardcodes `iPhone 16` (stale). Use
+  `-destination 'platform=iOS Simulator,name=iPhone 17'` — the iOS 26.5 runtime
+  auto-created iPhone 17 / 17 Pro / 17e / Air devices. Update Task 9's build/test
+  commands to `iPhone 17`.
 
 ## Manual (Thomas — Apple Developer portal; not blocking Tasks 1–14)
 
