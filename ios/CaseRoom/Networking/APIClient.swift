@@ -63,6 +63,10 @@ actor APIClient {
 
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(APIClient.plainFormatter.string(from: date))
+        }
         self.encoder = encoder
     }
 
@@ -137,8 +141,10 @@ actor APIClient {
         return response.proposals
     }
 
-    func acceptProposal(id: Int) async throws -> AcceptedSession {
-        try await send(path: "/api/proposals/\(id)/accept", method: "POST")
+    func acceptProposal(id: Int, scheduledAt: Date) async throws -> AcceptedSession {
+        struct AcceptBody: Encodable { let scheduledAt: Date }
+        let body = AcceptBody(scheduledAt: scheduledAt)
+        return try await send(path: "/api/proposals/\(id)/accept", method: "POST", body: body)
     }
 
     func declineProposal(id: Int) async throws {
