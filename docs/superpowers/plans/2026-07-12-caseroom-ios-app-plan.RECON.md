@@ -58,6 +58,16 @@
   already knows the accepted time (the proposal time it chose) → use that for the
   calendar event (Task 12).
 
+- **C5 — User contract has no `name`.** The `User` dataclass (`webapp/auth/`)
+  is `{id, email, email_verified_at, created_at, last_login_at}` — there is **no
+  `name`**. But `users.display_name TEXT` exists (migration 011, defaulted to the
+  email-prefix), and the whole codebase renders a person via
+  `COALESCE(display_name, split_part(email::text,'@',1))`. So the locked iOS
+  `User` contract (login + `/api/v1/me`, Task 6 → iOS Task 10) is
+  **`{id: int, email: str, name: str}`** where `name` = that COALESCE. The auth
+  endpoint must fetch it (a small `SELECT ... FROM users WHERE id=%s`; the User
+  object doesn't carry display_name).
+
 ## Design decisions layered on the plan
 
 - **D1 — ATS.** Sim hits `http://127.0.0.1:8077` (cleartext). Add
