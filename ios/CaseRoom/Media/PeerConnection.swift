@@ -69,7 +69,11 @@ protocol MediaTransport: AnyObject {
 // MARK: - RTCPeerConnectionWrapper
 
 final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
-    struct TrackHandle: MediaTrackHandle {
+    /// @unchecked Sendable: the wrapped RTCMediaStreamTrack is only ever
+    /// handed from WebRTC's signaling thread to the main actor (for renderer
+    /// attachment) and isn't mutated across that hop, so the cross-actor
+    /// capture in didAdd's Task { @MainActor in ... } is safe.
+    struct TrackHandle: MediaTrackHandle, @unchecked Sendable {
         let track: RTCMediaStreamTrack
     }
 
