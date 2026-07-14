@@ -15,8 +15,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom
-    dependencies:
-      - package: WebRTC
     info:
       path: CaseRoom/Support/Info.plist
       properties:
@@ -31,6 +29,22 @@ targets:
           Records the room audio of your in-person practice session for
           later review.
         UIBackgroundModes: [remote-notification]
+        NSSupportsLiveActivities: true
+    dependencies:
+      - package: WebRTC
+      - target: CaseRoomWidgets
+  CaseRoomWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [CaseRoomWidgets, CaseRoom/LiveActivity]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom.widgets
+    info:
+      path: CaseRoomWidgets/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   CaseRoomTests:
     type: bundle.unit-test
     platform: iOS

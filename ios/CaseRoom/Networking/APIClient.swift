@@ -213,6 +213,16 @@ actor APIClient: SessionService, PairService {
         try await sendNoContent(path: "/api/v1/devices", method: "POST", body: DeviceBody(token: token))
     }
 
+    // MARK: - Live Activity (Task 10)
+
+    func registerLiveActivity(sessionId: Int, pushToken: String) async throws {
+        struct LiveActivityBody: Encodable { let sessionId: Int; let pushToken: String }
+        try await sendNoContent(
+            path: "/api/v1/live-activity", method: "POST",
+            body: LiveActivityBody(sessionId: sessionId, pushToken: pushToken)
+        )
+    }
+
     // MARK: - Practice sessions (SessionService)
 
     func sessionDetail(id: Int) async throws -> SessionDetail {

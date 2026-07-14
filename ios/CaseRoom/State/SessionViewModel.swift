@@ -83,6 +83,15 @@ protocol RemoteMediaControlling: AnyObject {
     func stop()
 }
 
+// Bridges LiveActivityController into an injectable protocol so tests can
+// stub the ActivityKit lifecycle without a real Live Activity. @MainActor to
+// match ActivityKit's Activity<T> (accessed from SwiftUI/app-lifecycle code).
+@MainActor
+protocol LiveActivityControlling: AnyObject {
+    func start(sessionId: Int, initial: SessionActivityAttributes.ContentState) async
+    func end() async
+}
+
 @Observable
 @MainActor
 final class SessionViewModel {
@@ -127,9 +136,12 @@ final class SessionViewModel {
     private let recorder: RoomRecording
     private let uploader: RecordingUploading
     private let makeRemoteMedia: @MainActor () -> RemoteMediaControlling
+    private let liveActivity: LiveActivityControlling
     private var listenTask: Task<Void, Never>?
     private var recordingStarted = false
     private var mediaStarted = false
+    private var liveActivityStarted = false
+    private var liveActivityEnded = false
     private var media: RemoteMediaControlling?
 
     /// The local camera/mic capture backing the active remote media session,
@@ -140,7 +152,8 @@ final class SessionViewModel {
     init(
         sessionId: Int, service: SessionService, signaling: SignalingChannel,
         recorder: RoomRecording = RoomRecorder(), uploader: RecordingUploading = DefaultRecordingUploader(),
-        makeRemoteMedia: @escaping @MainActor () -> RemoteMediaControlling = { RemoteMediaSession() }
+        makeRemoteMedia: @escaping @MainActor () -> RemoteMediaControlling = { RemoteMediaSession() },
+        liveActivity: LiveActivityControlling = LiveActivityController()
     ) {
         self.sessionId = sessionId
         self.service = service
@@ -148,6 +161,7 @@ final class SessionViewModel {
         self.recorder = recorder
         self.uploader = uploader
         self.makeRemoteMedia = makeRemoteMedia
+        self.liveActivity = liveActivity
     }
 
     /// This user's own consent flag, resolved by role.
@@ -181,6 +195,7 @@ final class SessionViewModel {
         await signaling.disconnect()
         media?.stop()
         media = nil
+        await endLiveActivityIfNeeded()
     }
 
     private func apply(_ detail: SessionDetail) async {
@@ -210,6 +225,40 @@ final class SessionViewModel {
             mediaStarted = true
             await startRemoteMedia()
         }
+
+        // Fires for both roles and both modes (in-person and remote) — the
+        // Live Activity is about the session lifecycle, not media. Guarded
+        // so it only ever fires once per VM lifetime, including when the
+        // initial load() lands directly on an already-lobby/live session.
+        if (state == "lobby" || state == "live"), !liveActivityStarted {
+            liveActivityStarted = true
+            await liveActivity.start(sessionId: sessionId, initial: Self.makeLiveActivityContentState(detail))
+        }
+
+        if state == "finalized" {
+            await endLiveActivityIfNeeded()
+        }
+    }
+
+    private static func makeLiveActivityContentState(_ detail: SessionDetail) -> SessionActivityAttributes.ContentState {
+        let counterpartName = (detail.yourRole == "interviewer" ? detail.candidateName : detail.interviewerName) ?? ""
+        return SessionActivityAttributes.ContentState(
+            state: detail.state, role: detail.yourRole ?? "", counterpartName: counterpartName,
+            scheduledAt: detail.scheduledAt.map { iso8601Formatter.string(from: $0) },
+            startedAt: detail.startedAt.map { iso8601Formatter.string(from: $0) }
+        )
+    }
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private func endLiveActivityIfNeeded() async {
+        guard !liveActivityEnded else { return }
+        liveActivityEnded = true
+        await liveActivity.end()
     }
 
     private func startRemoteMedia() async {
@@ -353,6 +402,7 @@ final class SessionViewModel {
             let result = try await service.finalize(id: sessionId, grade: grade)
             finalized = true
             releasedGrade = result.grade
+            await endLiveActivityIfNeeded()
             if role == "interviewer" {
                 let fileURL = recorder.stop()
                 try? await uploader.upload(fileURL: fileURL, sessionId: sessionId, service: service)

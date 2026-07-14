@@ -146,6 +146,23 @@ final class StubRemoteMedia: RemoteMediaControlling {
     }
 }
 
+final class StubLiveActivityControlling: LiveActivityControlling {
+    private(set) var startCallCount = 0
+    private(set) var recordedStartSessionIds: [Int] = []
+    private(set) var recordedInitialStates: [SessionActivityAttributes.ContentState] = []
+    private(set) var endCallCount = 0
+
+    func start(sessionId: Int, initial: SessionActivityAttributes.ContentState) async {
+        startCallCount += 1
+        recordedStartSessionIds.append(sessionId)
+        recordedInitialStates.append(initial)
+    }
+
+    func end() async {
+        endCallCount += 1
+    }
+}
+
 final class StubSignalingChannel: SignalingChannel {
     private var continuation: AsyncStream<SignalMessage>.Continuation?
     private(set) var recordedSentData: [Data] = []
@@ -653,5 +670,98 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertNil(mediaStartError)
         startCallCount = await media.startCallCount
         XCTAssertEqual(startCallCount, 2)
+    }
+
+    // MARK: - Live Activity (Task 10)
+
+    func testEnteringLobbyStartsLiveActivityOnceWithInitialContentState() async {
+        let service = StubSessionService(detail: makeDetail(state: "lobby", yourRole: "candidate"))
+        let signaling = StubSignalingChannel()
+        let liveActivity = await StubLiveActivityControlling()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, liveActivity: liveActivity
+        )
+
+        await viewModel.load()
+
+        let startCallCount = await liveActivity.startCallCount
+        let recordedSessionIds = await liveActivity.recordedStartSessionIds
+        let recordedInitialStates = await liveActivity.recordedInitialStates
+        XCTAssertEqual(startCallCount, 1)
+        XCTAssertEqual(recordedSessionIds, [42])
+        XCTAssertEqual(recordedInitialStates.first?.state, "lobby")
+        XCTAssertEqual(recordedInitialStates.first?.role, "candidate")
+        XCTAssertEqual(recordedInitialStates.first?.counterpartName, "Alice Dev")
+    }
+
+    func testEnteringLiveStartsLiveActivityForInterviewer() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "live", yourRole: "interviewer", mode: "in_person")
+        )
+        let signaling = StubSignalingChannel()
+        let liveActivity = await StubLiveActivityControlling()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, liveActivity: liveActivity
+        )
+
+        await viewModel.load()
+
+        let startCallCount = await liveActivity.startCallCount
+        let recordedInitialStates = await liveActivity.recordedInitialStates
+        XCTAssertEqual(startCallCount, 1)
+        XCTAssertEqual(recordedInitialStates.first?.role, "interviewer")
+        XCTAssertEqual(recordedInitialStates.first?.counterpartName, "Bob Dev")
+    }
+
+    func testLobbyThenLiveTransitionStartsLiveActivityOnlyOnce() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "lobby", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        service.transitionResult = .success(
+            makeDetail(state: "live", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let liveActivity = await StubLiveActivityControlling()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, liveActivity: liveActivity
+        )
+        await viewModel.load()
+
+        await viewModel.goLive()
+
+        let startCallCount = await liveActivity.startCallCount
+        XCTAssertEqual(startCallCount, 1)
+    }
+
+    func testFinalizeEndsLiveActivity() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "debrief", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let liveActivity = await StubLiveActivityControlling()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, liveActivity: liveActivity
+        )
+        await viewModel.load()
+
+        await viewModel.finalize(grade: 90)
+
+        let endCallCount = await liveActivity.endCallCount
+        XCTAssertEqual(endCallCount, 1)
+    }
+
+    func testStopEndsLiveActivity() async {
+        let service = StubSessionService(detail: makeDetail(state: "lobby", yourRole: "candidate"))
+        let signaling = StubSignalingChannel()
+        let liveActivity = await StubLiveActivityControlling()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, liveActivity: liveActivity
+        )
+        await viewModel.load()
+
+        await viewModel.stop()
+
+        let endCallCount = await liveActivity.endCallCount
+        XCTAssertEqual(endCallCount, 1)
     }
 }
