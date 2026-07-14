@@ -1,14 +1,16 @@
 # PROGRESS
-Updated: 2026-07-12T14:32:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-14T02:15:00-04:00 · Branch: feature/caseroom
 
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
 - WEB track (this branch, feature/caseroom): phases 1–10 done + brand
-  complete. P11 T11.1 verify script DONE (2026-07-14 — all 13 hits
-  justified, see "Done — Phase 11 T11.1"). Next worker chunk: guide
-  rule-05 polish (staircase favicon + Lucide sweep). T11.2 (cross-
-  browser) + T11.3 (failure-mode) need Thomas at the machine. Full
-  table: "Handoff partition (web track)".
+  complete. P11 T11.1 verify script DONE (2026-07-14). P11 guide rule-05
+  polish DONE (2026-07-14, commit 872d1e7 — staircase favicon + full
+  Lucide sweep; see "Done — Phase 11 rule-05 polish"). Remaining P11
+  work all needs Thomas: T11.2 (cross-browser) + T11.3 (failure-mode)
+  need him at the machine; the rest are decisions (theme-toggle style
+  review, usefulness-color, O1–O3, demo-case deletion, rubric-editor
+  spec). Full table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
   P1 plan docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md.
@@ -57,7 +59,7 @@ checked by command, not memory):
 | P11 T11.1 verify script | ✅ DONE 2026-07-14 — script committed, ran clean (exit 0), 13 advisory hits all JUSTIFIED (details in "Done — Phase 11 T11.1") | — | — |
 | P11 T11.2 cross-browser Chrome+Safari | complete (spec) — NEEDS THOMAS AT MACHINE (Safari, camera prompts) | session-model + Thomas | Thomas runs two browser profiles per the Phase 4 manual-check recipe; agent drives checklist: call, reveal, Safari audio/mp4 recording path, authoring |
 | P11 T11.3 failure-mode pass | complete (spec) — wifi toggle needs Thomas | session-model + Thomas | Wifi drop mid-call → ICE-restart recovery; `pkill -f "main.py serve"` mid-call + restart → WS reconnect; candidate reload restore (re-verify P6) |
-| Guide rule-05 polish: staircase favicon + Lucide icon sweep | complete (guide is the spec) | worker | Add SVG staircase favicon route/link in base.html + session.html; remove/replace remaining Lucide icons (search, votes, PDF btns, theme toggle) |
+| Guide rule-05 polish: staircase favicon + Lucide icon sweep | ✅ DONE 2026-07-14 — commit 872d1e7; favicon + full sweep, only 3 staircase marks remain (see "Done — Phase 11 rule-05 polish"). Theme toggle went sun/moon icon → caps "Dark"/"Light" text, reversing an earlier "keep the icon" lean — **flag for Thomas's aesthetic OK** (trivial to revert or switch caps→sentence-case) | Thomas (review only) | Glance at output/evidence/rule05-case-{light,dark}.png; veto the theme-toggle label if unwanted |
 | Rubric-template editor UI (deferred since P5) | needs-spec (which fields, who may author, where it lives) | session-model | Draft 10-line spec w/ Thomas, THEN implement (generic template already works server-side) |
 | Usefulness % color calming | needs-decision (owner flagged it as loudest remaining color; no call made) | Thomas → worker | If yes: mute emerald/amber/rose usefulness text in _search_results.html + case_detail to the calm band |
 | Owner decisions O1 (prod host/deploy), O2 (TURN), O3 (consent copy) | needs-decision | Thomas | Answers unblock deploy runbook (T11.4-ish) and real launch |
@@ -84,6 +86,35 @@ Web-track gotchas (this session, not recorded elsewhere):
 - .venv one-off scripts touching the DB must init_pool first (see any
   seeding snippet in the Done sections); pool-shutdown warnings on exit
   are harmless.
+
+## Done — Phase 11 rule-05 polish (2026-07-14, commit 872d1e7)
+- Guide rule 05 = the staircase is the system's ONLY icon. This finishes the
+  conformance deferred through the restyle + Interviewer-Console phases.
+- `webapp/static/favicon.svg` — new; staircase glyph on viewBox 0 0 48 48,
+  ink→uptick gradient, `@media (prefers-color-scheme: dark)` swaps to
+  chalk→dark-uptick (tracks OS theme, not the app toggle — standard for SVG
+  favicons). Linked via `<link rel="icon" type="image/svg+xml">` in base.html
+  AND session.html (session.html is standalone, not extending base).
+- Icon sweep (only 3 `<svg>` remain repo-wide, all the staircase mark):
+  - theme toggle: sun/moon SVGs → caps "Dark"/"Light" text label. Label swap
+    is pure CSS (`dark:hidden` / `hidden dark:inline`), mirroring the old
+    icon-swap, so it's correct before paint; existing click JS untouched.
+    Both nav variants (logged-in + logged-out). **NOTE:** this reverses the
+    restyle-era "theme toggle stays an icon button" deliberate deviation —
+    left flagged in the partition for Thomas's OK.
+  - case_detail vote pills: dropped thumbs-up/down (the "Useful"/"Not useful"
+    text already labels them); pruned now-dead `.vote-icon` CSS in base.html.
+  - case_detail PDF actions: dropped external-link + download glyphs ("Open
+    PDF in new tab" / "Download" are self-labeling).
+  - case_detail back link: arrow SVG → typographic `←` (matches the app's
+    existing "Open case →" text-arrow use; not an icon).
+  - search icon was already gone (dropped in the browse redesign).
+- Verified: `pytest tests/ -q` → 234 passed (unchanged). Dev server up;
+  `/static/favicon.svg` → 200 image/svg+xml, `<link rel=icon>` in served
+  heads. Authed GET /cases/354 served the swept markup (0 vote-icon, `←`
+  back link, text PDF buttons). Browser: theme-toggle CLICK flips
+  html.dark + localStorage + label "Dark"↔"Light" (light & dark shots:
+  output/evidence/rule05-case-{light,dark}.png).
 
 ## Done — Phase 11 T11.1 verify script (2026-07-14)
 - `scripts/verify_caseroom.sh` — advisory security grep, spec T11.1's five
