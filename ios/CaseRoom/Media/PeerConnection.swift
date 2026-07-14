@@ -77,8 +77,6 @@ final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
         let track: RTCMediaStreamTrack
     }
 
-    private static let factory = RTCPeerConnectionFactory()
-
     private let peerConnection: RTCPeerConnection
 
     var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)?
@@ -101,8 +99,11 @@ final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
         configuration.iceTransportPolicy = forceRelay ? .relay : .all
         configuration.sdpSemantics = .unifiedPlan
 
+        // Shared with WebRTCMediaCapture (Media/MediaCapture.swift): WebRTC
+        // requires local tracks and the peer connection that sends them to
+        // come from the same RTCPeerConnectionFactory.
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        guard let connection = Self.factory.peerConnection(
+        guard let connection = RTCMediaFactory.shared.peerConnection(
             with: configuration, constraints: constraints, delegate: nil
         ) else {
             return nil

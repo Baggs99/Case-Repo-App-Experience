@@ -46,3 +46,4 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: CaseRoom
+      - package: WebRTC
