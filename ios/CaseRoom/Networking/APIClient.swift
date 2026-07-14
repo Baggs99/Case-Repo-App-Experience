@@ -51,7 +51,7 @@ protocol SessionService {
     func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data
     func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws
     func completeRecording(id: Int) async throws
-    func finalize(id: Int, grade: Double?) async throws
+    func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
 actor APIClient: SessionService {
@@ -259,7 +259,7 @@ actor APIClient: SessionService {
         try await sendNoContent(path: "/api/practice/\(id)/recordings/complete", method: "POST")
     }
 
-    func finalize(id: Int, grade: Double?) async throws {
+    func finalize(id: Int, grade: Double?) async throws -> Finalized {
         // Synthesized Codable omits nil optionals via encodeIfPresent; the
         // API expects the "grade" key present with an explicit null, so
         // this encodes it directly instead.
@@ -271,7 +271,7 @@ actor APIClient: SessionService {
             }
             enum CodingKeys: String, CodingKey { case grade }
         }
-        try await sendNoContent(path: "/api/practice/\(id)/finalize", method: "POST", body: FinalizeBody(grade: grade))
+        return try await send(path: "/api/practice/\(id)/finalize", method: "POST", body: FinalizeBody(grade: grade))
     }
 
     private static func multipartRecordingBody(boundary: String, seq: Int, mime: String, blob: Data) -> Data {

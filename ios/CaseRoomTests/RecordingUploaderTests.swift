@@ -49,7 +49,7 @@ private final class StubRecordingService: SessionService {
     func reveal(id: Int, exhibitId: Int) async throws { fatalError("not used") }
     func exhibits(id: Int) async throws -> [ExhibitMeta] { fatalError("not used") }
     func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data { fatalError("not used") }
-    func finalize(id: Int, grade: Double?) async throws { fatalError("not used") }
+    func finalize(id: Int, grade: Double?) async throws -> Finalized { fatalError("not used") }
 }
 
 final class RecordingUploaderTests: XCTestCase {

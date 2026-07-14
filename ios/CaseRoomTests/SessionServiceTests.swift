@@ -270,10 +270,13 @@ final class SessionServiceTests: XCTestCase {
 
     // MARK: - finalize
 
-    func testFinalizeRequestBody() async throws {
+    func testFinalizeRequestBodyAndDecode() async throws {
         stubJSON(#"{"finalized": true, "grade": 4.4, "finalized_at": "2026-07-20T15:00:00+00:00"}"#)
 
-        try await client.finalize(id: 42, grade: 4.4)
+        let result = try await client.finalize(id: 42, grade: 4.4)
+
+        XCTAssertEqual(result.grade, 4.4)
+        XCTAssertNotNil(result.finalizedAt)
 
         let request = StubURLProtocol.recordedRequests.first!
         XCTAssertEqual(request.url?.path, "/api/practice/42/finalize")
@@ -285,7 +288,9 @@ final class SessionServiceTests: XCTestCase {
     func testFinalizeRequestBodyWithNilGrade() async throws {
         stubJSON(#"{"finalized": true, "grade": 4.4, "finalized_at": "2026-07-20T15:00:00+00:00"}"#)
 
-        try await client.finalize(id: 42, grade: nil)
+        let result = try await client.finalize(id: 42, grade: nil)
+
+        XCTAssertEqual(result.grade, 4.4)
 
         let request = StubURLProtocol.recordedRequests.first!
         let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]

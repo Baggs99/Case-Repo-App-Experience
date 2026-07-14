@@ -246,15 +246,16 @@ final class SessionViewModel {
 
     /// Interviewer-only: finalizes the session with an optional grade
     /// override (nil keeps the rubric's computed preview). Guarded locally
-    /// to only fire in "debrief" — the server also 409s otherwise. Stops
-    /// and uploads the room recording on success; a failed upload is
-    /// swallowed so it never blocks finalize.
+    /// to only fire for the interviewer role and in "debrief" — the server
+    /// also 409s otherwise. Stops and uploads the room recording on success;
+    /// a failed upload is swallowed so it never blocks finalize.
     func finalize(grade: Double?) async {
+        guard role == "interviewer" else { return }
         guard state == "debrief" else { return }
         do {
-            try await service.finalize(id: sessionId, grade: grade)
+            let result = try await service.finalize(id: sessionId, grade: grade)
             finalized = true
-            releasedGrade = grade
+            releasedGrade = result.grade
             if role == "interviewer" {
                 let fileURL = recorder.stop()
                 try? await uploader.upload(fileURL: fileURL, sessionId: sessionId, service: service)

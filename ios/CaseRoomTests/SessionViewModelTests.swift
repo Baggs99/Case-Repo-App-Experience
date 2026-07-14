@@ -18,7 +18,7 @@ final class StubSessionService: SessionService {
     var sessionDetailResult: Result<SessionDetail, Error>
     var setConsentResult: Result<SessionDetail, Error>
     var transitionResult: Result<SessionDetail, Error>
-    var finalizeResult: Result<Void, Error> = .success(())
+    var finalizeResult: Result<Finalized, Error> = .success(Finalized(grade: 0, finalizedAt: Date()))
 
     private(set) var recordedConsentIds: [Int] = []
     private(set) var recordedConsentValues: [Bool] = []
@@ -49,10 +49,10 @@ final class StubSessionService: SessionService {
         return try transitionResult.get()
     }
 
-    func finalize(id: Int, grade: Double?) async throws {
+    func finalize(id: Int, grade: Double?) async throws -> Finalized {
         recordedFinalizeIds.append(id)
         recordedFinalizeGrades.append(grade)
-        try finalizeResult.get()
+        return try finalizeResult.get()
     }
 
     // Unused by SessionViewModel — required by the SessionService protocol.
@@ -288,6 +288,7 @@ final class SessionViewModelTests: XCTestCase {
         let service = StubSessionService(
             detail: makeDetail(state: "debrief", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
         )
+        service.finalizeResult = .success(Finalized(grade: 88.5, finalizedAt: Date()))
         let signaling = StubSignalingChannel()
         let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
         await viewModel.load()
@@ -300,6 +301,41 @@ final class SessionViewModelTests: XCTestCase {
         let releasedGrade = await viewModel.releasedGrade
         XCTAssertTrue(finalized)
         XCTAssertEqual(releasedGrade, 88.5)
+    }
+
+    // Proves the released grade always comes from the server's response,
+    // not the local override param — the common no-override path (nil)
+    // must not leave releasedGrade nil (which the DebriefView renders as
+    // "Pending").
+    func testFinalizeWithNilGradeUsesServerReleasedGrade() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "debrief", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        service.finalizeResult = .success(Finalized(grade: 3.6, finalizedAt: Date()))
+        let signaling = StubSignalingChannel()
+        let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
+        await viewModel.load()
+
+        await viewModel.finalize(grade: nil)
+
+        let releasedGrade = await viewModel.releasedGrade
+        XCTAssertEqual(releasedGrade, 3.6)
+    }
+
+    // A candidate must not be able to finalize, even in "debrief".
+    func testFinalizeDoesNotCallServiceForCandidateRole() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "debrief", yourRole: "candidate", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
+        await viewModel.load()
+
+        await viewModel.finalize(grade: 90)
+
+        XCTAssertTrue(service.recordedFinalizeIds.isEmpty)
+        let finalized = await viewModel.finalized
+        XCTAssertFalse(finalized)
     }
 
     // MARK: - interviewer recorder lifecycle

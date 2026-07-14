@@ -56,3 +56,8 @@ struct RubricState: Codable, Equatable {
     let grade: Double?
     let finalizedAt: Date?
 }
+
+struct Finalized: Codable, Equatable {
+    let grade: Double
+    let finalizedAt: Date
+}
