@@ -150,6 +150,9 @@ function onSignalMessage(msg) {
     case 'ice':
       rtc?.handleSignal(msg);
       break;
+    case 'reveal':
+      exhibits?.handleCtrl(msg);
+      break;
   }
 }
 

@@ -3,8 +3,10 @@
  *          preload + WebCrypto decrypt-on-reveal, interviewer strip with
  *          Send buttons + PDF drawer, DV-4 polling fallback, reveal timeline.
  * Inputs: {api, apiBase, role, caseId, sendCtrl, isCtrlOpen} from session.js;
- *         /api/practice/{id}/exhibit* + /reveals endpoints; ctrl DataChannel
- *         messages {type:'reveal', exhibit_id, key_b64} via handleCtrl().
+ *         /api/practice/{id}/exhibit* + /reveals endpoints; reveal messages
+ *         {type:'reveal', exhibit_id, key_b64} via handleCtrl() — delivered
+ *         over the signaling WebSocket (decision 5: one protocol, two
+ *         clients), not the WebRTC ctrl DataChannel.
  * Outputs: DOM in #exhibit-tray / #exhibit-panel / #lightbox /
  *          #reveal-timeline; POST /reveals as system of record.
  * Run: import { ExhibitManager } from '/static/js/caseroom/exhibits.js'
@@ -200,13 +202,13 @@ export class ExhibitManager {
     }
   }
 
-  /** Spec §4.4 step 3: DataChannel fast path + POST system of record.
-   * No Recall — the key has crossed the wire; the spec's accepted
-   * tradeoff means an un-reveal would be theater. */
+  /** POST is the system of record AND delivery: the server broadcasts the
+   * key to the candidate over the signaling WebSocket (decision 5 — one
+   * protocol, two clients). No Recall — the key has crossed the wire; the
+   * spec's accepted tradeoff means an un-reveal would be theater. */
   async sendExhibit(exhibitId) {
     const keyB64 = this.keys.get(exhibitId);
     if (!keyB64) return;
-    this.opts.sendCtrl({ type: 'reveal', exhibit_id: exhibitId, key_b64: keyB64 });
     const r = await this.opts.api('/reveals', { exhibit_id: exhibitId });
     if (!r.ok) {
       const btn = $(`ex-send-${exhibitId}`);
