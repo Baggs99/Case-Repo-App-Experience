@@ -11,6 +11,7 @@ import logging
 import time
 
 import httpx
+from starlette.concurrency import run_in_threadpool
 
 from webapp.push.apns import send_live_activity_push
 from webapp.push.events import push_enabled
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _iso(dt) -> str | None:
-    return dt.isoformat() if dt is not None else None
+    return dt.replace(microsecond=0).isoformat() if dt is not None else None
 
 
 def _content_state(session: dict, user_id: int) -> dict:
@@ -59,10 +60,10 @@ async def push_live_activity_update(session_id: int, *, event: str = "update",
             settings = load_settings()
         if not push_enabled(settings):
             return
-        tokens = tokens_for_session(session_id)
+        tokens = await run_in_threadpool(tokens_for_session, session_id)
         if not tokens:
             return
-        session = get_practice_session(session_id)
+        session = await run_in_threadpool(get_practice_session, session_id)
         if session is None:
             return
         timestamp = int(time.time())
@@ -82,7 +83,7 @@ async def push_live_activity_update(session_id: int, *, event: str = "update",
                         session_id, row["push_token"])
                     continue
                 if status == 410:
-                    delete_token(row["push_token"])
+                    await run_in_threadpool(delete_token, row["push_token"])
         finally:
             await client.aclose()
     except Exception:

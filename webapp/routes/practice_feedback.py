@@ -19,9 +19,11 @@ from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.push.events import push_to_user
+from webapp.push.live_activity import push_live_activity_update
 from webapp.repositories import feedback as repo
 from webapp.repositories import reveals as reveals_repo
 from webapp.routes.practice import _session_or_404
+from webapp.routes.signal_ws import hub
 
 router = APIRouter(tags=["practice-feedback"])
 
@@ -100,6 +102,8 @@ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTas
         body=f"Your feedback for {session['case_title']} is ready",
         data={"kind": "feedback", "session_id": session_id},
     )
+    background.add_task(hub.broadcast_session_update, session_id)
+    background.add_task(push_live_activity_update, session_id, event="end")
     return {
         "finalized": True,
         "grade": float(feedback["grade"]),

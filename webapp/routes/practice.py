@@ -148,7 +148,7 @@ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
     background.add_task(hub.broadcast_session_update, session_id)
     # ActivityKit update push (P3 T9): state changes (lobby→live→debrief→
     # finalized) refresh the Live Activity; "end" dismisses it on finalize.
-    event = "end" if body.target == "finalized" else "update"
+    event = "end" if body.target in ("finalized", "aborted") else "update"
     background.add_task(push_live_activity_update, session_id, event=event)
     return _public(result)
 

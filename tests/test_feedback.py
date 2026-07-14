@@ -206,6 +206,38 @@ class TestFeedbackAndFinalize(unittest.TestCase):
                 cur.execute("DELETE FROM burned WHERE user_id = %s AND case_id = %s;",
                             (self.bob_id, self.case_id))
 
+    def test_finalize_schedules_broadcast_and_live_activity_end(self):
+        from unittest.mock import patch
+
+        from webapp.routes import practice_feedback
+
+        sid = self._new_session("debrief")
+        self.assertEqual(self.alice.put(
+            f"/api/practice/{sid}/rubric", json=self.DRAFT).status_code, 200)
+
+        broadcast_calls = []
+        la_calls = []
+
+        async def fake_broadcast(session_id):
+            broadcast_calls.append(session_id)
+
+        async def fake_push(session_id, *, event="update"):
+            la_calls.append((session_id, event))
+
+        with patch.object(practice_feedback.hub, "broadcast_session_update", fake_broadcast), \
+                patch.object(practice_feedback, "push_live_activity_update", fake_push):
+            r = self.alice.post(f"/api/practice/{sid}/finalize", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+
+        self.assertEqual(broadcast_calls, [sid])
+        self.assertEqual(la_calls, [(sid, "end")])
+
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM burned WHERE user_id = %s AND case_id = %s;",
+                            (self.bob_id, self.case_id))
+
     def test_finalize_requires_debrief_and_range(self):
         sid = self._new_session("live")
         r = self.alice.post(f"/api/practice/{sid}/finalize", json={})

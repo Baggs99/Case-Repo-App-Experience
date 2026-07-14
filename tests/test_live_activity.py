@@ -125,6 +125,23 @@ class TestTokenUpsert(unittest.TestCase):
         self.assertEqual(by_user, {self.aid: "tok-v2", self.bid: "tok-bob"})
 
 
+class TestIso(unittest.TestCase):
+    def test_truncates_microseconds(self):
+        from datetime import datetime, timezone
+
+        from webapp.push.live_activity import _iso
+
+        dt = datetime(2026, 7, 14, 12, 0, 0, 123456, tzinfo=timezone.utc)
+        result = _iso(dt)
+
+        self.assertNotIn(".", result)
+
+    def test_none_passthrough(self):
+        from webapp.push.live_activity import _iso
+
+        self.assertIsNone(_iso(None))
+
+
 class TestSendLiveActivityPush(unittest.IsolatedAsyncioTestCase):
     async def test_liveactivity_push_shape(self):
         from webapp.push.apns import send_live_activity_push

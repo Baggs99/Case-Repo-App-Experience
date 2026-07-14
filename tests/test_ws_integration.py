@@ -206,6 +206,22 @@ class TestSignalingIntegration(unittest.TestCase):
         if code is not None:
             self.assertEqual(code, 4403)
 
+    def test_aborted_ends_live_activity(self):
+        from unittest.mock import patch
+
+        from webapp.routes import practice
+
+        sid = self._new_session()
+        calls = []
+
+        async def fake_push(session_id, *, event="update"):
+            calls.append((session_id, event))
+
+        with patch.object(practice, "push_live_activity_update", fake_push):
+            r = self.alice.post(f"/api/practice/{sid}/state", json={"target": "aborted"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(calls, [(sid, "end")])
+
     def test_reconnect_replaces_socket(self):
         sid = self._new_session()
         path = f"/ws/practice/{sid}"
