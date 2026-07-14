@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct CaseRoomApp: App {
+    @State private var sessionStore = SessionStore()
+
     var body: some Scene {
         WindowGroup {
             RootTabView()
+                .environment(sessionStore)
         }
     }
 }

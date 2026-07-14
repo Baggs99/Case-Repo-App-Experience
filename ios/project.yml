@@ -23,7 +23,13 @@ targets:
   CaseRoomTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [CaseRoomTests]
+    sources:
+      - path: CaseRoomTests
+        excludes:
+          - "Fixtures/**"
+      - path: CaseRoomTests/Fixtures
+        type: folder
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

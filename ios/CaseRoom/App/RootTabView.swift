@@ -1,6 +1,8 @@
 /*
- * Purpose: Root four-tab navigation shell for CaseRoom.
- * Inputs: none.
+ * Purpose: Root shell for CaseRoom — LoginView while logged out, four-tab
+ *          navigation once authenticated.
+ * Inputs: SessionStore (environment), whose bootstrap() checks the
+ *         persisted session cookie on launch.
  * Outputs: none.
  * Run: rendered by CaseRoomApp as the app's root view.
  */
@@ -8,21 +10,32 @@
 import SwiftUI
 
 struct RootTabView: View {
+    @Environment(SessionStore.self) private var sessionStore
+
     var body: some View {
-        TabView {
-            TodayView()
-                .tabItem { Label("Today", systemImage: "sun.max") }
+        Group {
+            if sessionStore.isAuthenticated {
+                TabView {
+                    TodayView()
+                        .tabItem { Label("Today", systemImage: "sun.max") }
 
-            CasesListView()
-                .tabItem { Label("Cases", systemImage: "folder") }
+                    CasesListView()
+                        .tabItem { Label("Cases", systemImage: "folder") }
 
-            SessionsView()
-                .tabItem { Label("Sessions", systemImage: "person.2.wave.2") }
+                    SessionsView()
+                        .tabItem { Label("Sessions", systemImage: "person.2.wave.2") }
 
-            ProfileView()
-                .tabItem { Label("You", systemImage: "person.crop.circle") }
+                    ProfileView()
+                        .tabItem { Label("You", systemImage: "person.crop.circle") }
+                }
+                .tint(Color("BrandAccent"))
+            } else {
+                LoginView()
+            }
         }
-        .tint(Color("BrandAccent"))
+        .task {
+            await sessionStore.bootstrap()
+        }
     }
 }
 
@@ -45,4 +58,5 @@ struct ProfileView: View {
 
 #Preview {
     RootTabView()
+        .environment(SessionStore())
 }
