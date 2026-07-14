@@ -54,11 +54,30 @@ and 8 each took an adversarial-review fix cycle (see below). Plan:
 `docs/superpowers/plans/2026-07-14-caseroom-ios-p3-remote-media-plan.md`.
 
 ### Verified state (commands run this session)
-- Backend suite `pytest tests/` = **308 passed / 0 failed**. iOS suite
-  `xcodebuild ... -destination 'platform=iOS Simulator,name=iPhone 17' test`
-  = **154 passed / 0 failed (TEST SUCCEEDED)**. Both on tip `2cd04cb`+this commit.
+- Branch tip **`d02752d`** (16 commits off `feature/ios-p2`). Backend suite
+  `pytest tests/` = **312 passed / 0 failed**. iOS suite `xcodebuild ...
+  -destination 'platform=iOS Simulator,name=iPhone 17' test` = **155 passed /
+  0 failed (TEST SUCCEEDED)**.
 - Migrations through **016**. Dev-DB test pollution reset at session start
   (sessions 2192/2193 + burned row purged — the non-hermetic-suite issue).
+
+### Final whole-branch review (adversarial, 4-dimension) — 6 findings, ALL FIXED
+A final adversarial review over the whole branch caught 6 Critical/Important
+defects invisible to the config-only unit suite (all real-device-only in
+effect). All fixed + re-reviewed clean (backend `f2810d9`, iOS `d02752d`):
+- **CRITICAL** remote video never surfaced — the remote-track delegate was
+  Plan-B `didAdd stream:` but the PC is Unified Plan (never fires). Fixed:
+  Unified-Plan `didAdd rtpReceiver:streams:` (signature confirmed vs the WebRTC
+  header). Without this the whole call would have shown a black remote view.
+- No 1.2 Mbps outbound video cap (rtc.js/spec §1) → uncapped cellular uplink. Fixed.
+- Empty ICE-state stub → no ICE restart; a cellular blip killed the call. Fixed
+  (restartIce on failed / 3s-grace on disconnected).
+- Finalize sent no `broadcast_session_update` + no Live-Activity `end` push →
+  candidate stuck on debrief + stale lock-screen banner. Fixed.
+- Media torn down only on view-disappear → camera/mic streamed through the
+  debrief grading phase (privacy/battery). Fixed (teardown on leaving `live`).
+- Live-Activity timer parsed microsecond timestamps with a fractional-blind
+  formatter → timer never rendered. Fixed (truncate sub-seconds server-side).
 
 ### What shipped
 - **Phase A (backend):** session `mode` col (migration 015 `remote|in_person`,
