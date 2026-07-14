@@ -28,7 +28,10 @@ final class RubricViewModel {
     var errorMessage: String?
 
     private let service: SessionService
-    private var autosaveTask: Task<Void, Never>?
+    // nonisolated(unsafe): Task.cancel() is thread-safe, and deinit (which
+    // must cancel any pending autosave) runs nonisolated and can't hop to
+    // the main actor to read/write an isolated property.
+    private nonisolated(unsafe) var autosaveTask: Task<Void, Never>?
     private let autosaveDelayNanoseconds: UInt64 = 800_000_000
 
     init(sessionId: Int, service: SessionService) {
@@ -79,13 +82,25 @@ final class RubricViewModel {
     }
 
     private func scheduleAutosave() {
-        autosaveTask?.cancel()
+        cancelPendingAutosave()
         autosaveTask = Task { [weak self] in
             guard let self else { return }
             try? await Task.sleep(nanoseconds: self.autosaveDelayNanoseconds)
             guard !Task.isCancelled else { return }
             await self.save()
         }
+    }
+
+    // Cancels any pending debounced autosave without triggering a save.
+    // Exposed so tests can neutralize the in-flight Task before asserting
+    // on recorded service calls, and so deinit can tear it down cleanly.
+    func cancelPendingAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+    }
+
+    deinit {
+        autosaveTask?.cancel()
     }
 
     // MARK: - Save — the debounce target; public + directly callable so
@@ -96,6 +111,7 @@ final class RubricViewModel {
         do {
             let preview = try await service.saveRubric(id: sessionId, items: items, notesMd: notesMd)
             gradePreview = preview
+            errorMessage = nil
             return preview
         } catch {
             errorMessage = "Couldn't save the rubric. Try again."

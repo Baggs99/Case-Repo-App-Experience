@@ -123,6 +123,7 @@ final class RubricViewModelTests: XCTestCase {
         await viewModel.setOverallNotes("Wrapping up.")
 
         let returnedGradePreview = await viewModel.save()
+        await viewModel.cancelPendingAutosave()
 
         XCTAssertEqual(service.recordedSaveRubricIds, [42])
         let sentItems = service.recordedSaveRubricItems.last

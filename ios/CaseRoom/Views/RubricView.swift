@@ -16,6 +16,7 @@ struct RubricView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             gradePreviewSection
+            autosaveErrorBanner
 
             ForEach(viewModel.templateItems, id: \.id) { item in
                 dimensionRow(for: item)
@@ -33,6 +34,31 @@ struct RubricView: View {
             Text(String(format: "%.1f", viewModel.gradePreview))
                 .font(.title2.bold())
                 .foregroundStyle(Color("BrandAccent"))
+        }
+    }
+
+    // Inline, dismissible — an autosave failure shouldn't blow away the
+    // scoring UI the way a full-page ContentUnavailableView would.
+    @ViewBuilder
+    private var autosaveErrorBanner: some View {
+        if let errorMessage = viewModel.errorMessage {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(errorMessage)
+                    .font(.footnote)
+                Spacer()
+                Button {
+                    viewModel.errorMessage = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(10)
+            .background(.orange.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 
