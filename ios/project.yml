@@ -11,15 +11,15 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom
-        INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription: >-
-          Adds your accepted practice sessions to your calendar.
-        INFOPLIST_KEY_UIBackgroundModes: remote-notification
     info:
       path: CaseRoom/Support/Info.plist
       properties:
         API_BASE_URL: http://127.0.0.1:8077
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        NSCalendarsWriteOnlyAccessUsageDescription: >-
+          Adds your accepted practice sessions to your calendar.
+        UIBackgroundModes: [remote-notification]
   CaseRoomTests:
     type: bundle.unit-test
     platform: iOS
