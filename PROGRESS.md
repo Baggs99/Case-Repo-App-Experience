@@ -1,5 +1,5 @@
 # PROGRESS
-Updated: 2026-07-14T12:08:00-04:00 · Branch: feature/caseroom (iOS work on feature/ios-app)
+Updated: 2026-07-14T14:20:00-04:00 · Branch: feature/caseroom (iOS work on feature/ios-p2, off feature/ios-app)
 
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
@@ -32,13 +32,19 @@ session prompt doesn't say, ASK which track before touching anything.
   "2026-07-14T03:48:00.927225-04:00"`). Two fixtures (proposals,
   sessions_upcoming) came back empty for the seeded user — decode-tested as
   empty arrays, not a code gap. Full report: .superpowers/sdd/task-10-report.md.
-  **Task 15 (capstone: end-to-end verification) DONE 2026-07-14** — P1 is
+  **Task 15 (P1 capstone: end-to-end verification) DONE 2026-07-14** — P1 is
   COMPLETE. Backend suite 269 passed, iOS suite 36 passed, live backend
   E2E (8 HTTP calls: 7 GET + 1 proposal POST) all 2xx, 5/5 simctl push
   kinds delivered with no crash. Full evidence: "P1 (iOS app) — DONE"
-  section below and .superpowers/sdd/task-15-report.md. Next: P2 plan
-  (session core — WS lobby/knock/admit, exhibit decrypt, etc.), plus the
-  manual items in that section's "Remaining / manual" list.
+  section below.
+  **P2 (in-person session core) DONE 2026-07-14** (branch `feature/ios-p2`,
+  commit `2529a93` + this PROGRESS.md commit) — backend suite 290 passed,
+  iOS suite 112 passed, and a full live in-person-flow E2E over real HTTP +
+  WebSocket (pairing→consent→live→reveal→rubric→debrief→finalize→history,
+  all steps PASS incl. a real AES-GCM decrypt of the revealed exhibit).
+  Full evidence: "P2 (in-person session core) — DONE" section below and
+  .superpowers/sdd/task-15-report.md. Next: **P3 — remote WebRTC media +
+  Live Activities + TURN provider decision**.
 
 ## Handoff partition (iOS track, written 2026-07-12)
 | Chunk | Spec state | Tier | Next concrete action |
@@ -47,8 +53,9 @@ session prompt doesn't say, ASK which track before touching anything.
 | P1 Task 9 (XcodeGen scaffold) | complete (plan) | worker | DONE — commits e9391bd/431647e |
 | P1 Task 10 (networking layer) | complete (plan) | worker | DONE — commit affea8b, report at .superpowers/sdd/task-10-report.md |
 | P1 Tasks 11–15 (iOS app in ios/) | **DONE 2026-07-14** | worker | Task 15 capstone verification complete — see "P1 (iOS app) — DONE" below |
-| P2 plan (session core, no media) | needs-spec→plan | session-model | Write plan from spec P2 section — P1 has merged (feature/ios-app verified) |
-| Apple dev account + .p8 into .env | manual | Thomas | Not blocking — simulator covers all P1 verification except real-device push |
+| P2 (session core, no media) | **DONE 2026-07-14** | worker | Task 15 capstone verification complete — see "P2 (in-person session core) — DONE" below |
+| P3 plan (remote WebRTC media, Live Activities, TURN decision) | needs-spec→plan | session-model | Write plan from spec P3 section once owner picks a TURN provider |
+| Apple dev account + .p8 into .env | manual | Thomas | Not blocking — simulator covers all P1/P2 verification except real-device push |
 
 iOS-track gotchas (this session, not recorded elsewhere):
 - Plan interface names (require_auth_api, search_cases, public_stats,
@@ -106,14 +113,76 @@ provisioning profile for install; push itself needs the paid account).
 (c) Interactive UI walkthrough (login → 4 tabs → Cases search/detail →
 send proposal as b → accept as a → calendar event → web dashboard shows
 same session, no fork) — not automated this pass per the watchdog rule
-against flaky sim tap-through; exact steps in
-`.superpowers/sdd/task-15-report.md` Step 5.
+against flaky sim tap-through; exact steps were in the P1-era
+`.superpowers/sdd/task-15-report.md` (that file now holds the P2 capstone
+report instead — each phase's Task 15 reuses the same report path; see
+"P2 (in-person session core) — DONE" below for the current one).
 (d) Prod deploy — deferred, same as the web track (no host/TURN decision
 yet, see "Handoff partition (web track)").
-(e) Next: write the P2 plan (session core — WS lobby/knock/admit, exhibit
-decrypt via CryptoKit, WS key-reveal migration incl. web client, rubric/
-timer, recording upload, QR pairing) from the spec's P2 section now that
-P1 is verified complete.
+(e) DONE 2026-07-14: P2 (session core — WS lobby/knock/admit, exhibit
+decrypt, WS key-reveal, rubric/timer, recording upload, QR pairing) shipped
+and verified — see "P2 (in-person session core) — DONE" below.
+
+## P2 (in-person session core) — DONE (2026-07-14, Task 15 capstone verification)
+
+Branch `feature/ios-p2`, commit `2529a93` (Add QR pairing: create
+(interviewer) + scan-to-claim (candidate)) plus this PROGRESS.md commit.
+Full evidence: `.superpowers/sdd/task-15-report.md`.
+
+- **Backend suite** — `.venv/bin/python -m pytest tests/ -q` → **290
+  passed**, 0 failures (279 pre-existing deprecation/SWIG warnings only, no
+  flake — single run).
+- **iOS unit suite** — `cd ios && xcodegen && xcodebuild -project
+  CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS
+  Simulator,name=iPhone 17' test` → **`** TEST SUCCEEDED **`, 112 tests, 0
+  failures** (24.5s) — SessionViewModel (admit/knock/consent/recorder-
+  lifecycle), SignalMessage (outbound JSON + inbound parse incl. reveal/
+  session-update), Today/Sessions/Cases/APIClient/PushRoute/Smoke suites.
+- **Live in-person flow E2E over real HTTP + WebSocket** (new script
+  `tests/e2e_inperson_flow.py`, kept in the repo; `main.py serve --port
+  8077` against the dev seed, case 1 "Dev Dummy Case" which already had 2
+  exhibits + a default rubric template from prior dev/test use — no
+  fixture seeding needed): interviewer `pair/create` → token (200) →
+  candidate `pair/claim` → session_id (200) → both open
+  `/ws/practice/{id}` and get correct roles → `state:lobby` → both
+  `consent` → `state:live`, each step producing a `session-update` WS
+  frame on **both** sockets (proves the candidate socket advances live,
+  not just the HTTP response) → `POST /reveals` (200) → candidate's WS
+  received `{"type":"reveal","exhibit_id":216,"key_b64":...}` and the key
+  + manifest IV **actually decrypted** the fetched exhibit-blob via
+  `webapp.exhibit_crypto.decrypt_exhibit` back to its original WebP bytes
+  (RIFF magic intact) → `PUT /rubric` (5 template items scored, 200,
+  `grade_preview:5.0`) → `state:debrief` (200 + session-update both sides)
+  → `finalize {grade:null}` → `finalized:true`, server-computed
+  `grade:5.0` → the finalized session then appeared in the candidate's
+  `/api/v1/sessions?scope=recent` history. Every step PASS; full transcript
+  in the report. Server stopped after the run, port 8077 confirmed free.
+- **Optional simulator smoke** — built (`xcodebuild ... build` →
+  **BUILD SUCCEEDED**), installed, and launched `studio.ogee.caseroom` on
+  the iPhone 17 sim: process stayed alive (no crash-relaunch), no new
+  DiagnosticReports. Only proves boot-to-root-view; does not exercise QR
+  scan or the session flow. Simulator shut down afterward.
+
+### Remaining / manual (not blocking — P2 is otherwise complete)
+
+- **Real-device QR-scan walkthrough** — `DataScannerViewController` needs a
+  camera; no simulator equivalent.
+- **Real-device room-mic capture check** — live in-person recording needs a
+  physical mic.
+- **Interactive 2-device walkthrough** (two physical iPhones, or sim + real
+  device, through the full claim→lobby→consent→live→reveal→rubric→debrief→
+  finalize UI) — not automated this pass per the watchdog rule against
+  fragile 2-sim UI tap-through; the HTTP/WS E2E above proves the backend
+  contract the UI drives, not the SwiftUI views/gestures/VisionKit layer.
+- **Still open from P1**: Apple Developer portal App ID Push (+
+  Time-Sensitive) capability + APNs `.p8` → `.env` for real push; merge
+  `feature/ios-app` (P1) then `feature/ios-p2` into the base branch.
+
+Next: **P3 — remote WebRTC media + Live Activities + TURN provider
+decision** (spec P3 section: WebRTC audio/video for remote sessions, the
+video-off remote toggle, Dynamic Island/Live Activities, and the TURN
+provider owner decision — the `sdp`/`ice` WS relay already exists in the
+signaling hub but has stayed unused through P2).
 
 WEB TRACK — verified state at session end (2026-07-12 ~14:30 ET, all
 checked by command, not memory):
