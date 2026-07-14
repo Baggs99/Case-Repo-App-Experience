@@ -37,6 +37,8 @@ final class StubSessionService: SessionService {
         try sessionDetailResult.get()
     }
 
+    func joinConfig(id: Int) async throws -> JoinConfig { fatalError("not used") }
+
     func setConsent(id: Int, consent: Bool) async throws -> SessionDetail {
         recordedConsentIds.append(id)
         recordedConsentValues.append(consent)
@@ -136,7 +138,7 @@ final class SessionViewModelTests: XCTestCase {
     ) -> SessionDetail {
         SessionDetail(
             id: 42, interviewerId: 1, candidateId: 2, caseId: 5,
-            state: state, consentInterviewer: consentInterviewer, consentCandidate: consentCandidate,
+            state: state, mode: "remote", consentInterviewer: consentInterviewer, consentCandidate: consentCandidate,
             scheduledAt: nil, startedAt: nil, endedAt: nil,
             interviewerName: "Alice Dev", candidateName: "Bob Dev",
             caseTitle: "Widget Co", yourRole: yourRole

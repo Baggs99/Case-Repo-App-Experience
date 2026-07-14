@@ -42,6 +42,7 @@ private final class StubRecordingService: SessionService {
 
     // Unused by RecordingUploader — required by the SessionService protocol.
     func sessionDetail(id: Int) async throws -> SessionDetail { fatalError("not used") }
+    func joinConfig(id: Int) async throws -> JoinConfig { fatalError("not used") }
     func setConsent(id: Int, consent: Bool) async throws -> SessionDetail { fatalError("not used") }
     func transition(id: Int, target: String) async throws -> SessionDetail { fatalError("not used") }
     func rubric(id: Int) async throws -> RubricState { fatalError("not used") }

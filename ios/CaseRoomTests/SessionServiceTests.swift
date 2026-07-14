@@ -33,7 +33,7 @@ final class SessionServiceTests: XCTestCase {
     func testSessionDetailRequestAndDecode() async throws {
         stubJSON(#"""
         {"id": 42, "interviewer_id": 1, "candidate_id": 2, "case_id": 5,
-         "state": "lobby", "consent_interviewer": true, "consent_candidate": false,
+         "state": "lobby", "mode": "remote", "consent_interviewer": true, "consent_candidate": false,
          "scheduled_at": "2026-07-20T14:30:00+00:00", "started_at": null, "ended_at": null,
          "interviewer_name": "Alice Dev", "candidate_name": "Bob Dev",
          "case_title": "Widget Co", "your_role": "interviewer"}
@@ -46,6 +46,7 @@ final class SessionServiceTests: XCTestCase {
         XCTAssertEqual(detail.candidateId, 2)
         XCTAssertEqual(detail.caseId, 5)
         XCTAssertEqual(detail.state, "lobby")
+        XCTAssertEqual(detail.mode, "remote")
         XCTAssertTrue(detail.consentInterviewer)
         XCTAssertFalse(detail.consentCandidate)
         XCTAssertNotNil(detail.scheduledAt)
@@ -65,13 +66,14 @@ final class SessionServiceTests: XCTestCase {
         // names/role) — the same SessionDetail model must still decode.
         let json = #"""
         {"id": 42, "interviewer_id": 1, "candidate_id": 2, "case_id": 5,
-         "state": "lobby", "consent_interviewer": true, "consent_candidate": false,
+         "state": "lobby", "mode": "in_person", "consent_interviewer": true, "consent_candidate": false,
          "scheduled_at": null, "started_at": null, "ended_at": null}
         """#
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let detail = try decoder.decode(SessionDetail.self, from: Data(json.utf8))
 
+        XCTAssertEqual(detail.mode, "in_person")
         XCTAssertNil(detail.interviewerName)
         XCTAssertNil(detail.yourRole)
     }
@@ -81,7 +83,7 @@ final class SessionServiceTests: XCTestCase {
     func testSetConsentRequestAndDecode() async throws {
         stubJSON(#"""
         {"id": 42, "interviewer_id": 1, "candidate_id": 2, "case_id": 5,
-         "state": "lobby", "consent_interviewer": true, "consent_candidate": true,
+         "state": "lobby", "mode": "remote", "consent_interviewer": true, "consent_candidate": true,
          "scheduled_at": null, "started_at": null, "ended_at": null}
         """#)
 
@@ -101,7 +103,7 @@ final class SessionServiceTests: XCTestCase {
     func testTransitionRequestAndDecode() async throws {
         stubJSON(#"""
         {"id": 42, "interviewer_id": 1, "candidate_id": 2, "case_id": 5,
-         "state": "live", "consent_interviewer": true, "consent_candidate": true,
+         "state": "live", "mode": "remote", "consent_interviewer": true, "consent_candidate": true,
          "scheduled_at": null, "started_at": "2026-07-20T14:31:00+00:00", "ended_at": null}
         """#)
 
@@ -296,5 +298,34 @@ final class SessionServiceTests: XCTestCase {
         let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
         XCTAssertTrue(body.keys.contains("grade"))
         XCTAssertTrue(body["grade"] is NSNull)
+    }
+
+    // MARK: - joinConfig
+
+    func testJoinConfigRequestAndDecode() async throws {
+        stubJSON(#"""
+        {"session_id": 42, "your_role": "interviewer", "ws_path": "/ws/practice/42",
+         "ice_servers": [
+           {"urls": ["stun:stun.example.com:19302"], "username": null, "credential": null},
+           {"urls": ["turn:turn.example.com:3478"], "username": "turnuser", "credential": "turnpass"}
+         ]}
+        """#)
+
+        let config = try await client.joinConfig(id: 42)
+
+        XCTAssertEqual(config.sessionId, 42)
+        XCTAssertEqual(config.yourRole, "interviewer")
+        XCTAssertEqual(config.wsPath, "/ws/practice/42")
+        XCTAssertEqual(config.iceServers.count, 2)
+        XCTAssertEqual(config.iceServers[0].urls, ["stun:stun.example.com:19302"])
+        XCTAssertNil(config.iceServers[0].username)
+        XCTAssertNil(config.iceServers[0].credential)
+        XCTAssertEqual(config.iceServers[1].urls, ["turn:turn.example.com:3478"])
+        XCTAssertEqual(config.iceServers[1].username, "turnuser")
+        XCTAssertEqual(config.iceServers[1].credential, "turnpass")
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/practice/42/join-config")
+        XCTAssertEqual(request.httpMethod, "GET")
     }
 }

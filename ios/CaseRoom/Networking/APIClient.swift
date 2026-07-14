@@ -51,6 +51,7 @@ struct CaseQuery {
 // POST/PUT are same-origin from the native client, no Origin header needed.
 protocol SessionService {
     func sessionDetail(id: Int) async throws -> SessionDetail
+    func joinConfig(id: Int) async throws -> JoinConfig
     func setConsent(id: Int, consent: Bool) async throws -> SessionDetail
     func transition(id: Int, target: String) async throws -> SessionDetail
     func rubric(id: Int) async throws -> RubricState
@@ -216,6 +217,10 @@ actor APIClient: SessionService, PairService {
 
     func sessionDetail(id: Int) async throws -> SessionDetail {
         try await send(path: "/api/practice/\(id)", method: "GET")
+    }
+
+    func joinConfig(id: Int) async throws -> JoinConfig {
+        try await send(path: "/api/practice/\(id)/join-config", method: "GET")
     }
 
     func setConsent(id: Int, consent: Bool) async throws -> SessionDetail {

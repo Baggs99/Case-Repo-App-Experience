@@ -13,6 +13,7 @@ struct SessionDetail: Codable, Identifiable, Equatable {
     let candidateId: Int
     let caseId: Int
     let state: String
+    let mode: String
     let consentInterviewer: Bool
     let consentCandidate: Bool
     let scheduledAt: Date?
@@ -66,4 +67,19 @@ struct Finalized: Codable, Equatable {
 struct PairToken: Codable, Equatable {
     let token: String
     let expiresAt: Date
+}
+
+// GET /api/practice/{id}/join-config response (Task 4). SessionDetail.mode
+// (not a JoinConfig field) is what callers use to gate media on remote-mode.
+struct JoinConfig: Codable, Equatable {
+    let sessionId: Int
+    let yourRole: String
+    let wsPath: String
+    let iceServers: [ICEServer]
+}
+
+struct ICEServer: Codable, Equatable {
+    let urls: [String]
+    let username: String?
+    let credential: String?
 }
