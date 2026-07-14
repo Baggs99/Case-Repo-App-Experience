@@ -85,6 +85,12 @@ struct VideoCallView: View {
 /// Wraps RTCMTLVideoView for SwiftUI and attaches the given track as a
 /// renderer. Renders nothing until a track with live frames is attached on
 /// a real device (Task 12) — the simulator build only needs this to compile.
+///
+/// The remote track's identity changes once the session populates it (it
+/// starts nil, then becomes the peer's track), so the Coordinator remembers
+/// the previously-attached track and detaches it before attaching the new
+/// one — otherwise the old track keeps rendering into this view too (leak +
+/// double-render).
 private struct RTCVideoRepresentable: UIViewRepresentable {
     let track: RTCVideoTrack?
 
@@ -95,7 +101,18 @@ private struct RTCVideoRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: RTCMTLVideoView, context: Context) {
+        guard context.coordinator.attachedTrack !== track else { return }
+        context.coordinator.attachedTrack?.remove(uiView)
         track?.add(uiView)
+        context.coordinator.attachedTrack = track
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var attachedTrack: RTCVideoTrack?
     }
 }
 

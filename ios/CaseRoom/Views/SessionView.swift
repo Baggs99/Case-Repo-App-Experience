@@ -87,6 +87,37 @@ struct SessionView: View {
 
     @ViewBuilder
     private var liveContent: some View {
+        if viewModel.mode == "remote" {
+            remoteLiveContent
+        } else {
+            roleLiveContent
+        }
+    }
+
+    // Remote sessions: the video call is the primary surface, with the same
+    // role view (rubric or exhibits) still reachable underneath so the
+    // interviewer keeps scoring and the candidate keeps seeing exhibits
+    // during the call. Polish (e.g. a picture-in-picture layout) is a later
+    // pass.
+    @ViewBuilder
+    private var remoteLiveContent: some View {
+        VStack(spacing: 0) {
+            if let localCapture = viewModel.localCapture {
+                VideoCallView(
+                    capture: localCapture,
+                    remoteMediaSlot: RemoteMediaSlot(trackHandle: viewModel.remoteTrack)
+                )
+                .frame(height: 320)
+            } else {
+                ProgressView()
+                    .frame(height: 320)
+            }
+            roleLiveContent
+        }
+    }
+
+    @ViewBuilder
+    private var roleLiveContent: some View {
         if viewModel.role == "interviewer", let rubricViewModel {
             InterviewerLiveView(viewModel: rubricViewModel)
         } else if viewModel.role == "candidate", let exhibitsViewModel {

@@ -67,6 +67,22 @@ protocol ExhibitRevealReceiving {
 
 extension ExhibitsViewModel: ExhibitRevealReceiving {}
 
+// Bridges the WebRTC media stack (RTCPeerConnectionWrapper + Negotiator +
+// WebRTCMediaCapture, assembled by RemoteMediaSession) into an injectable
+// protocol so the VM test runs without WebRTC. `capture` is exposed (beyond
+// what negotiation itself needs) so SessionView can hand the local capture to
+// VideoCallView's picture-in-picture preview.
+@MainActor
+protocol RemoteMediaControlling: AnyObject {
+    func start(signaling: SignalingChannel, iceServers: [ICEServer], polite: Bool) async throws
+    func handle(_ message: SignalMessage) async
+    func setVideoEnabled(_ enabled: Bool)
+    func setAudioEnabled(_ enabled: Bool)
+    var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)? { get set }
+    var capture: MediaCapturing? { get }
+    func stop()
+}
+
 @Observable
 @MainActor
 final class SessionViewModel {
@@ -93,6 +109,13 @@ final class SessionViewModel {
     var isLoading = false
     var errorMessage: String?
 
+    /// Session mode from SessionDetail.mode ("remote" | "in_person") — gates
+    /// whether the live transition wires up WebRTC media at all.
+    var mode: String = ""
+    var videoEnabled = true
+    var audioEnabled = true
+    var remoteTrack: MediaTrackHandle?
+
     /// Set by the hosting view to the candidate's ExhibitsViewModel so
     /// inbound .reveal signaling messages reach its decrypt path. nil for
     /// the interviewer (and for tests that don't exercise reveal routing).
@@ -102,18 +125,28 @@ final class SessionViewModel {
     private let signaling: SignalingChannel
     private let recorder: RoomRecording
     private let uploader: RecordingUploading
+    private let makeRemoteMedia: @MainActor () -> RemoteMediaControlling
     private var listenTask: Task<Void, Never>?
     private var recordingStarted = false
+    private var mediaStarted = false
+    private var media: RemoteMediaControlling?
+
+    /// The local camera/mic capture backing the active remote media session,
+    /// nil until media has started. Exposed so SessionView can hand it to
+    /// VideoCallView's local preview without owning the media session itself.
+    var localCapture: MediaCapturing? { media?.capture }
 
     init(
         sessionId: Int, service: SessionService, signaling: SignalingChannel,
-        recorder: RoomRecording = RoomRecorder(), uploader: RecordingUploading = DefaultRecordingUploader()
+        recorder: RoomRecording = RoomRecorder(), uploader: RecordingUploading = DefaultRecordingUploader(),
+        makeRemoteMedia: @escaping @MainActor () -> RemoteMediaControlling = { RemoteMediaSession() }
     ) {
         self.sessionId = sessionId
         self.service = service
         self.signaling = signaling
         self.recorder = recorder
         self.uploader = uploader
+        self.makeRemoteMedia = makeRemoteMedia
     }
 
     /// This user's own consent flag, resolved by role.
@@ -145,12 +178,15 @@ final class SessionViewModel {
         listenTask?.cancel()
         listenTask = nil
         await signaling.disconnect()
+        media?.stop()
+        media = nil
     }
 
     private func apply(_ detail: SessionDetail) async {
         let previousState = state
         state = detail.state
         role = detail.yourRole
+        mode = detail.mode
         caseTitle = detail.caseTitle
         interviewerName = detail.interviewerName
         candidateName = detail.candidateName
@@ -163,6 +199,29 @@ final class SessionViewModel {
         if previousState != "live", state == "live", role == "interviewer", !recordingStarted {
             recordingStarted = true
             try? await recorder.start()
+        }
+
+        // Remote-mode only (in-person stays media-free); fires for both
+        // roles. Live implies admitted, so the sdp/ice gate is respected
+        // with no extra guard. Guarded so it only ever fires once per VM
+        // lifetime.
+        if previousState != "live", state == "live", mode == "remote", !mediaStarted {
+            mediaStarted = true
+            await startRemoteMedia()
+        }
+    }
+
+    private func startRemoteMedia() async {
+        let remoteMedia = makeRemoteMedia()
+        remoteMedia.onRemoteTrack = { [weak self] handle in
+            self?.remoteTrack = handle
+        }
+        media = remoteMedia
+        do {
+            let config = try await service.joinConfig(id: sessionId)
+            try await remoteMedia.start(signaling: signaling, iceServers: config.iceServers, polite: role == "candidate")
+        } catch {
+            errorMessage = "Couldn't start video. Try again."
         }
     }
 
@@ -204,9 +263,9 @@ final class SessionViewModel {
                 await apply(detail)
             }
         case .sdp, .ice:
-            // Media negotiation frames — routed to Negotiator once the
-            // session screen wires it up (Task 8), not handled here.
-            break
+            // Media negotiation frames — routed to the remote-mode media
+            // session's Negotiator. Only ever set for mode == "remote".
+            await media?.handle(message)
         case .pong, .unknown:
             break
         }
@@ -255,6 +314,19 @@ final class SessionViewModel {
         } catch {
             errorMessage = "Couldn't start the session. Try again."
         }
+    }
+
+    /// Video-off toggle: audio-only "phone-screen practice" mode for a
+    /// remote session. No-op if media hasn't started (e.g. in-person).
+    func toggleVideo() {
+        videoEnabled.toggle()
+        media?.setVideoEnabled(videoEnabled)
+    }
+
+    /// Mute toggle, for parity with toggleVideo().
+    func toggleAudio() {
+        audioEnabled.toggle()
+        media?.setAudioEnabled(audioEnabled)
     }
 
     // MARK: - Debrief + finalize

@@ -19,6 +19,7 @@ final class StubSessionService: SessionService {
     var setConsentResult: Result<SessionDetail, Error>
     var transitionResult: Result<SessionDetail, Error>
     var finalizeResult: Result<Finalized, Error> = .success(Finalized(grade: 0, finalizedAt: Date()))
+    var joinConfigResult: Result<JoinConfig, Error>
 
     private(set) var recordedConsentIds: [Int] = []
     private(set) var recordedConsentValues: [Bool] = []
@@ -31,13 +32,19 @@ final class StubSessionService: SessionService {
         self.sessionDetailResult = .success(detail)
         self.setConsentResult = .success(detail)
         self.transitionResult = .success(detail)
+        self.joinConfigResult = .success(JoinConfig(
+            sessionId: detail.id, yourRole: detail.yourRole ?? "candidate", wsPath: "",
+            iceServers: [ICEServer(urls: ["stun:stub.example"], username: nil, credential: nil)]
+        ))
     }
 
     func sessionDetail(id: Int) async throws -> SessionDetail {
         try sessionDetailResult.get()
     }
 
-    func joinConfig(id: Int) async throws -> JoinConfig { fatalError("not used") }
+    func joinConfig(id: Int) async throws -> JoinConfig {
+        try joinConfigResult.get()
+    }
 
     func setConsent(id: Int, consent: Bool) async throws -> SessionDetail {
         recordedConsentIds.append(id)
@@ -102,6 +109,43 @@ final class StubExhibitReceiver: ExhibitRevealReceiving {
     }
 }
 
+final class StubRemoteMedia: RemoteMediaControlling {
+    private(set) var startCallCount = 0
+    private(set) var startPoliteValues: [Bool] = []
+    private(set) var startICEServers: [[ICEServer]] = []
+    private(set) var handledMessages: [SignalMessage] = []
+    private(set) var setVideoEnabledValues: [Bool] = []
+    private(set) var setAudioEnabledValues: [Bool] = []
+    private(set) var stopCallCount = 0
+    var startError: Error?
+
+    var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)?
+    var capture: MediaCapturing? { nil }
+
+    func start(signaling: SignalingChannel, iceServers: [ICEServer], polite: Bool) async throws {
+        startCallCount += 1
+        startPoliteValues.append(polite)
+        startICEServers.append(iceServers)
+        if let startError { throw startError }
+    }
+
+    func handle(_ message: SignalMessage) async {
+        handledMessages.append(message)
+    }
+
+    func setVideoEnabled(_ enabled: Bool) {
+        setVideoEnabledValues.append(enabled)
+    }
+
+    func setAudioEnabled(_ enabled: Bool) {
+        setAudioEnabledValues.append(enabled)
+    }
+
+    func stop() {
+        stopCallCount += 1
+    }
+}
+
 final class StubSignalingChannel: SignalingChannel {
     private var continuation: AsyncStream<SignalMessage>.Continuation?
     private(set) var recordedSentData: [Data] = []
@@ -137,12 +181,12 @@ final class StubSignalingChannel: SignalingChannel {
 
 final class SessionViewModelTests: XCTestCase {
     private func makeDetail(
-        state: String = "lobby", yourRole: String? = "candidate",
+        state: String = "lobby", yourRole: String? = "candidate", mode: String = "remote",
         consentInterviewer: Bool = false, consentCandidate: Bool = false
     ) -> SessionDetail {
         SessionDetail(
             id: 42, interviewerId: 1, candidateId: 2, caseId: 5,
-            state: state, mode: "remote", consentInterviewer: consentInterviewer, consentCandidate: consentCandidate,
+            state: state, mode: mode, consentInterviewer: consentInterviewer, consentCandidate: consentCandidate,
             scheduledAt: nil, startedAt: nil, endedAt: nil,
             interviewerName: "Alice Dev", candidateName: "Bob Dev",
             caseTitle: "Widget Co", yourRole: yourRole
@@ -460,5 +504,123 @@ final class SessionViewModelTests: XCTestCase {
 
         let state = await viewModel.state
         XCTAssertEqual(state, "debrief")
+    }
+
+    // MARK: - remote media (Task 8)
+
+    func testInterviewerRemoteModeLiveTransitionStartsMediaImpolite() async {
+        let service = StubSessionService(
+            detail: makeDetail(yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        service.transitionResult = .success(
+            makeDetail(state: "live", yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+        await viewModel.load()
+
+        await viewModel.goLive()
+
+        let startCallCount = await media.startCallCount
+        let startPoliteValues = await media.startPoliteValues
+        XCTAssertEqual(startCallCount, 1)
+        XCTAssertEqual(startPoliteValues, [false])
+    }
+
+    func testCandidateRemoteModeLiveTransitionStartsMediaPolite() async {
+        let service = StubSessionService(
+            detail: makeDetail(yourRole: "candidate", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        service.transitionResult = .success(
+            makeDetail(state: "live", yourRole: "candidate", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+        await viewModel.load()
+
+        await viewModel.goLive()
+
+        let startCallCount = await media.startCallCount
+        let startPoliteValues = await media.startPoliteValues
+        XCTAssertEqual(startCallCount, 1)
+        XCTAssertEqual(startPoliteValues, [true])
+    }
+
+    func testInPersonModeLiveTransitionDoesNotStartMedia() async {
+        let service = StubSessionService(
+            detail: makeDetail(yourRole: "interviewer", mode: "in_person", consentInterviewer: true, consentCandidate: true)
+        )
+        service.transitionResult = .success(
+            makeDetail(state: "live", yourRole: "interviewer", mode: "in_person", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+        await viewModel.load()
+
+        await viewModel.goLive()
+
+        let startCallCount = await media.startCallCount
+        XCTAssertEqual(startCallCount, 0)
+    }
+
+    func testToggleVideoTogglesMediaAndMediaCreatedOnlyOnce() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "live", yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+        await viewModel.load()
+        var startCallCount = await media.startCallCount
+        XCTAssertEqual(startCallCount, 1)
+
+        // A subsequent session-update while already live must not re-create
+        // or re-start media (the mediaStarted guard holds).
+        signaling.push(.sessionUpdate)
+        await flush()
+        startCallCount = await media.startCallCount
+        XCTAssertEqual(startCallCount, 1)
+
+        await viewModel.toggleVideo()
+
+        let setVideoEnabledValues = await media.setVideoEnabledValues
+        XCTAssertEqual(setVideoEnabledValues, [false])
+        let videoEnabled = await viewModel.videoEnabled
+        XCTAssertFalse(videoEnabled)
+    }
+
+    func testInboundSDPAndICEAfterStartForwardToMediaHandle() async {
+        let service = StubSessionService(
+            detail: makeDetail(yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        service.transitionResult = .success(
+            makeDetail(state: "live", yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+        await viewModel.load()
+        await viewModel.goLive()
+
+        let sdp = SDP(type: "offer", sdp: "v=0")
+        signaling.push(.sdp(description: sdp))
+        signaling.push(.ice(candidate: nil))
+        await flush()
+
+        let handledMessages = await media.handledMessages
+        XCTAssertEqual(handledMessages, [.sdp(description: sdp), .ice(candidate: nil)])
     }
 }
