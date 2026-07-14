@@ -8,7 +8,7 @@ from __future__ import annotations
 import ipaddress
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
@@ -24,7 +24,9 @@ from webapp.auth.sessions import (
 from webapp.auth.users import User, authenticate
 from webapp.csrf import require_same_origin
 from webapp.db import get_pool
+from webapp.preview_urls import preview_page_urls
 from webapp.repositories import device_tokens as repo
+from webapp.repositories.cases import SearchFilters, get_case_by_id, search_cases
 
 router = APIRouter(prefix="/api/v1")
 
@@ -110,3 +112,36 @@ def register_device(body: DeviceTokenBody, user: User = Depends(require_auth_api
 def unregister_device(token: str, user: User = Depends(require_auth_api)):
     repo.delete_token(user.id, token)
     return Response(status_code=204)
+
+
+@router.get("/cases")
+def list_cases(
+    q: str | None = None,
+    difficulty: str | None = None,
+    industry: str | None = None,
+    case_type: str | None = None,
+    school: str | None = None,
+    limit: int = Query(100, ge=1, le=200),
+    user: User = Depends(require_auth_api),
+):
+    filters = SearchFilters.from_query(
+        q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
+    )
+    rows, total = search_cases(filters, limit=limit)
+    return {"cases": rows, "total": total}
+
+
+@router.get("/cases/{case_id}")
+def get_case(case_id: int, request: Request, user: User = Depends(require_auth_api)):
+    case = get_case_by_id(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    case = dict(case)
+    settings = request.app.state.settings
+    page_count = case.get("page_count") or 0
+    case["preview_urls"] = preview_page_urls(
+        case_id=case_id, case_row=case, page_count=int(page_count), settings=settings,
+    )
+    case["pdf_url"] = f"{settings.pdf_route_prefix}/cases/{case_id}"
+    return case
