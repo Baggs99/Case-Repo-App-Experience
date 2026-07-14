@@ -1,5 +1,5 @@
 # PROGRESS
-Updated: 2026-07-14T02:15:00-04:00 · Branch: feature/caseroom
+Updated: 2026-07-14T07:00:00-04:00 · Branch: feature/caseroom (iOS work on feature/ios-app)
 
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
@@ -20,16 +20,27 @@ session prompt doesn't say, ASK which track before touching anything.
   DEPLOY.md is DEFERRED (still needs O1 host + O2 TURN when it happens).
   Web build otherwise complete. Open decisions (usefulness-color, O1–O3,
   demo-case deletion, rubric-editor spec). Full table: "Handoff partition (web track)".
-- iOS track (NEW branch feature/ios-app off feature/caseroom):
+- iOS track (branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
   P1 plan docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md.
-  First action in "Handoff partition (iOS track)" table.
+  Task 9 (XcodeGen scaffold + Info.plist keys) DONE, commits e9391bd/431647e.
+  Task 10 (networking layer: Models/APIClient/SessionStore/LoginView) DONE
+  2026-07-14, commit affea8b — 15/15 xcodebuild tests pass (8 URLProtocol-
+  stub + 7 real-fixture decode; fixtures under ios/CaseRoomTests/Fixtures/);
+  custom `.custom` date-decoding strategy verified against real
+  fractional-seconds backend output (sessions_recent.json fixture: `ended_at:
+  "2026-07-14T03:48:00.927225-04:00"`). Two fixtures (proposals,
+  sessions_upcoming) came back empty for the seeded user — decode-tested as
+  empty arrays, not a code gap. Full report: .superpowers/sdd/task-10-report.md.
+  Next: Task 11 (per "Handoff partition (iOS track)" table below).
 
 ## Handoff partition (iOS track, written 2026-07-12)
 | Chunk | Spec state | Tier | Next concrete action |
 |---|---|---|---|
-| P1 Tasks 1–8 (backend: migration, APNs, /api/v1) | complete (plan) | worker | `cd /Users/thomaskgould/dev/Case-Repo-App-Experience && git checkout feature/caseroom && git checkout -b feature/ios-app`, then plan Task 1 Step 1 |
-| P1 Tasks 9–15 (iOS app in ios/) | complete (plan) | worker | After Task 8: `brew install xcodegen`, plan Task 9 |
+| P1 Tasks 1–8 (backend: migration, APNs, /api/v1) | complete (plan) | worker | DONE — merged to feature/ios-app |
+| P1 Task 9 (XcodeGen scaffold) | complete (plan) | worker | DONE — commits e9391bd/431647e |
+| P1 Task 10 (networking layer) | complete (plan) | worker | DONE — commit affea8b, report at .superpowers/sdd/task-10-report.md |
+| P1 Tasks 11–15 (iOS app in ios/) | complete (plan) | worker | Plan Task 11 next |
 | P1 execution mode choice | needs-decision | Thomas | Pick subagent-driven (recommended, plan header) vs inline; default subagent-driven if unstated |
 | P2 plan (session core, no media) | needs-spec→plan | session-model | Write plan from spec P2 section only after P1 merges |
 | Apple dev account + .p8 into .env | manual | Thomas | Not blocking — simulator covers all P1 verification except real-device push |
