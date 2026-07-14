@@ -4,9 +4,11 @@ Updated: 2026-07-12T14:32:00-04:00 · Branch: feature/caseroom
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
 - WEB track (this branch, feature/caseroom): phases 1–10 done + brand
-  complete; next chunk is P11 T11.1 — a worker writes
-  scripts/verify_caseroom.sh (spec §Phase 11, adapt its PHP greps to
-  this FastAPI repo). Full table: "Handoff partition (web track)".
+  complete. P11 T11.1 verify script DONE (2026-07-14 — all 13 hits
+  justified, see "Done — Phase 11 T11.1"). Next worker chunk: guide
+  rule-05 polish (staircase favicon + Lucide sweep). T11.2 (cross-
+  browser) + T11.3 (failure-mode) need Thomas at the machine. Full
+  table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
   P1 plan docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md.
@@ -52,7 +54,7 @@ checked by command, not memory):
 ## Handoff partition (web track, written 2026-07-12)
 | Chunk | Spec state | Tier | Next concrete action |
 |---|---|---|---|
-| P11 T11.1 verify script | complete (spec §Phase 11, adapt PHP greps to Python/FastAPI) | worker | Write scripts/verify_caseroom.sh per spec T11.1; run it; fix-or-justify each finding in PROGRESS |
+| P11 T11.1 verify script | ✅ DONE 2026-07-14 — script committed, ran clean (exit 0), 13 advisory hits all JUSTIFIED (details in "Done — Phase 11 T11.1") | — | — |
 | P11 T11.2 cross-browser Chrome+Safari | complete (spec) — NEEDS THOMAS AT MACHINE (Safari, camera prompts) | session-model + Thomas | Thomas runs two browser profiles per the Phase 4 manual-check recipe; agent drives checklist: call, reveal, Safari audio/mp4 recording path, authoring |
 | P11 T11.3 failure-mode pass | complete (spec) — wifi toggle needs Thomas | session-model + Thomas | Wifi drop mid-call → ICE-restart recovery; `pkill -f "main.py serve"` mid-call + restart → WS reconnect; candidate reload restore (re-verify P6) |
 | Guide rule-05 polish: staircase favicon + Lucide icon sweep | complete (guide is the spec) | worker | Add SVG staircase favicon route/link in base.html + session.html; remove/replace remaining Lucide icons (search, votes, PDF btns, theme toggle) |
@@ -82,6 +84,47 @@ Web-track gotchas (this session, not recorded elsewhere):
 - .venv one-off scripts touching the DB must init_pool first (see any
   seeding snippet in the Done sections); pool-shutdown warnings on exit
   are harmless.
+
+## Done — Phase 11 T11.1 verify script (2026-07-14)
+- `scripts/verify_caseroom.sh` — advisory security grep, spec T11.1's five
+  PHP checks adapted to this FastAPI/psycopg/vanilla-JS repo. Runs from any
+  CWD (resolves REPO_ROOT), `set -uo pipefail` (grep-exit-1 is normal, not
+  -e), 4-line header docblock, always exits 0 (advisory, not a CI gate).
+- Checks: (a) variables interpolated into SQL text in `execute()` — f-string/
+  `.format()`/`+`/`%`, word-bounded SQL keywords so "updated" ≠ UPDATE and
+  psycopg `%(name)s`/`%s` placeholders excluded; (b) `webapp/routes/*.py`
+  with `@router.` but no `require_auth_api`/`require_auth`; (c) secret-shaped
+  literals in git-TRACKED files only (`git ls-files`, sk-/AKIA/PEM/re_/
+  generic pw=; `caseroom-dev-1` allowlisted, tests/ + docs/ excluded);
+  (d) upload dirs (exhibits/recordings/cases/emails) gitignored (git
+  check-ignore) AND not StaticFiles-mounted; (e) `console.*` of sdp/ice/
+  candidate/key/secret/offer/answer under webapp/static/js/.
+- RAN clean, exit 0: 13 advisory hits — a:11, b:2, c:0, d:0, e:0. ALL
+  justified (fix count = 0). Each verified independently on the main model,
+  not just taken from the worker:
+  - (a) 11 SQL hits: `_SESSION_COLS`/`_COLS` are static module column-list
+    constants; `queues.py` `_table(kind)` is a `_TABLES` dict lookup that
+    raises ValueError on any key ≠ want/give (table names can't be
+    parameterized — this IS the allowlist); `practice_sessions.py` `{column}`
+    is a 2-value literal ternary (consent_interviewer|consent_candidate),
+    `{stamps}` is assembled only from string literals gated by `==` (target
+    itself goes in as `%s`); `recordings.py:71` `+` is SQL arithmetic
+    (`bytes + %s`) in a plain string. No request data reaches any SQL text.
+  - (b) 2 route hits: `admin.py` guards every route with `Depends(
+    require_admin)`, which calls `require_auth(request)` internally then
+    admin-allowlists (404-not-403 to hide the surface); `signal_ws.py` does
+    manual cookie auth (`get_user_for_session` → CLOSE_UNAUTHORIZED/
+    _FORBIDDEN) because SessionMiddleware never runs for WebSockets (the
+    documented Phase-3 exception). Both genuinely guarded; grep can't see
+    through the wrapper / the WS handshake.
+  - (c)(d)(e) clean: no tracked secrets; only `/static` is mounted
+    (main.py:115), all four upload dirs gitignored; no signaling data logged.
+- Two bash gotchas fixed while building: naive check-(a) grep matched UPDATE
+  inside "updated" and flagged safe `%(name)s` placeholders (28 noisy → 11
+  real, via `\b` boundaries + tighter `%`-operator pattern); macOS bash 3.2
+  misparses a `#` comment inside `<(...)` process substitution ("bad
+  substitution") though `bash -n` passes — comment moved above the block.
+- NOT committed by the worker; reviewed + committed on main model this session.
 
 ## Done — Browse tiles: open rule-bounded tiles (2026-07-12, owner call)
 - Owner: keep the calm palette, drop the rounded/bg card shell — tiles
