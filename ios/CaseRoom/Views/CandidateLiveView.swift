@@ -1,11 +1,11 @@
 /*
  * Purpose: Candidate's exhibit strip — shows each exhibit locked until its
  *          reveal key arrives, then decrypts and displays it.
- * Inputs: sessionId; SessionService (default APIClient.shared).
+ * Inputs: sessionId; SessionService (default APIClient.shared) — or a
+ *         pre-built ExhibitsViewModel, shared with SessionViewModel so
+ *         inbound .reveal SignalMessages reach viewModel.handleReveal(...).
  * Outputs: none.
- * Run: pushed for the candidate once a session's state is "live". Wiring
- *      inbound .reveal SignalMessages from the session's WS into
- *      viewModel.handleReveal(exhibitId:keyB64:) lands in a later task.
+ * Run: pushed for the candidate once a session's state is "live".
  */
 
 import SwiftUI
@@ -15,6 +15,12 @@ struct CandidateLiveView: View {
 
     init(sessionId: Int, service: SessionService = APIClient.shared) {
         _viewModel = State(initialValue: ExhibitsViewModel(sessionId: sessionId, service: service))
+    }
+
+    // Accepts an already-constructed ExhibitsViewModel so SessionView can
+    // share the same instance that SessionViewModel forwards reveals into.
+    init(viewModel: ExhibitsViewModel) {
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {

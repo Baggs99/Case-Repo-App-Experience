@@ -2,7 +2,8 @@
  * Purpose: Interviewer's live screen — a client-side stopwatch (start/pause/
  *          reset, no server timer), an exhibit strip with per-exhibit Release
  *          controls, the rubric scoring subview, and a Move to Debrief action.
- * Inputs: sessionId; SessionService (default APIClient.shared).
+ * Inputs: sessionId; SessionService (default APIClient.shared) — or a
+ *         pre-built RubricViewModel, shared with DebriefView by SessionView.
  * Outputs: none directly — actions flow through RubricViewModel (autosave,
  *          reveal, transition to "debrief").
  * Run: pushed for the interviewer once a session's state is "live".
@@ -19,6 +20,12 @@ struct InterviewerLiveView: View {
 
     init(sessionId: Int, service: SessionService = APIClient.shared) {
         _viewModel = State(initialValue: RubricViewModel(sessionId: sessionId, service: service))
+    }
+
+    // Accepts an already-constructed RubricViewModel so SessionView can share
+    // the same instance with DebriefView's grade preview.
+    init(viewModel: RubricViewModel) {
+        _viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {

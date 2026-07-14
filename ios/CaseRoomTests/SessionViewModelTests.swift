@@ -1,9 +1,12 @@
 /*
  * Purpose: Unit tests for SessionViewModel — stubbed SessionService +
- *          SignalingChannel proving the lobby state machine (knock/admit/
- *          deny/consent/go-live) without a real network call or WebSocket
- *          (the live socket is exercised in Task 15).
- * Inputs: none (in-memory stub service/signaling).
+ *          SignalingChannel + RoomRecording + RecordingUploading proving the
+ *          lobby state machine (knock/admit/deny/consent/go-live), finalize,
+ *          the interviewer recorder lifecycle, and reveal routing to the
+ *          candidate's ExhibitsViewModel, without a real network call,
+ *          WebSocket, or microphone (the live socket + real mic are
+ *          exercised in Task 15).
+ * Inputs: none (in-memory stub service/signaling/recorder/uploader).
  * Outputs: none.
  * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
  */
@@ -15,11 +18,14 @@ final class StubSessionService: SessionService {
     var sessionDetailResult: Result<SessionDetail, Error>
     var setConsentResult: Result<SessionDetail, Error>
     var transitionResult: Result<SessionDetail, Error>
+    var finalizeResult: Result<Void, Error> = .success(())
 
     private(set) var recordedConsentIds: [Int] = []
     private(set) var recordedConsentValues: [Bool] = []
     private(set) var recordedTransitionIds: [Int] = []
     private(set) var recordedTransitionTargets: [String] = []
+    private(set) var recordedFinalizeIds: [Int] = []
+    private(set) var recordedFinalizeGrades: [Double?] = []
 
     init(detail: SessionDetail) {
         self.sessionDetailResult = .success(detail)
@@ -43,6 +49,12 @@ final class StubSessionService: SessionService {
         return try transitionResult.get()
     }
 
+    func finalize(id: Int, grade: Double?) async throws {
+        recordedFinalizeIds.append(id)
+        recordedFinalizeGrades.append(grade)
+        try finalizeResult.get()
+    }
+
     // Unused by SessionViewModel — required by the SessionService protocol.
     func rubric(id: Int) async throws -> RubricState { fatalError("not used") }
     func saveRubric(id: Int, items: [String: RubricItemScore], notesMd: String) async throws -> Double { fatalError("not used") }
@@ -51,7 +63,41 @@ final class StubSessionService: SessionService {
     func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data { fatalError("not used") }
     func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws { fatalError("not used") }
     func completeRecording(id: Int) async throws { fatalError("not used") }
-    func finalize(id: Int, grade: Double?) async throws { fatalError("not used") }
+}
+
+final class StubRoomRecording: RoomRecording {
+    private(set) var startCallCount = 0
+    private(set) var stopCallCount = 0
+    var stopURL: URL = URL(fileURLWithPath: "/tmp/stub-recording.m4a")
+
+    func start() async throws {
+        startCallCount += 1
+    }
+
+    func stop() -> URL {
+        stopCallCount += 1
+        return stopURL
+    }
+}
+
+final class StubRecordingUploader: RecordingUploading {
+    private(set) var recordedFileURLs: [URL] = []
+    private(set) var recordedSessionIds: [Int] = []
+
+    func upload(fileURL: URL, sessionId: Int, service: SessionService) async throws {
+        recordedFileURLs.append(fileURL)
+        recordedSessionIds.append(sessionId)
+    }
+}
+
+final class StubExhibitReceiver: ExhibitRevealReceiving {
+    private(set) var recordedExhibitIds: [Int] = []
+    private(set) var recordedKeys: [String] = []
+
+    func handleReveal(exhibitId: Int, keyB64: String) {
+        recordedExhibitIds.append(exhibitId)
+        recordedKeys.append(keyB64)
+    }
 }
 
 final class StubSignalingChannel: SignalingChannel {
@@ -219,5 +265,137 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(service.recordedTransitionTargets, ["live"])
         let state = await viewModel.state
         XCTAssertEqual(state, "live")
+    }
+
+    // MARK: - finalize
+
+    func testFinalizeCallsServiceOnlyInDebriefState() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "live", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
+        await viewModel.load()
+
+        await viewModel.finalize(grade: 88.5)
+
+        XCTAssertTrue(service.recordedFinalizeIds.isEmpty)
+        let finalized = await viewModel.finalized
+        XCTAssertFalse(finalized)
+    }
+
+    func testFinalizeCallsServiceAndMarksFinalizedInDebriefState() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "debrief", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
+        await viewModel.load()
+
+        await viewModel.finalize(grade: 88.5)
+
+        XCTAssertEqual(service.recordedFinalizeIds, [42])
+        XCTAssertEqual(service.recordedFinalizeGrades, [88.5])
+        let finalized = await viewModel.finalized
+        let releasedGrade = await viewModel.releasedGrade
+        XCTAssertTrue(finalized)
+        XCTAssertEqual(releasedGrade, 88.5)
+    }
+
+    // MARK: - interviewer recorder lifecycle
+
+    func testInterviewerEnteringLiveStartsRecorder() async {
+        let service = StubSessionService(
+            detail: makeDetail(yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        service.transitionResult = .success(
+            makeDetail(state: "live", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let recorder = StubRoomRecording()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, recorder: recorder
+        )
+        await viewModel.load()
+
+        await viewModel.goLive()
+
+        XCTAssertEqual(recorder.startCallCount, 1)
+    }
+
+    func testCandidateEnteringLiveNeverStartsRecorder() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "live", yourRole: "candidate", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let recorder = StubRoomRecording()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, recorder: recorder
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(recorder.startCallCount, 0)
+    }
+
+    func testFinalizeStopsRecorderAndUploadsForInterviewer() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "debrief", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let recorder = StubRoomRecording()
+        let uploader = StubRecordingUploader()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, recorder: recorder, uploader: uploader
+        )
+        await viewModel.load()
+
+        await viewModel.finalize(grade: 90)
+
+        XCTAssertEqual(recorder.stopCallCount, 1)
+        XCTAssertEqual(uploader.recordedFileURLs, [recorder.stopURL])
+        XCTAssertEqual(uploader.recordedSessionIds, [42])
+    }
+
+    func testFinalizeUploadFailureDoesNotBlockFinalize() async {
+        struct UploadError: Error {}
+        final class FailingUploader: RecordingUploading {
+            func upload(fileURL: URL, sessionId: Int, service: SessionService) async throws {
+                throw UploadError()
+            }
+        }
+        let service = StubSessionService(
+            detail: makeDetail(state: "debrief", yourRole: "interviewer", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let recorder = StubRoomRecording()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, recorder: recorder, uploader: FailingUploader()
+        )
+        await viewModel.load()
+
+        await viewModel.finalize(grade: 90)
+
+        let finalized = await viewModel.finalized
+        XCTAssertTrue(finalized)
+    }
+
+    // MARK: - reveal routing
+
+    func testInboundRevealForwardsToExhibitReceiver() async {
+        let service = StubSessionService(detail: makeDetail(state: "live", yourRole: "candidate"))
+        let signaling = StubSignalingChannel()
+        let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
+        let receiver = await StubExhibitReceiver()
+        await MainActor.run { viewModel.exhibitReceiver = receiver }
+        await viewModel.load()
+
+        signaling.push(.reveal(exhibitId: 5, keyB64: "K"))
+        await flush()
+
+        let recordedExhibitIds = await receiver.recordedExhibitIds
+        let recordedKeys = await receiver.recordedKeys
+        XCTAssertEqual(recordedExhibitIds, [5])
+        XCTAssertEqual(recordedKeys, ["K"])
     }
 }
