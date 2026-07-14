@@ -5,12 +5,12 @@ Updated: 2026-07-14T02:15:00-04:00 · Branch: feature/caseroom
 session prompt doesn't say, ASK which track before touching anything.
 - WEB track (this branch, feature/caseroom): phases 1–10 done + brand
   complete. P11 T11.1 verify script DONE (2026-07-14). P11 guide rule-05
-  polish DONE (2026-07-14, commit 872d1e7 — staircase favicon + full
-  Lucide sweep; see "Done — Phase 11 rule-05 polish"). Remaining P11
-  work all needs Thomas: T11.2 (cross-browser) + T11.3 (failure-mode)
-  need him at the machine; the rest are decisions (theme-toggle style
-  review, usefulness-color, O1–O3, demo-case deletion, rubric-editor
-  spec). Full table: "Handoff partition (web track)".
+  polish DONE (2026-07-14, commit 872d1e7 — favicon + swept votes/PDF/
+  back-arrow; theme toggle reverted to sun/moon per owner, b9097db).
+  NOW: T11.2 cross-browser pass IN PROGRESS — Thomas at the machine,
+  agent drives the checklist. Then T11.3 (failure-mode, also at-machine);
+  rest are decisions (usefulness-color, O1–O3, demo-case deletion,
+  rubric-editor spec). Full table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
   P1 plan docs/superpowers/plans/2026-07-12-caseroom-ios-app-plan.md.
@@ -59,7 +59,7 @@ checked by command, not memory):
 | P11 T11.1 verify script | ✅ DONE 2026-07-14 — script committed, ran clean (exit 0), 13 advisory hits all JUSTIFIED (details in "Done — Phase 11 T11.1") | — | — |
 | P11 T11.2 cross-browser Chrome+Safari | complete (spec) — NEEDS THOMAS AT MACHINE (Safari, camera prompts) | session-model + Thomas | Thomas runs two browser profiles per the Phase 4 manual-check recipe; agent drives checklist: call, reveal, Safari audio/mp4 recording path, authoring |
 | P11 T11.3 failure-mode pass | complete (spec) — wifi toggle needs Thomas | session-model + Thomas | Wifi drop mid-call → ICE-restart recovery; `pkill -f "main.py serve"` mid-call + restart → WS reconnect; candidate reload restore (re-verify P6) |
-| Guide rule-05 polish: staircase favicon + Lucide icon sweep | ✅ DONE 2026-07-14 — commit 872d1e7; favicon + full sweep, only 3 staircase marks remain (see "Done — Phase 11 rule-05 polish"). Theme toggle went sun/moon icon → caps "Dark"/"Light" text, reversing an earlier "keep the icon" lean — **flag for Thomas's aesthetic OK** (trivial to revert or switch caps→sentence-case) | Thomas (review only) | Glance at output/evidence/rule05-case-{light,dark}.png; veto the theme-toggle label if unwanted |
+| Guide rule-05 polish: staircase favicon + Lucide icon sweep | ✅ DONE 2026-07-14 — commit 872d1e7 (favicon + swept votes/PDF/back-arrow). Theme toggle briefly went to a text label; **owner reverted it to sun/moon** (commit b9097db) — the icon stays as the documented rule-05 exception. Nothing outstanding. | — | — |
 | Rubric-template editor UI (deferred since P5) | needs-spec (which fields, who may author, where it lives) | session-model | Draft 10-line spec w/ Thomas, THEN implement (generic template already works server-side) |
 | Usefulness % color calming | needs-decision (owner flagged it as loudest remaining color; no call made) | Thomas → worker | If yes: mute emerald/amber/rose usefulness text in _search_results.html + case_detail to the calm band |
 | Owner decisions O1 (prod host/deploy), O2 (TURN), O3 (consent copy) | needs-decision | Thomas | Answers unblock deploy runbook (T11.4-ish) and real launch |
@@ -99,9 +99,9 @@ Web-track gotchas (this session, not recorded elsewhere):
   - theme toggle: sun/moon SVGs → caps "Dark"/"Light" text label. Label swap
     is pure CSS (`dark:hidden` / `hidden dark:inline`), mirroring the old
     icon-swap, so it's correct before paint; existing click JS untouched.
-    Both nav variants (logged-in + logged-out). **NOTE:** this reverses the
-    restyle-era "theme toggle stays an icon button" deliberate deviation —
-    left flagged in the partition for Thomas's OK.
+    Both nav variants. **REVERTED per owner (commit b9097db):** Thomas
+    prefers the sun/moon icon in both modes, so the toggle keeps the icon
+    as the documented rule-05 exception. The rest of the sweep stands.
   - case_detail vote pills: dropped thumbs-up/down (the "Useful"/"Not useful"
     text already labels them); pruned now-dead `.vote-icon` CSS in base.html.
   - case_detail PDF actions: dropped external-link + download glyphs ("Open
