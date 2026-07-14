@@ -24,7 +24,7 @@ struct RootTabView: View {
         Group {
             if sessionStore.isAuthenticated {
                 TabView(selection: $selectedTab) {
-                    TodayView()
+                    TodayView(selectedTab: $selectedTab)
                         .tabItem { Label("Today", systemImage: "sun.max") }
                         .tag(RootTab.today)
 
@@ -57,15 +57,6 @@ struct RootTabView: View {
             await sessionStore.bootstrap()
         }
     }
-}
-
-// Placeholder tab views — replaced with real implementations in Tasks 13-14.
-struct TodayView: View {
-    var body: some View { Text("Today") }
-}
-
-struct ProfileView: View {
-    var body: some View { Text("Profile") }
 }
 
 #Preview {
