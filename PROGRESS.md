@@ -1,5 +1,5 @@
 # PROGRESS
-Updated: 2026-07-14T07:00:00-04:00 · Branch: feature/caseroom (iOS work on feature/ios-app)
+Updated: 2026-07-14T12:08:00-04:00 · Branch: feature/caseroom (iOS work on feature/ios-app)
 
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
@@ -32,7 +32,13 @@ session prompt doesn't say, ASK which track before touching anything.
   "2026-07-14T03:48:00.927225-04:00"`). Two fixtures (proposals,
   sessions_upcoming) came back empty for the seeded user — decode-tested as
   empty arrays, not a code gap. Full report: .superpowers/sdd/task-10-report.md.
-  Next: Task 11 (per "Handoff partition (iOS track)" table below).
+  **Task 15 (capstone: end-to-end verification) DONE 2026-07-14** — P1 is
+  COMPLETE. Backend suite 269 passed, iOS suite 36 passed, live backend
+  E2E (8 HTTP calls: 7 GET + 1 proposal POST) all 2xx, 5/5 simctl push
+  kinds delivered with no crash. Full evidence: "P1 (iOS app) — DONE"
+  section below and .superpowers/sdd/task-15-report.md. Next: P2 plan
+  (session core — WS lobby/knock/admit, exhibit decrypt, etc.), plus the
+  manual items in that section's "Remaining / manual" list.
 
 ## Handoff partition (iOS track, written 2026-07-12)
 | Chunk | Spec state | Tier | Next concrete action |
@@ -40,9 +46,8 @@ session prompt doesn't say, ASK which track before touching anything.
 | P1 Tasks 1–8 (backend: migration, APNs, /api/v1) | complete (plan) | worker | DONE — merged to feature/ios-app |
 | P1 Task 9 (XcodeGen scaffold) | complete (plan) | worker | DONE — commits e9391bd/431647e |
 | P1 Task 10 (networking layer) | complete (plan) | worker | DONE — commit affea8b, report at .superpowers/sdd/task-10-report.md |
-| P1 Tasks 11–15 (iOS app in ios/) | complete (plan) | worker | Plan Task 11 next |
-| P1 execution mode choice | needs-decision | Thomas | Pick subagent-driven (recommended, plan header) vs inline; default subagent-driven if unstated |
-| P2 plan (session core, no media) | needs-spec→plan | session-model | Write plan from spec P2 section only after P1 merges |
+| P1 Tasks 11–15 (iOS app in ios/) | **DONE 2026-07-14** | worker | Task 15 capstone verification complete — see "P1 (iOS app) — DONE" below |
+| P2 plan (session core, no media) | needs-spec→plan | session-model | Write plan from spec P2 section — P1 has merged (feature/ios-app verified) |
 | Apple dev account + .p8 into .env | manual | Thomas | Not blocking — simulator covers all P1 verification except real-device push |
 
 iOS-track gotchas (this session, not recorded elsewhere):
@@ -57,6 +62,58 @@ iOS-track gotchas (this session, not recorded elsewhere):
   single-worker (existing signaling constraint, INTEGRATION.md).
 - iOS platform claims come from ~/Documents/Projects/AppleDev/
   ios-features.md (evidence-graded); respect its [VERIFY-FIRST] flags.
+
+## P1 (iOS app) — DONE (2026-07-14, Task 15 capstone verification)
+
+Branch `feature/ios-app`, commit `3ea8dc2` (Add Today and You tabs) plus
+this PROGRESS.md commit. Full evidence + curl/simctl output:
+`.superpowers/sdd/task-15-report.md`.
+
+- **Backend suite** — `.venv/bin/python -m pytest tests/ -q` → **269
+  passed**, 0 failures (238 pre-existing deprecation warnings only).
+- **iOS unit suite** — `cd ios && xcodegen && xcodebuild -project
+  CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS
+  Simulator,name=iPhone 17' test` → **36 tests, 0 failures** (APIClient 17,
+  CasesViewModel 3, PushRoute 9, SessionsViewModel 3, Smoke 1,
+  TodayViewModel 3).
+- **Live backend E2E via HTTP** (`main.py serve --port 8077`, seeded via
+  `scripts/seed_caseroom_dev.py`; a@yale.edu=uid 1, b@yale.edu=uid 2):
+  login as a → `/api/v1/me`, `/cases?limit=3`, `/cases/358`, `/proposals`,
+  `/sessions?scope=upcoming`, `/sessions?scope=recent`, `/dashboard` — all
+  **200** with expected keys. Login as b → `POST /api/proposals`
+  (`to_user_id:1, case_id:358, from_role:candidate`) → **200**, proposal id
+  164 created pending. No push log line: expected, `push_enabled` is False
+  with no `APNS_*` env set (dev); fan-out logic covered by
+  `tests/test_push_events.py` (in the 269).
+- **Push delivery smoke** — built + installed CaseRoom.app on iPhone 17
+  sim (bundle `studio.ogee.caseroom`), launched it, then `xcrun simctl
+  push booted studio.ogee.caseroom -` for all 5 kinds (proposal w/
+  proposal_id 164; accepted/knock/feedback/starting_soon w/ session_id
+  1012) → **5/5 accepted** (`Notification sent...`, exit 0), app process
+  still alive after all 5 (no crash).
+- Cleanup done: sim app terminated, simulator shut down, dev server
+  killed, port 8077 confirmed free.
+
+### Remaining / manual (not blocking — P1 is otherwise complete)
+
+(a) **Thomas**: Apple Developer portal — register App ID
+`studio.ogee.caseroom` with Push Notifications (+ Time-Sensitive)
+capability, generate an APNs `.p8` key, put paths/ids into `.env`
+(`APNS_KEY_PATH`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`,
+`APNS_USE_SANDBOX=1`).
+(b) Real-device push test (needs (a) plus a physical iPhone on a free
+provisioning profile for install; push itself needs the paid account).
+(c) Interactive UI walkthrough (login → 4 tabs → Cases search/detail →
+send proposal as b → accept as a → calendar event → web dashboard shows
+same session, no fork) — not automated this pass per the watchdog rule
+against flaky sim tap-through; exact steps in
+`.superpowers/sdd/task-15-report.md` Step 5.
+(d) Prod deploy — deferred, same as the web track (no host/TURN decision
+yet, see "Handoff partition (web track)").
+(e) Next: write the P2 plan (session core — WS lobby/knock/admit, exhibit
+decrypt via CryptoKit, WS key-reveal migration incl. web client, rubric/
+timer, recording upload, QR pairing) from the spec's P2 section now that
+P1 is verified complete.
 
 WEB TRACK — verified state at session end (2026-07-12 ~14:30 ET, all
 checked by command, not memory):
