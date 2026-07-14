@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,7 @@ from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.ics import build_session_ics
 from webapp.practice_states import TransitionError
+from webapp.push.events import push_to_user
 from webapp.repositories import proposals as repo
 from webapp.repositories.cases import get_case_by_id
 from webapp.repositories.practice_sessions import get_practice_session
@@ -48,17 +49,27 @@ class RespondBody(BaseModel):
 
 
 @router.post("/api/proposals", dependencies=_MUTATING)
-def create_proposal(body: ProposalBody, user: User = Depends(require_auth_api)):
+def create_proposal(body: ProposalBody, background: BackgroundTasks,
+                    user: User = Depends(require_auth_api)):
     if get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
     try:
-        return repo.create_proposal(
+        proposal = repo.create_proposal(
             from_user_id=user.id, to_user_id=body.to_user_id,
             case_id=body.case_id, from_role=body.from_role,
             message=body.message, proposed_times=body.proposed_times,
         )
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    sender_name = user.email.split("@")[0]
+    background.add_task(
+        push_to_user, body.to_user_id,
+        title="New session proposal",
+        body=f"{sender_name} proposed a case session",
+        data={"kind": "proposal", "proposal_id": proposal["id"]},
+    )
+    return proposal
 
 
 @router.get("/api/proposals/inbox")
@@ -69,6 +80,7 @@ def proposal_inbox(user: User = Depends(require_auth_api)):
 
 @router.post("/api/proposals/{proposal_id}/accept", dependencies=_MUTATING)
 def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+                    background: BackgroundTasks,
                     user: User = Depends(require_auth_api)):
     repo.sweep_expired()  # an 8-day-old proposal must expire, not accept
     try:
@@ -78,6 +90,12 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
     _send_invites(request, prop["session_id"])
+    background.add_task(
+        push_to_user, prop["from_user_id"],
+        title="Proposal accepted",
+        body="Your case session proposal was accepted",
+        data={"kind": "accepted", "session_id": prop["session_id"]},
+    )
     return {"accepted": True, "session_id": prop["session_id"],
             "session_url": f"/session/{prop['session_id']}",
             "ics_url": f"/ics/session-{prop['session_id']}.ics"}

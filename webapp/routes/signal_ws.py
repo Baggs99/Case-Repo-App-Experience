@@ -19,6 +19,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.concurrency import run_in_threadpool
 
 from webapp.auth.sessions import SESSION_COOKIE_NAME, get_user_for_session
+from webapp.push.events import notify
 from webapp.repositories.practice_sessions import get_practice_session, role_of
 from webapp.signaling import (
     CLOSE_FORBIDDEN,
@@ -75,6 +76,16 @@ async def practice_ws(websocket: WebSocket, session_id: int):
             except ValueError:
                 continue  # malformed JSON frame — drop it, keep the socket
             await hub.handle(session_id, role, websocket, msg)
+            if msg.get("type") == "knock" and role == "candidate":
+                # Push the interviewer even if their app isn't connected to
+                # this socket right now — that's the whole point of a knock.
+                notify(
+                    session["interviewer_id"],
+                    title="Knock",
+                    body=f"{session['candidate_name']} is ready to start",
+                    data={"kind": "knock", "session_id": session_id},
+                    interruption_level="time-sensitive",
+                )
     except WebSocketDisconnect:
         pass
     finally:

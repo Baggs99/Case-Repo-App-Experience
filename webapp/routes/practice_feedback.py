@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from webapp.auth.dependencies import require_auth_api
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
+from webapp.push.events import push_to_user
 from webapp.repositories import feedback as repo
 from webapp.repositories import reveals as reveals_repo
 from webapp.routes.practice import _session_or_404
@@ -83,15 +84,22 @@ def put_rubric(session_id: int, body: RubricDraftBody,
 
 
 @router.post("/api/practice/{session_id}/finalize", dependencies=_MUTATING)
-def post_finalize(session_id: int, body: FinalizeBody,
+def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
                   user: User = Depends(require_auth_api)):
     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
     one transaction. Optional body.grade overrides the computed score."""
-    _session_or_404(session_id, user.id)  # 404-existence before role/state checks
+    session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
     try:
         feedback = repo.finalize(session_id, user.id, body.grade)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    background.add_task(
+        push_to_user, session["candidate_id"],
+        title="Feedback released",
+        body=f"Your feedback for {session['case_title']} is ready",
+        data={"kind": "feedback", "session_id": session_id},
+    )
     return {
         "finalized": True,
         "grade": float(feedback["grade"]),
