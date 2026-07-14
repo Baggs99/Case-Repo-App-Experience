@@ -31,6 +31,13 @@ class Settings:
     #: RTCPeerConnection.iceServers for practice calls (ICE_SERVERS_JSON env).
     #: Default is STUN-only; TURN entries are added at launch (INTEGRATION.md A2/O2).
     ice_servers: tuple
+    #: APNs provider auth (ES256 .p8 key path/id, Apple team id, app bundle id).
+    apns_key_path: str | None
+    apns_key_id: str | None
+    apns_team_id: str | None
+    apns_bundle_id: str | None
+    #: True for the APNs sandbox host (dev builds); False for production.
+    apns_use_sandbox: bool
 
     def is_admin(self, email: str | None) -> bool:
         """True iff `email` is in the admin allowlist (case-insensitive)."""
@@ -76,4 +83,9 @@ def load_settings() -> Settings:
         admin_emails      = _parse_admin_emails(os.environ.get("ADMIN_EMAILS")),
         case_preview_public_base_url = preview_base or None,
         ice_servers       = ice_servers,
+        apns_key_path     = os.environ.get("APNS_KEY_PATH") or None,
+        apns_key_id       = os.environ.get("APNS_KEY_ID") or None,
+        apns_team_id      = os.environ.get("APNS_TEAM_ID") or None,
+        apns_bundle_id    = os.environ.get("APNS_BUNDLE_ID") or None,
+        apns_use_sandbox  = os.environ.get("APNS_USE_SANDBOX", "true").lower() in ("1", "true"),
     )
