@@ -641,6 +641,39 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(handledMessages, [.sdp(description: sdp), .ice(candidate: nil)])
     }
 
+    // F5: leaving 'live' (e.g. live->debrief on finalize's session-update)
+    // must stop and nil the media session — camera/mic must not keep
+    // running through debrief grading.
+    func testLeavingLiveTearsDownMedia() async {
+        let service = StubSessionService(
+            detail: makeDetail(state: "live", yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        let signaling = StubSignalingChannel()
+        let media = await StubRemoteMedia()
+        let viewModel = await SessionViewModel(
+            sessionId: 42, service: service, signaling: signaling, makeRemoteMedia: { media }
+        )
+        await viewModel.load()
+        let startCallCount = await media.startCallCount
+        XCTAssertEqual(startCallCount, 1)
+
+        service.sessionDetailResult = .success(
+            makeDetail(state: "debrief", yourRole: "interviewer", mode: "remote", consentInterviewer: true, consentCandidate: true)
+        )
+        signaling.push(.sessionUpdate)
+        await flush()
+
+        let stopCallCount = await media.stopCallCount
+        XCTAssertEqual(stopCallCount, 1)
+
+        // media is nilled — a subsequent sdp frame must not reach the
+        // now-stopped media session.
+        signaling.push(.sdp(description: SDP(type: "offer", sdp: "v=0")))
+        await flush()
+        let handledMessages = await media.handledMessages
+        XCTAssertTrue(handledMessages.isEmpty)
+    }
+
     // A failed media start must surface as mediaStartError (not the generic
     // errorMessage) and retryStartMedia() must reset the mediaStarted guard
     // so it actually re-invokes media.start(), not silently no-op.

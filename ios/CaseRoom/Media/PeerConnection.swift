@@ -79,6 +79,11 @@ final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
 
     private let peerConnection: RTCPeerConnection
 
+    // Pending 3s-grace ICE restart scheduled on .disconnected (rtc.js §4.3
+    // resilience); cancelled on .connected/.completed or superseded by an
+    // immediate restart on .failed.
+    private var pendingIceRestart: DispatchWorkItem?
+
     var onRemoteTrack: (@MainActor (MediaTrackHandle) -> Void)?
     var onLocalICECandidate: (@MainActor (ICECandidate) -> Void)?
     var onShouldNegotiate: (@MainActor () -> Void)?
@@ -187,11 +192,20 @@ final class RTCPeerConnectionWrapper: NSObject, MediaTransport {
     func addLocalTracks(_ tracks: [MediaTrackHandle]) {
         for handle in tracks {
             guard let handle = handle as? TrackHandle else { continue }
-            peerConnection.add(handle.track, streamIds: ["caseroom"])
+            let sender = peerConnection.add(handle.track, streamIds: ["caseroom"])
+            // Cap outbound video to 1.2 Mbps (mirrors rtc.js) so a cellular
+            // upload doesn't saturate the link.
+            if handle.track.kind == "video", let sender {
+                let params = sender.parameters
+                for enc in params.encodings { enc.maxBitrateBps = NSNumber(value: 1_200_000) }
+                sender.parameters = params
+            }
         }
     }
 
     func close() {
+        pendingIceRestart?.cancel()
+        pendingIceRestart = nil
         peerConnection.close()
     }
 
@@ -249,8 +263,15 @@ enum MediaTransportError: Error {
 extension RTCPeerConnectionWrapper: RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
-        guard let track = stream.videoTracks.first ?? stream.audioTracks.first else { return }
+    // Plan-B delegate — still a REQUIRED RTCPeerConnectionDelegate method in
+    // this WebRTC version (kept as an inert stub for protocol conformance),
+    // but never invoked under Unified Plan (this wrapper always configures
+    // .unifiedPlan): remote tracks arrive via didAddReceiver:streams: below.
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
+
+    // Unified Plan remote-track delegate.
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
+        guard let track = rtpReceiver.track as? RTCVideoTrack else { return }  // deliver the remote VIDEO track for rendering; remote audio auto-plays via the WebRTC audio session
         let handle = TrackHandle(track: track)
         guard let callback = onRemoteTrack else { return }
         Task { @MainActor in callback(handle) }
@@ -263,7 +284,26 @@ extension RTCPeerConnectionWrapper: RTCPeerConnectionDelegate {
         Task { @MainActor in callback() }
     }
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
+    // ICE resilience (rtc.js §4.3): 3s grace on .disconnected before
+    // restarting (absorbs brief cellular blips), immediate restart on
+    // .failed, cancel any pending restart once we're healthy again.
+    func peerConnection(_ pc: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        switch newState {
+        case .disconnected:
+            let work = DispatchWorkItem { [weak self] in self?.peerConnection.restartIce() }
+            pendingIceRestart = work
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3, execute: work)
+        case .failed:
+            pendingIceRestart?.cancel()
+            pendingIceRestart = nil
+            peerConnection.restartIce()
+        case .connected, .completed:
+            pendingIceRestart?.cancel()
+            pendingIceRestart = nil
+        default:
+            break
+        }
+    }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
 

@@ -195,6 +195,7 @@ final class SessionViewModel {
         await signaling.disconnect()
         media?.stop()
         media = nil
+        mediaStarted = false
         await endLiveActivityIfNeeded()
     }
 
@@ -224,6 +225,16 @@ final class SessionViewModel {
         if previousState != "live", state == "live", mode == "remote", !mediaStarted {
             mediaStarted = true
             await startRemoteMedia()
+        }
+
+        // Leaving 'live' (debrief/finalized/aborted): stop camera+mic and
+        // the peer connection immediately rather than waiting for stop()
+        // (view disappear) — the candidate shouldn't keep streaming through
+        // debrief grading. mediaStarted stays true: the session won't
+        // re-enter live, so this only prevents a spurious restart.
+        if previousState == "live", state != "live" {
+            media?.stop()
+            media = nil
         }
 
         // Fires for both roles and both modes (in-person and remote) — the
