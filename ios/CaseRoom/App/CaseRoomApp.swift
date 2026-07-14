@@ -20,6 +20,16 @@ struct CaseRoomApp: App {
             RootTabView()
                 .environment(sessionStore)
                 .environment(appDelegate.pushCoordinator)
+                .onAppear {
+                    // Wire once at launch: the same shared PushCoordinator
+                    // instance RootTabView observes, so logout resets its
+                    // registration guard and the next login's post-auth
+                    // .task re-registers the device token for the new user.
+                    let pushCoordinator = appDelegate.pushCoordinator
+                    sessionStore.onLogout = { @MainActor in
+                        pushCoordinator.resetRegistration()
+                    }
+                }
         }
     }
 }

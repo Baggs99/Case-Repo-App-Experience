@@ -15,6 +15,12 @@ final class SessionStore {
     var isAuthenticated: Bool { user != nil }
     var lastError: String?
 
+    /// Injected hook invoked after logout clears `user`. Wired at app launch
+    /// to reset PushCoordinator's registration guard, keeping SessionStore
+    /// decoupled from push/notification concerns and unit-testable in
+    /// isolation.
+    var onLogout: (() async -> Void)?
+
     private let client: APIClient
 
     init(client: APIClient = .shared) {
@@ -49,5 +55,6 @@ final class SessionStore {
             // Best-effort — clear local state regardless of server outcome.
         }
         user = nil
+        await onLogout?()
     }
 }

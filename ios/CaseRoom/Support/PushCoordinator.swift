@@ -67,6 +67,15 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// Clears the process-lifetime authorization guard so the next
+    /// `requestAuthorizationAndRegister()` call re-runs registration. Called
+    /// on logout so a subsequent login by a different user re-registers the
+    /// device token (backend upserts device_tokens keyed on token, reassigning
+    /// user_id) instead of leaving the token pointed at the previous user.
+    func resetRegistration() {
+        hasRequestedAuthorization = false
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
     func userNotificationCenter(
