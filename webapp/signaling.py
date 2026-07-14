@@ -170,3 +170,17 @@ class SignalingHub:
             return False
         await _safe_send(sock, {"type": "reveal", "exhibit_id": exhibit_id, "key_b64": key_b64})
         return True
+
+    async def broadcast_session_update(self, session_id: int) -> int:
+        """Notify every connected socket in a call that state/consent changed
+        server-side, so a peer-driven change reaches the other client without
+        it having to re-enter the screen. Returns how many sockets received
+        it; never raises (no call → 0)."""
+        call = self._calls.get(session_id)
+        if call is None:
+            return 0
+        count = 0
+        for sock in list(call.sockets.values()):
+            await _safe_send(sock, {"type": "session-update"})
+            count += 1
+        return count

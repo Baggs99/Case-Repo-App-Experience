@@ -169,12 +169,12 @@ final class SessionViewModel {
         let stream = await signaling.connect(sessionId: sessionId)
         listenTask = Task { @MainActor [weak self] in
             for await message in stream {
-                self?.handle(message)
+                await self?.handle(message)
             }
         }
     }
 
-    private func handle(_ message: SignalMessage) {
+    private func handle(_ message: SignalMessage) async {
         switch message {
         case .ok(_, let peerPresent, let admitted):
             self.peerPresent = peerPresent
@@ -192,6 +192,15 @@ final class SessionViewModel {
             peerPresent = false
         case .reveal(let exhibitId, let keyB64):
             exhibitReceiver?.handleReveal(exhibitId: exhibitId, keyB64: keyB64)
+        case .sessionUpdate:
+            // A peer-driven state/consent change — re-fetch and re-apply so
+            // this client advances (lobby->live->debrief->finalized, or sees
+            // the peer's consent) without re-entering the screen. apply(_:)
+            // is idempotent, so this is safe even if our own action already
+            // triggered the same change.
+            if let detail = try? await service.sessionDetail(id: sessionId) {
+                await apply(detail)
+            }
         case .pong, .unknown:
             break
         }

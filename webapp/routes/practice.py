@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from webapp.auth.dependencies import require_auth, require_auth_api
@@ -23,6 +23,7 @@ from webapp.repositories.cases import get_case_by_id
 from webapp.repositories import feedback as feedback_repo
 from webapp.repositories import pairing_tokens as pairing_repo
 from webapp.repositories import practice_sessions as repo
+from webapp.routes.signal_ws import hub
 from webapp.templating import render
 
 router = APIRouter(tags=["practice"])
@@ -123,22 +124,26 @@ def session_page(session_id: int, request: Request,
 
 
 @router.post("/api/practice/{session_id}/consent", dependencies=_MUTATING)
-def post_consent(session_id: int, body: ConsentBody,
+def post_consent(session_id: int, body: ConsentBody, background: BackgroundTasks,
                  user: User = Depends(require_auth_api)):
     _, role = _session_or_404(session_id, user.id)
     try:
-        return _public(repo.set_consent(session_id, role, body.consent))
+        result = repo.set_consent(session_id, role, body.consent)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    background.add_task(hub.broadcast_session_update, session_id)
+    return _public(result)
 
 
 @router.post("/api/practice/{session_id}/state", dependencies=_MUTATING)
-def post_state(session_id: int, body: StateBody,
+def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
                user: User = Depends(require_auth_api)):
     try:
-        return _public(repo.transition(session_id, user.id, body.target))
+        result = repo.transition(session_id, user.id, body.target)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    background.add_task(hub.broadcast_session_update, session_id)
+    return _public(result)
 
 
 @router.post("/api/practice/pair/create", dependencies=_MUTATING)

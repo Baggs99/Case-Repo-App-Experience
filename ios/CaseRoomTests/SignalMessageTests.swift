@@ -83,6 +83,12 @@ final class SignalMessageTests: XCTestCase {
         XCTAssertNil(message)
     }
 
+    // MARK: - session-update
+
+    func testParseSessionUpdate() {
+        XCTAssertEqual(parse(#"{"type":"session-update"}"#), .sessionUpdate)
+    }
+
     // MARK: - unrecognized / malformed
 
     func testParseUnrecognizedTypeReturnsUnknown() {

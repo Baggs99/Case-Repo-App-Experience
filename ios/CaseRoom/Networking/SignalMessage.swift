@@ -16,6 +16,7 @@ enum SignalMessage: Equatable {
     case peerJoined
     case peerLeft
     case reveal(exhibitId: Int, keyB64: String)
+    case sessionUpdate
     case pong
     case unknown
 
@@ -56,6 +57,8 @@ enum SignalMessage: Equatable {
                 return nil
             }
             return .reveal(exhibitId: exhibitId, keyB64: keyB64)
+        case "session-update":
+            return .sessionUpdate
         case "pong":
             return .pong
         default:

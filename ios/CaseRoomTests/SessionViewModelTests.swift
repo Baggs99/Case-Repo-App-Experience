@@ -434,4 +434,25 @@ final class SessionViewModelTests: XCTestCase {
         XCTAssertEqual(recordedExhibitIds, [5])
         XCTAssertEqual(recordedKeys, ["K"])
     }
+
+    // MARK: - session-update routing
+
+    // A peer-driven state change (e.g. the interviewer going live) arrives as
+    // a bare "session-update" ping with no payload — the VM must re-fetch the
+    // session detail and re-apply it so this client's state machine advances.
+    func testInboundSessionUpdateRefetchesAndAppliesNewState() async {
+        let service = StubSessionService(detail: makeDetail(state: "lobby", yourRole: "candidate"))
+        let signaling = StubSignalingChannel()
+        let viewModel = await SessionViewModel(sessionId: 42, service: service, signaling: signaling)
+        await viewModel.load()
+        let stateBefore = await viewModel.state
+        XCTAssertEqual(stateBefore, "lobby")
+
+        service.sessionDetailResult = .success(makeDetail(state: "debrief", yourRole: "candidate"))
+        signaling.push(.sessionUpdate)
+        await flush()
+
+        let state = await viewModel.state
+        XCTAssertEqual(state, "debrief")
+    }
 }
