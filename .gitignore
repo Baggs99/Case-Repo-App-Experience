@@ -75,3 +75,7 @@ output/exhibits/
 output/devserver.log
 output/evidence/
 output/recordings/
+
+# iOS: generated Xcode project (regenerate with `xcodegen`, don't commit)
+ios/*.xcodeproj
+ios/DerivedData/
