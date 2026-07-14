@@ -14,6 +14,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from webapp.auth.dependencies import require_auth, require_auth_api
 from webapp.auth.users import User
@@ -25,6 +26,7 @@ from webapp.repositories import pairing_tokens as pairing_repo
 from webapp.repositories import practice_sessions as repo
 from webapp.routes.signal_ws import hub
 from webapp.templating import render
+from webapp.turn import mint_turn_credentials
 
 router = APIRouter(tags=["practice"])
 
@@ -175,17 +177,21 @@ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
 
 
 @router.get("/api/practice/{session_id}/join-config")
-def join_config(session_id: int, request: Request,
-                user: User = Depends(require_auth_api)):
+async def join_config(session_id: int, request: Request,
+                      user: User = Depends(require_auth_api)):
     """WS path + ICE servers for the call page. No HMAC token (DV-3): the
     WebSocket handshake authenticates with the same session cookie."""
-    session, role = _session_or_404(session_id, user.id)
+    session, role = await run_in_threadpool(_session_or_404, session_id, user.id)
     if session["state"] not in ("scheduled", "lobby", "live"):
         raise HTTPException(status_code=409, detail="Session is not joinable")
+    settings = request.app.state.settings
+    ice_servers = list(settings.ice_servers)
+    if session["mode"] == "remote":
+        ice_servers += await mint_turn_credentials(settings)
     return {
         "session_id": session_id,
         "your_role": role,
         "mode": session["mode"],
         "ws_path": f"/ws/practice/{session_id}",
-        "ice_servers": request.app.state.settings.ice_servers,
+        "ice_servers": ice_servers,
     }
