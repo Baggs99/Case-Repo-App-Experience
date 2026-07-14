@@ -102,9 +102,17 @@ Supersedes the 2026-07-12 iOS partition. Three iOS phases now exist:
 - `/api/practice/*` endpoints are native-compatible (cookie +
   `require_same_origin` passes on a missing Origin header) — the iOS session
   screen reuses them directly; no `/api/v1` mirror needed.
-- P3 has TWO consequential owner decisions (OD-1 WebRTC framework — the one
-  unavoidable heavy dependency; OD-2 TURN provider — default Cloudflare
-  Calls) that GATE tasks; resolve before executing the gated tasks.
+- P3 has TWO consequential owner decisions that GATE tasks (full options +
+  tradeoffs in the P3 plan's "⚠️ Owner decisions" block at the top):
+  **OD-1 = iOS WebRTC framework** — default: the `WebRTC` Swift-Package
+  binary (the one unavoidable heavy ~30–70 MB dependency; there is no
+  dependency-free real-time-media option). Gates P3 Task 5.
+  **OD-2 = TURN provider** — default: Cloudflare Calls TURN (free tier, no
+  server ops; alternatives: self-hosted coturn on a VPS, or Twilio). Gates
+  P3 Tasks 2–3 and needs `TURN_*` in `.env` before real-device cellular
+  testing. Both have recommended defaults, so P3 execution CAN proceed on
+  the defaults if Thomas doesn't override — but confirm with him first since
+  each is a real dependency/cost commitment.
 
 ## P1 (iOS app) — DONE (2026-07-14, Task 15 capstone verification)
 
