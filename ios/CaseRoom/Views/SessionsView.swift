@@ -70,6 +70,15 @@ struct SessionsView: View {
                         }
                     }
                 }
+
+                Section("In-Person Pairing") {
+                    NavigationLink("Create (Interviewer)") {
+                        PairCreateView()
+                    }
+                    NavigationLink("Scan (Candidate)") {
+                        PairScanView()
+                    }
+                }
             }
         }
     }

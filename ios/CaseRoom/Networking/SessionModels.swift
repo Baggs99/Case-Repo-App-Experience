@@ -61,3 +61,9 @@ struct Finalized: Codable, Equatable {
     let grade: Double
     let finalizedAt: Date
 }
+
+// POST /api/practice/pair/create response (Task 14).
+struct PairToken: Codable, Equatable {
+    let token: String
+    let expiresAt: Date
+}

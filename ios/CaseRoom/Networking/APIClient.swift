@@ -29,6 +29,15 @@ enum RecordingChunkError: Error, Equatable {
     case invalidExpectedSeq(expected: Int)
 }
 
+// Covers the /api/practice/pair/* endpoints (Task 14): interviewer mints a
+// token (pairCreate) and polls for the session it creates (pairStatus);
+// candidate claims it (pairClaim), which creates the session.
+protocol PairService {
+    func pairCreate(caseId: Int) async throws -> PairToken
+    func pairStatus(token: String) async throws -> Int?
+    func pairClaim(token: String) async throws -> Int
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -54,7 +63,7 @@ protocol SessionService {
     func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
-actor APIClient: SessionService {
+actor APIClient: SessionService, PairService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -272,6 +281,32 @@ actor APIClient: SessionService {
             enum CodingKeys: String, CodingKey { case grade }
         }
         return try await send(path: "/api/practice/\(id)/finalize", method: "POST", body: FinalizeBody(grade: grade))
+    }
+
+    // MARK: - Pairing (PairService)
+
+    func pairCreate(caseId: Int) async throws -> PairToken {
+        struct PairCreateBody: Encodable { let caseId: Int }
+        return try await send(
+            path: "/api/practice/pair/create", method: "POST", body: PairCreateBody(caseId: caseId)
+        )
+    }
+
+    func pairStatus(token: String) async throws -> Int? {
+        struct StatusResponse: Decodable { let sessionId: Int? }
+        let response: StatusResponse = try await send(
+            path: "/api/practice/pair/status/\(token)", method: "GET"
+        )
+        return response.sessionId
+    }
+
+    func pairClaim(token: String) async throws -> Int {
+        struct PairClaimBody: Encodable { let token: String }
+        struct ClaimResponse: Decodable { let sessionId: Int }
+        let response: ClaimResponse = try await send(
+            path: "/api/practice/pair/claim", method: "POST", body: PairClaimBody(token: token)
+        )
+        return response.sessionId
     }
 
     private static func multipartRecordingBody(boundary: String, seq: Int, mime: String, blob: Data) -> Data {

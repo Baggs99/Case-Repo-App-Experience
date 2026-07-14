@@ -163,6 +163,17 @@ def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
+@router.get("/api/practice/pair/status/{token}")
+def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+    """Interviewer polls this to discover the session created by a claim
+    (§ pairing). 404 if the token doesn't exist or isn't owned by the caller."""
+    try:
+        session_id = pairing_repo.status(token=token, interviewer_id=user.id)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    return {"session_id": session_id}
+
+
 @router.get("/api/practice/{session_id}/join-config")
 def join_config(session_id: int, request: Request,
                 user: User = Depends(require_auth_api)):

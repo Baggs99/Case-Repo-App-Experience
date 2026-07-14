@@ -27,6 +27,8 @@
 	</dict>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Adds your accepted practice sessions to your calendar.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Scans your practice partner's pairing QR code to join the session.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Records the room audio of your in-person practice session for later review.</string>
 	<key>UIBackgroundModes</key>

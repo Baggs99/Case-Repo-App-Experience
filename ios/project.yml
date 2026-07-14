@@ -19,6 +19,8 @@ targets:
           NSAllowsLocalNetworking: true
         NSCalendarsWriteOnlyAccessUsageDescription: >-
           Adds your accepted practice sessions to your calendar.
+        NSCameraUsageDescription: >-
+          Scans your practice partner's pairing QR code to join the session.
         NSMicrophoneUsageDescription: >-
           Records the room audio of your in-person practice session for
           later review.

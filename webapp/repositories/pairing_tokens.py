@@ -8,6 +8,7 @@ An interviewer mints a short-TTL token bound to a chosen case; the scanner
 from __future__ import annotations
 
 import secrets
+from typing import Optional
 
 from psycopg.rows import dict_row
 
@@ -75,3 +76,22 @@ def claim(token: str, candidate_id: int) -> dict:
                 (session["id"], row["id"]),
             )
             return {"session_id": session["id"]}
+
+
+def status(token: str, interviewer_id: int) -> Optional[int]:
+    """The claimed session id for a token this interviewer minted, or None
+    if it hasn't been claimed yet.
+
+    Raises TransitionError(404) if the token doesn't exist or isn't owned
+    by this interviewer — distinct from "found but unclaimed" (row exists,
+    claimed_session_id is NULL), which returns None, same as claim()'s
+    404 convention for an unknown/foreign token.
+    """
+    sql = "SELECT claimed_session_id FROM pairing_tokens WHERE token = %s AND interviewer_id = %s;"
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (token, interviewer_id))
+            row = cur.fetchone()
+            if row is None:
+                raise TransitionError(404, "No such pairing token")
+            return row[0]

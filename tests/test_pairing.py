@@ -217,5 +217,98 @@ class TestPairingTokenClaim(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
+@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+class TestPairingTokenStatus(unittest.TestCase):
+    """Task 14: status endpoint (interviewer discovers the claimed session)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+
+        cls._ctx = TestClient(app)
+        cls.alice = cls._ctx.__enter__()
+        cls.bob = TestClient(app).__enter__()
+        cls.carol = TestClient(app).__enter__()
+
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
+                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
+                ids = dict(cur.fetchall())
+        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
+
+        a_session = create_session(cls.aid, user_agent="p14-test", ip_address=None)
+        cls.alice.cookies.set(SESSION_COOKIE_NAME, a_session.id)
+        b_session = create_session(cls.bid, user_agent="p14-test", ip_address=None)
+        cls.bob.cookies.set(SESSION_COOKIE_NAME, b_session.id)
+        c_session = create_session(cls.cid, user_agent="p14-test", ip_address=None)
+        cls.carol.cookies.set(SESSION_COOKIE_NAME, c_session.id)
+
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO cases (case_title, normalized_title, source_school,"
+                    " source_year, industry, case_type, difficulty, difficulty_score,"
+                    " page_count, pdf_path)"
+                    " VALUES ('P14 Status Case', 'p14 status case', 'DevSchool', 2097,"
+                    " 'Technology', 'P14-Type', 'Easy', 2, 2, 'output/none.pdf')"
+                    " RETURNING id;")
+                cls.case_id = cur.fetchone()[0]
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pairing_tokens WHERE case_id = %s;",
+                            (cls.case_id,))
+                cur.execute(
+                    "DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
+                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
+        cls._ctx.__exit__(None, None, None)
+        cls.bob.__exit__(None, None, None)
+        cls.carol.__exit__(None, None, None)
+
+    def _mint(self) -> str:
+        r = self.alice.post("/api/practice/pair/create", json={"case_id": self.case_id})
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()["token"]
+
+    def test_status_null_before_claim_then_session_id_after(self):
+        token = self._mint()
+
+        r = self.alice.get(f"/api/practice/pair/status/{token}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNone(r.json()["session_id"])
+
+        claim = self.bob.post("/api/practice/pair/claim", json={"token": token})
+        self.assertEqual(claim.status_code, 200, claim.text)
+        session_id = claim.json()["session_id"]
+
+        r2 = self.alice.get(f"/api/practice/pair/status/{token}")
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.json()["session_id"], session_id)
+
+    def test_status_for_non_owning_user_returns_404(self):
+        token = self._mint()
+        r = self.carol.get(f"/api/practice/pair/status/{token}")
+        self.assertEqual(r.status_code, 404, r.text)
+
+    def test_status_for_unknown_token_returns_404(self):
+        r = self.alice.get("/api/practice/pair/status/does-not-exist")
+        self.assertEqual(r.status_code, 404, r.text)
+
+    def test_unauthenticated_returns_401(self):
+        token = self._mint()
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        r = TestClient(app).get(f"/api/practice/pair/status/{token}")
+        self.assertEqual(r.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()
