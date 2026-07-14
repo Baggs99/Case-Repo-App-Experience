@@ -131,6 +131,13 @@ def list_cases(
     return {"cases": rows, "total": total}
 
 
+_CASE_DETAIL_FIELDS = (
+    "id", "case_title", "source_school", "source_year", "industry", "case_type",
+    "difficulty", "difficulty_score", "firm", "page_count", "pdf_path",
+    "industry_raw", "industry_display",
+)
+
+
 @router.get("/cases/{case_id}")
 def get_case(case_id: int, request: Request, user: User = Depends(require_auth_api)):
     case = get_case_by_id(case_id)
@@ -140,8 +147,17 @@ def get_case(case_id: int, request: Request, user: User = Depends(require_auth_a
     case = dict(case)
     settings = request.app.state.settings
     page_count = case.get("page_count") or 0
-    case["preview_urls"] = preview_page_urls(
+    preview_urls = preview_page_urls(
         case_id=case_id, case_row=case, page_count=int(page_count), settings=settings,
     )
-    case["pdf_url"] = f"{settings.pdf_route_prefix}/cases/{case_id}"
-    return case
+    pdf_url = f"{settings.pdf_route_prefix}/cases/{case_id}"
+
+    # get_case_by_id() selects internal/admin columns (preview_public_slug,
+    # is_duplicate_case, unique_case_count_eligible, normalized_title,
+    # interviewer_led, created_at, updated_at) not meant for the iOS API
+    # contract — trim to the same field set the list endpoint ships, plus
+    # the two detail-only additions.
+    result = {field: case.get(field) for field in _CASE_DETAIL_FIELDS}
+    result["preview_urls"] = preview_urls
+    result["pdf_url"] = pdf_url
+    return result

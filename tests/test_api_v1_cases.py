@@ -87,6 +87,14 @@ class TestApiV1Cases(unittest.TestCase):
         self.assertIsInstance(body["preview_urls"], list)
         self.assertIsInstance(body["pdf_url"], str)
         self.assertTrue(body["pdf_url"])
+        # Internal/admin-only columns from get_case_by_id must not leak into
+        # the locked iOS API contract.
+        for internal_field in (
+            "normalized_title", "interviewer_led", "preview_public_slug",
+            "is_duplicate_case", "unique_case_count_eligible",
+            "created_at", "updated_at",
+        ):
+            self.assertNotIn(internal_field, body)
 
     def test_detail_nonexistent_id_returns_404(self):
         r = self.client.get(f"/api/v1/cases/{self.max_case_id + 999999}")
