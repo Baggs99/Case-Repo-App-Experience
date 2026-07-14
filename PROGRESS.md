@@ -9,8 +9,11 @@ session prompt doesn't say, ASK which track before touching anything.
   back-arrow; theme toggle reverted to sun/moon per owner, b9097db).
   P11 T11.2 cross-browser DONE (2026-07-14 — real Chrome 149 ↔ Safari 27
   call, all 4 legs pass; findings CB-1..4 in INTEGRATION.md §9; knock-race
-  bug CB-2 fixed in session.js). NOW: T11.3 (failure-mode, at-machine)
-  is next; then decisions (usefulness-color, O1–O3, demo-case deletion,
+  bug CB-2 fixed in session.js). P11 T11.3 failure-mode DONE (2026-07-14 —
+  candidate-reload + server-restart PASS; wifi/ICE-restart not reproducible
+  on one Mac (loopback); finding FM-1 hub-state-loss on restart; §10). NOW:
+  remaining P11 = T11.4 DEPLOY.md (BLOCKED on O1 host + O2 TURN), T11.5
+  housekeeping (agent can do), + decisions (usefulness-color, O1–O3, demo-case deletion,
   rubric-editor spec). Full table: "Handoff partition (web track)".
 - iOS track (NEW branch feature/ios-app off feature/caseroom):
   approved spec docs/superpowers/specs/2026-07-12-caseroom-ios-app-design.md,
@@ -59,7 +62,7 @@ checked by command, not memory):
 |---|---|---|---|
 | P11 T11.1 verify script | ✅ DONE 2026-07-14 — script committed, ran clean (exit 0), 13 advisory hits all JUSTIFIED (details in "Done — Phase 11 T11.1") | — | — |
 | P11 T11.2 cross-browser Chrome+Safari | ✅ DONE 2026-07-14 — real Chrome 149 ↔ Safari 27, all 4 legs pass (call/reveal/recording/authoring). Findings CB-1..4 in INTEGRATION.md §9: CB-1 Safari 27 records webm not mp4 (mp4 fallback now dead code); CB-2 knock-race FIXED (session.js re-knock on peer-joined); CB-3 interviewer recording completed=f on immediate-navigate (TO FIX, keepalive); CB-4 stale-page "not joinable" (minor) | — | CB-3 + CB-4 are follow-up fixes (not blocking) |
-| P11 T11.3 failure-mode pass | complete (spec) — wifi toggle needs Thomas | session-model + Thomas | Wifi drop mid-call → ICE-restart recovery; `pkill -f "main.py serve"` mid-call + restart → WS reconnect; candidate reload restore (re-verify P6) |
+| P11 T11.3 failure-mode pass | ✅ DONE 2026-07-14 (session 1012, INTEGRATION.md §10): candidate-reload/P6 reconciliation PASS; signaling-server restart PASS (WS reconnect + media survived) w/ finding FM-1 (process-local hub loses `admitted` on restart → spurious admit prompt + sdp/ice relay gated until re-admit); wifi-drop/ICE-restart NOT reproducible on one Mac (P2P on loopback) — ICE-restart code path confirmed wired (rtc.js:75-81) | — | FM-1 is a prod-hardening follow-up (rebuild admitted from DB on WS connect) |
 | Guide rule-05 polish: staircase favicon + Lucide icon sweep | ✅ DONE 2026-07-14 — commit 872d1e7 (favicon + swept votes/PDF/back-arrow). Theme toggle briefly went to a text label; **owner reverted it to sun/moon** (commit b9097db) — the icon stays as the documented rule-05 exception. Nothing outstanding. | — | — |
 | Rubric-template editor UI (deferred since P5) | needs-spec (which fields, who may author, where it lives) | session-model | Draft 10-line spec w/ Thomas, THEN implement (generic template already works server-side) |
 | Usefulness % color calming | needs-decision (owner flagged it as loudest remaining color; no call made) | Thomas → worker | If yes: mute emerald/amber/rose usefulness text in _search_results.html + case_detail to the calm band |
@@ -87,6 +90,23 @@ Web-track gotchas (this session, not recorded elsewhere):
 - .venv one-off scripts touching the DB must init_pool first (see any
   seeding snippet in the Done sections); pool-shutdown warnings on exit
   are harmless.
+
+## Done — Phase 11 T11.3 failure-mode pass (2026-07-14)
+- Session 1012, Chrome (interviewer) ↔ Safari (candidate). Agent drove +
+  verified server-side; Thomas ran the browsers. Full detail INTEGRATION.md §10.
+- **Candidate reload / P6 reconciliation — PASS:** reloaded Safari mid-call
+  with exhibit revealed → call view + exhibit restored, no re-admit; session
+  stayed `live`, WS reconnected, reveals/exhibits re-fetched.
+- **Signaling-server restart — PASS:** agent `pkill`+relaunch mid-call → both
+  sides "reconnecting…" banner → WS reconnect; P2P media kept flowing; session
+  stayed `live`. **FM-1:** process-local hub loses `admitted` on restart →
+  spurious admit prompt + sdp/ice relay gated until re-admit (prod fix: rebuild
+  `admitted` from DB session on WS connect).
+- **Wifi-drop / ICE-restart — NOT reproducible on one Mac:** P2P chose loopback,
+  so wifi-off did nothing (call continued). Reconnect-UI half covered by the
+  server-restart test; ICE-restart code path confirmed wired (rtc.js:75-81,
+  restartIce on disconnected/failed). A live ICE-restart needs 2 devices/WAN.
+- Session 1012 left `live` (throwaway); will age out via the A4 sweep, or End it.
 
 ## Done — Phase 11 T11.2 cross-browser pass (2026-07-14)
 - Real two-browser call, session 984 on case 1: **Chrome 149 (interviewer) ↔

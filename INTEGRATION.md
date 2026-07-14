@@ -276,3 +276,36 @@ Findings / quirks:
   path and `/join-config` 409s → "not joinable" banner instead of the debrief
   editor. A fresh load renders the correct post-call view. Low priority;
   could branch on a re-fetched state before joining.
+
+## 10. Failure-mode pass — T11.3 (2026-07-14)
+
+Session 1012, Chrome (interviewer) ↔ Safari (candidate), one Mac.
+
+- **Candidate reload mid-call (Phase 6 reconciliation) — PASS.** Reloaded the
+  Safari candidate mid-call with exhibit 216 revealed; the call view restored
+  itself and the revealed exhibit reappeared, no re-admit on Chrome. Server:
+  session stayed `live`, candidate WS reconnected, exhibits/keys/reveals
+  re-fetched (quiet reconcile), reveal row persisted.
+
+- **Signaling-server restart mid-call — PASS, with FM-1.** `pkill`+relaunch
+  mid-call: both sides showed "Signal connection lost — reconnecting…",
+  reconnected their WS, and P2P audio/video kept flowing throughout (media
+  doesn't route through the server). Session stayed `live` (state is in the DB,
+  survives restart).
+  **FM-1 (finding):** the hub is process-local (§2), so a restart drops its
+  in-memory call state (`admitted=False`). On reconnect the candidate
+  auto-re-knocks and the interviewer gets a **spurious "Admit" prompt
+  mid-call**; and until re-admitted the hub **gates SDP/ICE relay** (handle()
+  requires `call.admitted` for sdp/ice), so an ICE-restart renegotiation would
+  be blocked. Clicking Admit restores both. Acceptable for a dev restart;
+  for prod, rebuilding `admitted` from the DB session state on WS connect
+  would remove the spurious prompt and the relay gate.
+
+- **Network drop / ICE restart (wifi toggle) — NOT REPRODUCIBLE on one Mac.**
+  Both peers + server are local and the P2P selected a **loopback** path, so
+  wifi-off did nothing and the call continued. The reconnect-UI half of this
+  spec leg is covered by the server-restart test above. The ICE-restart code
+  path is present and correctly wired (rtc.js:75-81: `restartIce()` on
+  iceConnectionState `disconnected` after a self-heal delay, and on `failed`),
+  but exercising it live needs a real two-device / WAN call — an environment
+  limitation, logged not hidden.
