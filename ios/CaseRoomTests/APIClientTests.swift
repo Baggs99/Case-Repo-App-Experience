@@ -311,7 +311,8 @@ final class APIClientTests: XCTestCase {
     }
 }
 
-private extension URLRequest {
+// Not private: reused by SessionServiceTests.swift (same test target).
+extension URLRequest {
     func httpBodyOrStream() throws -> Data {
         if let body = httpBody { return body }
         guard let stream = httpBodyStream else { return Data() }

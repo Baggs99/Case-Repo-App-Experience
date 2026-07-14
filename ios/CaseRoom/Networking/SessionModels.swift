@@ -1,0 +1,58 @@
+/*
+ * Purpose: Codable models mirroring the /api/practice JSON contracts (Task 7).
+ * Inputs: JSON decoded by APIClient via JSONDecoder.convertFromSnakeCase.
+ * Outputs: none (pure data types).
+ * Run: consumed by ios/CaseRoom/Networking/APIClient.swift SessionService methods.
+ */
+
+import Foundation
+
+struct SessionDetail: Codable, Identifiable, Equatable {
+    let id: Int
+    let interviewerId: Int
+    let candidateId: Int
+    let caseId: Int
+    let state: String
+    let consentInterviewer: Bool
+    let consentCandidate: Bool
+    let scheduledAt: Date?
+    let startedAt: Date?
+    let endedAt: Date?
+    // Present on GET /api/practice/{id} (joined names + role); absent from
+    // the bare session row returned by /consent and /state.
+    let interviewerName: String?
+    let candidateName: String?
+    let caseTitle: String?
+    let yourRole: String?
+}
+
+struct ExhibitMeta: Codable, Equatable {
+    let exhibitId: Int
+    let idx: Int
+    let sourcePages: String
+    let width: Int
+    let height: Int
+    let bytes: Int
+    let ivB64: String
+}
+
+struct RubricTemplateItem: Codable, Equatable {
+    let id: String
+    let label: String
+    let dimension: String
+    let maxPoints: Int
+}
+
+struct RubricItemScore: Codable, Equatable {
+    let points: Int
+    let note: String
+}
+
+struct RubricState: Codable, Equatable {
+    let templateItems: [RubricTemplateItem]
+    let items: [String: RubricItemScore]
+    let notesMd: String
+    let gradePreview: Double
+    let grade: Double?
+    let finalizedAt: Date?
+}

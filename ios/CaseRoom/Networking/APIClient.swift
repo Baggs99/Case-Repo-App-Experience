@@ -1,5 +1,6 @@
 /*
- * Purpose: Talks to the CaseRoom /api/v1 backend over cookie-session auth.
+ * Purpose: Talks to the CaseRoom /api/v1 and /api/practice endpoints over
+ *          cookie-session auth.
  * Inputs: Info.plist key API_BASE_URL (falls back to localhost:8077 for sim).
  * Outputs: none (network side effects only); cookies persist via
  *          HTTPCookieStorage.shared, the URLSession default.
@@ -24,7 +25,23 @@ struct CaseQuery {
     var limit: Int?
 }
 
-actor APIClient {
+// Covers the existing /api/practice/* endpoints (Task 7). All cookie-authed;
+// POST/PUT are same-origin from the native client, no Origin header needed.
+protocol SessionService {
+    func sessionDetail(id: Int) async throws -> SessionDetail
+    func setConsent(id: Int, consent: Bool) async throws -> SessionDetail
+    func transition(id: Int, target: String) async throws -> SessionDetail
+    func rubric(id: Int) async throws -> RubricState
+    func saveRubric(id: Int, items: [String: RubricItemScore], notesMd: String) async throws -> Double
+    func reveal(id: Int, exhibitId: Int) async throws
+    func exhibits(id: Int) async throws -> [ExhibitMeta]
+    func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data
+    func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws
+    func completeRecording(id: Int) async throws
+    func finalize(id: Int, grade: Double?) async throws
+}
+
+actor APIClient: SessionService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -171,6 +188,94 @@ actor APIClient {
     func registerDevice(token: String) async throws {
         struct DeviceBody: Encodable { let token: String; let platform: String = "ios" }
         try await sendNoContent(path: "/api/v1/devices", method: "POST", body: DeviceBody(token: token))
+    }
+
+    // MARK: - Practice sessions (SessionService)
+
+    func sessionDetail(id: Int) async throws -> SessionDetail {
+        try await send(path: "/api/practice/\(id)", method: "GET")
+    }
+
+    func setConsent(id: Int, consent: Bool) async throws -> SessionDetail {
+        struct ConsentBody: Encodable { let consent: Bool }
+        return try await send(path: "/api/practice/\(id)/consent", method: "POST", body: ConsentBody(consent: consent))
+    }
+
+    func transition(id: Int, target: String) async throws -> SessionDetail {
+        struct StateBody: Encodable { let target: String }
+        return try await send(path: "/api/practice/\(id)/state", method: "POST", body: StateBody(target: target))
+    }
+
+    func rubric(id: Int) async throws -> RubricState {
+        try await send(path: "/api/practice/\(id)/rubric", method: "GET")
+    }
+
+    func saveRubric(id: Int, items: [String: RubricItemScore], notesMd: String) async throws -> Double {
+        struct RubricDraftBody: Encodable { let items: [String: RubricItemScore]; let notesMd: String }
+        struct SaveResponse: Decodable { let saved: Bool; let gradePreview: Double }
+        let body = RubricDraftBody(items: items, notesMd: notesMd)
+        let response: SaveResponse = try await send(path: "/api/practice/\(id)/rubric", method: "PUT", body: body)
+        return response.gradePreview
+    }
+
+    func reveal(id: Int, exhibitId: Int) async throws {
+        struct RevealBody: Encodable { let exhibitId: Int }
+        try await sendNoContent(path: "/api/practice/\(id)/reveals", method: "POST", body: RevealBody(exhibitId: exhibitId))
+    }
+
+    func exhibits(id: Int) async throws -> [ExhibitMeta] {
+        struct ExhibitsResponse: Decodable { let exhibits: [ExhibitMeta] }
+        let response: ExhibitsResponse = try await send(path: "/api/practice/\(id)/exhibits", method: "GET")
+        return response.exhibits
+    }
+
+    func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data {
+        let request = try makeRequest(path: "/api/practice/\(id)/exhibit-blob/\(exhibitId)", method: "GET")
+        return try await performRaw(request)
+    }
+
+    func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws {
+        let boundary = "CaseRoomBoundary-\(UUID().uuidString)"
+        var request = try makeRequest(path: "/api/practice/\(id)/recordings/chunk", method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.multipartRecordingBody(boundary: boundary, seq: seq, mime: mime, blob: blob)
+        _ = try await performRaw(request)
+    }
+
+    func completeRecording(id: Int) async throws {
+        try await sendNoContent(path: "/api/practice/\(id)/recordings/complete", method: "POST")
+    }
+
+    func finalize(id: Int, grade: Double?) async throws {
+        // Synthesized Codable omits nil optionals via encodeIfPresent; the
+        // API expects the "grade" key present with an explicit null, so
+        // this encodes it directly instead.
+        struct FinalizeBody: Encodable {
+            let grade: Double?
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(grade, forKey: .grade)
+            }
+            enum CodingKeys: String, CodingKey { case grade }
+        }
+        try await sendNoContent(path: "/api/practice/\(id)/finalize", method: "POST", body: FinalizeBody(grade: grade))
+    }
+
+    private static func multipartRecordingBody(boundary: String, seq: Int, mime: String, blob: Data) -> Data {
+        var body = Data()
+        func appendField(name: String, value: String) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        appendField(name: "seq", value: String(seq))
+        appendField(name: "mime", value: mime)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"blob\"; filename=\"chunk.bin\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+        body.append(blob)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
     }
 
     // MARK: - Core request plumbing
