@@ -1,5 +1,23 @@
 # PROGRESS
-Updated: 2026-07-15T15:30:00-04:00 · Branch: **feature/caseroom** (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+Updated: 2026-07-15T20:30:00-04:00 · Branch: **feature/caseroom** (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+
+## IN FLIGHT — 2026-07-15 evening session (P4 kickoff)
+Thomas's directive: continue iOS development with parallel Opus agents.
+Executing from the 2026-07-15 handoff partition:
+1. Quick fixes on feature/caseroom (agent running): make test_dashboard_shape
+   hermetic (fix = compute the expected next-session from the DB in the test,
+   don't hardcode the created id) + the 5 P3 carried Minors.
+2. Recon (2 read-only agents): exact iOS + backend interfaces for the P4 plan.
+3. Write P4 plan (main model) → docs/superpowers/plans/2026-07-15-caseroom-
+   ios-p4-habit-siri-plan.md on new branch feature/ios-p4 (off feature/caseroom
+   AFTER step 1 lands). NOTE: migration 017 was informally reserved by the
+   Desktop drills plan; P4 takes the next free numbers and the Desktop plan
+   gets renumbered (it isn't started; its own gotchas say re-verify numbering
+   at execution time).
+4. Execute P4 subagent-driven (TDD + per-task review + final adversarial
+   review), Opus agents via Workflow.
+Device call test / branch push / Apple portal items remain Thomas-manual
+(unchanged from the handoff table).
 
 ## SESSION HANDOFF — 2026-07-15 (P3 merged into feature/caseroom; device call test PAUSED)
 
