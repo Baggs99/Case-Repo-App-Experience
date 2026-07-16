@@ -25,6 +25,13 @@ protocol DrillEngine {
     var sourceLabel: String { get }
 }
 
+// Thrown by the on-device engine when the system model is unavailable at
+// generation time (the provider normally routes around this, but the FM engine
+// guards defensively per its availability contract).
+enum DrillEngineError: Error {
+    case unavailable
+}
+
 struct ServerDrillEngine: DrillEngine {
     let service: DrillService
 
