@@ -162,4 +162,17 @@ final class FreeNowViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorMessage)
         XCTAssertNil(capture.written)          // no snapshot write on failure
     }
+
+    @MainActor
+    func testErrorMessageClearsOnNextSuccessfulRefresh() async {
+        let service = StubAvailabilityService(availabilityResult: .failure(FreeNowTestError.boom))
+        let viewModel = makeViewModel(service: service)
+
+        await viewModel.refresh()
+        XCTAssertNotNil(viewModel.errorMessage)   // set on failure (now rendered by TodayView)
+
+        service.availabilityResult = .success(AvailabilityStatus(freeUntil: nil, others: []))
+        await viewModel.refresh()
+        XCTAssertNil(viewModel.errorMessage)      // cleared on the next successful action
+    }
 }

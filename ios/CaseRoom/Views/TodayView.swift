@@ -104,6 +104,12 @@ struct TodayView: View {
                         }
                     }
                     .tint(Color("BrandAccent"))
+
+                    if let errorMessage = freeNowViewModel.errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 }
 
                 if !freeNowViewModel.others.isEmpty {
