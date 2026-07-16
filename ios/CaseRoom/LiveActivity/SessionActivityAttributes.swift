@@ -15,7 +15,7 @@
 import ActivityKit
 
 struct SessionActivityAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
+    struct ContentState: Codable, Hashable {
         let state: String
         let role: String
         let counterpartName: String
