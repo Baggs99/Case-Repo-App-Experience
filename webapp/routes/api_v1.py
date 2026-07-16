@@ -6,6 +6,7 @@ routes here; keep this module's `router` a clean import point for them.
 from __future__ import annotations
 
 import ipaddress
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -24,6 +25,7 @@ from webapp.auth.sessions import (
 from webapp.auth.users import User, authenticate
 from webapp.csrf import require_same_origin
 from webapp.db import get_pool
+from webapp import drills
 from webapp.preview_urls import preview_page_urls
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import device_tokens as repo
@@ -152,6 +154,19 @@ def record_drill_attempt(body: DrillAttemptBody, user: User = Depends(require_au
         correct=body.correct,
     )
     return Response(status_code=204)
+
+
+@router.get("/drills/daily")
+def daily_drill(user: User = Depends(require_auth_api)):
+    # Determinism: pass UTC today explicitly; generation never reads the clock.
+    today = datetime.now(timezone.utc).date()
+    return {"drill": drills.daily_drill(user.id, today), "date": today.isoformat()}
+
+
+@router.get("/drills/templates")
+def drill_templates(user: User = Depends(require_auth_api)):
+    # The raw bank JSON ({version, templates}) — device offline cache for the FM engine.
+    return drills.bank_document()
 
 
 @router.get("/cases")
