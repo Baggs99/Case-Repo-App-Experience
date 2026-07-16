@@ -87,6 +87,11 @@ private struct LockScreenBannerView: View {
 // the lobby, or the elapsed time since startedAt once live. Text(timerInterval:)
 // ticks locally on-device; it does not depend on a fresh push every second.
 private struct TimerText: View {
+    // Hoisted: ISO8601DateFormatter is expensive to construct, and body can
+    // render many times per second. Default options (no fractional seconds) —
+    // the backend truncates microseconds before pushing.
+    private static let isoFormatter = ISO8601DateFormatter()
+
     let context: ActivityViewContext<SessionActivityAttributes>
 
     var body: some View {
@@ -101,7 +106,7 @@ private struct TimerText: View {
 
     private func date(_ iso: String?) -> Date? {
         guard let iso else { return nil }
-        return ISO8601DateFormatter().date(from: iso)
+        return Self.isoFormatter.date(from: iso)
     }
 }
 
