@@ -28,7 +28,10 @@ async def mint_turn_credentials(settings, *, ttl_seconds: int = 3600, client=Non
         resp.raise_for_status()
         body = resp.json()
         ice = body["iceServers"]
-        return [{"urls": ice["urls"], "username": ice["username"], "credential": ice["credential"]}]
+        urls = ice["urls"]
+        if isinstance(urls, str):  # Cloudflare may return a bare string
+            urls = [urls]
+        return [{"urls": urls, "username": ice["username"], "credential": ice["credential"]}]
     except Exception:
         logger.exception("TURN credential mint failed; falling back to STUN-only")
         return []

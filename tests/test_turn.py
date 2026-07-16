@@ -51,6 +51,28 @@ class TestMintTurnCredentials(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen["auth"], "Bearer TOK1")
         self.assertEqual(seen["body"], {"ttl": 3600})
 
+    async def test_mint_wraps_bare_string_urls_into_list(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={
+                "iceServers": {
+                    "urls": "turn:foo:3478?transport=udp",
+                    "username": "u123",
+                    "credential": "c456",
+                }
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        try:
+            result = await mint_turn_credentials(_FakeSettings(), client=client)
+        finally:
+            await client.aclose()
+
+        self.assertEqual(result, [{
+            "urls": ["turn:foo:3478?transport=udp"],
+            "username": "u123",
+            "credential": "c456",
+        }])
+
     async def test_mint_passes_custom_ttl(self):
         seen = {}
 
