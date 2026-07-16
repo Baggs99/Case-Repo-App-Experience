@@ -23,6 +23,9 @@ targets:
       path: CaseRoom/Support/Info.plist
       properties:
         API_BASE_URL: http://127.0.0.1:8077
+        CFBundleURLTypes:
+          - CFBundleURLName: studio.ogee.caseroom
+            CFBundleURLSchemes: [caseroom]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSCalendarsWriteOnlyAccessUsageDescription: >-
@@ -51,6 +54,12 @@ targets:
     info:
       path: CaseRoomWidgets/Info.plist
       properties:
+        # ToggleFreeNowIntent runs in this extension's process when tapped on the
+        # widget; Bundle.main is then the extension bundle, so it needs the same
+        # API base URL + local-networking allowance the app target carries.
+        API_BASE_URL: http://127.0.0.1:8077
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
   CaseRoomTests:

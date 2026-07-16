@@ -5,7 +5,8 @@
  *          card, and a "Browse cases" CTA. Empty state when no upcoming session.
  * Inputs: TodayViewModel (default APIClient.shared); SessionStore (environment,
  *         for the drill engine's user seed); a binding to RootTabView's
- *         selectedTab so cards can switch tabs.
+ *         selectedTab so cards can switch tabs; startDrillToken, which RootTabView
+ *         bumps to open the drill sheet from a drill deep link / intent.
  * Outputs: none.
  * Run: shown as a tab by RootTabView.
  */
@@ -20,6 +21,7 @@ struct TodayView: View {
     @State private var proposeTo: FreeUser?
     @Environment(SessionStore.self) private var sessionStore
     @Binding var selectedTab: RootTabView.RootTab
+    var startDrillToken: Int = 0
 
     private var freeBinding: Binding<Bool> {
         Binding(
@@ -48,6 +50,7 @@ struct TodayView: View {
                 .sheet(item: $drillViewModel, onDismiss: handleDrillDismiss) {
                     DrillView(viewModel: $0)
                 }
+                .onChange(of: startDrillToken) { _, _ in startDrill() }
         }
     }
 

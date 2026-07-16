@@ -1,11 +1,12 @@
 /*
  * Purpose: Root shell for CaseRoom — LoginView while logged out, four-tab
- *          navigation once authenticated. Also routes notification taps: a
- *          free_now (instant-match) push opens the Today tab and presents
- *          ProposeNowView; every other route selects the Sessions tab.
- * Inputs: SessionStore (environment), whose bootstrap() checks the
- *         persisted session cookie on launch; PushCoordinator (environment),
- *         whose pendingRoute is set by a notification tap.
+ *          navigation once authenticated. It routes every steering source
+ *          through one AppRoute switch: notification taps (PushRoute), App
+ *          Intents (AppRouter.shared.pending), and caseroom:// deep links.
+ *          drill -> Today tab + drill sheet; freenow/proposeTo -> Today tab
+ *          (the latter presents ProposeNowView); sessions -> Sessions tab.
+ * Inputs: SessionStore (environment) bootstrap()s the persisted cookie on
+ *         launch; PushCoordinator (environment) pendingRoute; AppRouter.shared.
  * Outputs: none.
  * Run: rendered by CaseRoomApp as the app's root view.
  */
@@ -15,8 +16,11 @@ import SwiftUI
 struct RootTabView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(PushCoordinator.self) private var pushCoordinator
+    @State private var appRouter = AppRouter.shared
     @State private var selectedTab: RootTab = .today
     @State private var presentedProposeTo: Int?
+    // Bumped to ask the Today tab to open the drill sheet (a drill route).
+    @State private var startDrillToken = 0
 
     enum RootTab: Hashable {
         case today, cases, sessions, profile
@@ -26,7 +30,7 @@ struct RootTabView: View {
         Group {
             if sessionStore.isAuthenticated {
                 TabView(selection: $selectedTab) {
-                    TodayView(selectedTab: $selectedTab)
+                    TodayView(selectedTab: $selectedTab, startDrillToken: startDrillToken)
                         .tabItem { Label("Today", systemImage: "sun.max") }
                         .tag(RootTab.today)
 
@@ -46,17 +50,6 @@ struct RootTabView: View {
                 .task {
                     await pushCoordinator.requestAuthorizationAndRegister()
                 }
-                .onChange(of: pushCoordinator.pendingRoute) { _, newRoute in
-                    guard let newRoute else { return }
-                    switch newRoute {
-                    case .proposeTo(let userId):
-                        selectedTab = .today
-                        presentedProposeTo = userId
-                    case .proposals, .session:
-                        selectedTab = .sessions
-                    }
-                    pushCoordinator.pendingRoute = nil
-                }
                 .sheet(isPresented: Binding(
                     get: { presentedProposeTo != nil },
                     set: { if !$0 { presentedProposeTo = nil } }
@@ -69,8 +62,36 @@ struct RootTabView: View {
                 LoginView()
             }
         }
+        .onChange(of: pushCoordinator.pendingRoute) { _, newRoute in
+            guard let newRoute else { return }
+            handle(AppRoute(newRoute))
+            pushCoordinator.pendingRoute = nil
+        }
+        .onChange(of: appRouter.pending) { _, newRoute in
+            guard let newRoute else { return }
+            handle(newRoute)
+            appRouter.pending = nil
+        }
+        .onOpenURL { url in
+            if let route = AppRoute.route(from: url) { handle(route) }
+        }
         .task {
             await sessionStore.bootstrap()
+        }
+    }
+
+    private func handle(_ route: AppRoute) {
+        switch route {
+        case .drill:
+            selectedTab = .today
+            startDrillToken += 1
+        case .sessions:
+            selectedTab = .sessions
+        case .proposeTo(let userId):
+            selectedTab = .today
+            presentedProposeTo = userId
+        case .freeNow:
+            selectedTab = .today
         }
     }
 }

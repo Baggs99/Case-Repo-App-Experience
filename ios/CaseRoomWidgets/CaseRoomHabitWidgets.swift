@@ -7,6 +7,7 @@
  * Run: built into the CaseRoomWidgets extension; added to CaseRoomWidgetsBundle.
  */
 
+import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -192,13 +193,16 @@ private struct NextSessionWidgetView: View {
 
 struct FreeNowWidget: Widget {
     var body: some WidgetConfiguration {
-        // swapped to Button(intent:) in the intents task
+        // Interactive: the whole widget is a Button that runs ToggleFreeNowIntent
+        // in-place (in this extension's process) instead of opening the app.
         StaticConfiguration(kind: "CaseRoomFreeNow", provider: SnapshotProvider()) { entry in
-            FreeNowWidgetView(entry: entry)
-                .widgetURL(URL(string: "caseroom://freenow")!)
+            Button(intent: ToggleFreeNowIntent()) {
+                FreeNowWidgetView(entry: entry)
+            }
+            .buttonStyle(.plain)
         }
         .configurationDisplayName("Free Now")
-        .description("Show your partner you're free to practice.")
+        .description("Tap to toggle whether you're free to practice.")
         .supportedFamilies([.systemSmall, .accessoryCircular])
     }
 }
