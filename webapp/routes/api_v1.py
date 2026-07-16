@@ -27,6 +27,7 @@ from webapp.db import get_pool
 from webapp.preview_urls import preview_page_urls
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import device_tokens as repo
+from webapp.repositories import drill_attempts as drills_repo
 from webapp.repositories import live_activity_tokens as live_activity_repo
 from webapp.repositories import practice_sessions as sessions_repo
 from webapp.repositories import proposals as proposals_repo
@@ -50,6 +51,13 @@ class LoginBody(BaseModel):
 class LiveActivityBody(BaseModel):
     session_id: int
     push_token: str
+
+
+class DrillAttemptBody(BaseModel):
+    drill_type: Literal["market_sizing", "mental_math", "framework_recall"]
+    source: Literal["on_device", "server"]
+    drill_key: str | None = Field(default=None, max_length=200)
+    correct: bool
 
 
 def _user_json(user: User) -> dict:
@@ -131,6 +139,18 @@ def register_live_activity(body: LiveActivityBody, user: User = Depends(require_
         # Non-participant: existence not disclosed (DV-11), same as /api/practice.
         raise HTTPException(status_code=404, detail="No such session")
     live_activity_repo.upsert_token(body.session_id, user.id, body.push_token)
+    return Response(status_code=204)
+
+
+@router.post("/drills/attempts", status_code=204, dependencies=_MUTATING)
+def record_drill_attempt(body: DrillAttemptBody, user: User = Depends(require_auth_api)):
+    drills_repo.record_attempt(
+        user.id,
+        drill_type=body.drill_type,
+        source=body.source,
+        drill_key=body.drill_key,
+        correct=body.correct,
+    )
     return Response(status_code=204)
 
 
@@ -271,4 +291,6 @@ def dashboard(user: User = Depends(require_auth_api)):
         "sessions_finalized": stats["sessions_finalized"],
         "streak_weeks": stats["streak_weeks"],
         "next_session": next_session,
+        "streak_days": drills_repo.streak_days(user.id),
+        "drill_done_today": drills_repo.attempted_today(user.id),
     }
