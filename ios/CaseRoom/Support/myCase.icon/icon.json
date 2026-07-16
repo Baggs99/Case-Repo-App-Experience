@@ -1,0 +1,57 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.15413,0.42113,0.75485,1.00000",
+      "display-p3:0.10614,0.18473,0.31849,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode-specializations" : [
+            {
+              "value" : "normal"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : "normal"
+            }
+          ],
+          "fill-specializations" : [
+            {
+              "value" : "automatic"
+            },
+            {
+              "idiom" : "square",
+              "value" : "automatic"
+            }
+          ],
+          "image-name" : "myCase 4.svg",
+          "name" : "myCase 4",
+          "position" : {
+            "scale" : 3.1,
+            "translation-in-points" : [
+              -7.4270833333332575,
+              -2.0906250000000455
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.6
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.2
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}
