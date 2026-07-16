@@ -114,5 +114,8 @@ private struct TimerText: View {
 struct CaseRoomWidgetsBundle: WidgetBundle {
     var body: some Widget {
         SessionLiveActivity()
+        StreakWidget()
+        NextSessionWidget()
+        FreeNowWidget()
     }
 }
