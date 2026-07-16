@@ -304,7 +304,7 @@ final class SessionServiceTests: XCTestCase {
 
     func testJoinConfigRequestAndDecode() async throws {
         stubJSON(#"""
-        {"session_id": 42, "your_role": "interviewer", "ws_path": "/ws/practice/42",
+        {"session_id": 42, "your_role": "interviewer", "mode": "remote", "ws_path": "/ws/practice/42",
          "ice_servers": [
            {"urls": ["stun:stun.example.com:19302"], "username": null, "credential": null},
            {"urls": ["turn:turn.example.com:3478"], "username": "turnuser", "credential": "turnpass"}
