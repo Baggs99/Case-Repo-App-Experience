@@ -206,9 +206,43 @@ class TestApiV1Sessions(unittest.TestCase):
         self.assertIsInstance(body["streak_weeks"], int)
         self.assertGreaterEqual(body["sessions_finalized"], 1)
         self.assertIsNotNone(body["next_session"])
-        self.assertEqual(body["next_session"]["id"], self.upcoming_session_id)
-        self.assertEqual(body["next_session"]["role"], "interviewer")
-        self.assertEqual(body["next_session"]["other_user"], "Bob Dev")
+
+        # Hermetic: don't hardcode the freshly-created session as "next". The
+        # shared dev DB accumulates upcoming sessions that may sort before it.
+        # Mirror list_upcoming_for_user's ordering (scheduled_at NULLS FIRST,
+        # created_at) to find the TRUE soonest upcoming session for Alice, and
+        # assert the dashboard surfaced exactly that one (id/role/other_user).
+        import psycopg
+        upcoming_sql = """
+            SELECT ps.id,
+                   CASE WHEN ps.interviewer_id = %(u)s THEN 'interviewer'
+                        ELSE 'candidate' END AS your_role,
+                   CASE WHEN ps.interviewer_id = %(u)s
+                        THEN COALESCE(uc.display_name,
+                                      split_part(uc.email::text, '@', 1))
+                        ELSE COALESCE(ui.display_name,
+                                      split_part(ui.email::text, '@', 1))
+                   END AS counterpart
+            FROM practice_sessions ps
+            JOIN users ui ON ui.id = ps.interviewer_id
+            JOIN users uc ON uc.id = ps.candidate_id
+            WHERE (ps.interviewer_id = %(u)s OR ps.candidate_id = %(u)s)
+              AND ps.state IN ('scheduled', 'lobby', 'live')
+            ORDER BY ps.scheduled_at NULLS FIRST, ps.created_at;
+        """
+        from psycopg.rows import dict_row
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(upcoming_sql, {"u": self.aid})
+                upcoming = cur.fetchall()
+        soonest = upcoming[0]
+        self.assertEqual(body["next_session"]["id"], soonest["id"])
+        self.assertEqual(body["next_session"]["role"], soonest["your_role"])
+        self.assertEqual(body["next_session"]["other_user"], soonest["counterpart"])
+
+        # Still exercise creation: the freshly-created upcoming session must
+        # appear in the user's upcoming set even when it isn't the soonest.
+        self.assertIn(self.upcoming_session_id, {row["id"] for row in upcoming})
 
     def test_unauthenticated_dashboard_returns_401(self):
         from fastapi.testclient import TestClient
