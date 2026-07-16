@@ -31,6 +31,9 @@ enum DrillEngineProvider {
     /// Task 7 passes the signed-in user's id.
     static func make(service: DrillService,
                      fmAvailable: () -> Bool = defaultFMProbe,
+                     // Callers MUST pass the real signed-in user id (Task 7 wires
+                     // SessionStore.user.id); the `= 0` default exists only for
+                     // fallback construction and yields a user-generic seed.
                      userId: Int = 0,
                      date: @escaping () -> Date = { Date() },
                      cache: TemplateCache = TemplateCache()) -> DrillEngine {

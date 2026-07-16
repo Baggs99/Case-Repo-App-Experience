@@ -11,8 +11,9 @@
  * The ONLY file that touches FoundationModels; whole file is @available(iOS 26.0, *).
  * FM generation cannot run in the simulator/tests — the deterministic core, the
  * validator, and provider selection are the test surface; the live path is a device
- * check. The engine NEVER changes answers: dressingIsValid gates the rewrite so a
- * hallucinated/reformatted number falls back to the plain prompt.
+ * check. The engine NEVER changes answers: DrillDressing.isValid (ungated, in
+ * DrillDressing.swift) gates the rewrite so a hallucinated/reformatted number
+ * falls back to the plain prompt.
  */
 
 import Foundation
@@ -39,13 +40,6 @@ final class FoundationModelDrillEngine: DrillEngine {
         return false
     }
 
-    /// Every string in `numbers` must appear verbatim in `dressed`, else the
-    /// dressing is rejected and the plain prompt ships. Substring match (mirrors
-    /// the server contract): a reformatted "1,200" fails a "1200" requirement.
-    static func dressingIsValid(_ dressed: String, numbers: [String]) -> Bool {
-        numbers.allSatisfy { dressed.contains($0) }
-    }
-
     func dailyDrill() async throws -> Drill {
         guard case .available = SystemLanguageModel.default.availability else {
             throw DrillEngineError.unavailable
@@ -61,9 +55,9 @@ final class FoundationModelDrillEngine: DrillEngine {
         """
 
         do {
-            let response = try await session.respond(to: instruction, generating: DrillDressing.self)
+            let response = try await session.respond(to: instruction, generating: DrillDressingPayload.self)
             let dressed = response.content.prompt
-            if Self.dressingIsValid(dressed, numbers: base.numbers) {
+            if DrillDressing.isValid(dressed, numbers: base.numbers) {
                 // Prompt only — answer, explanation, choices, numbers all preserved.
                 return Drill(
                     key: base.key, drillType: base.drillType, prompt: dressed, choices: base.choices,
@@ -77,9 +71,11 @@ final class FoundationModelDrillEngine: DrillEngine {
     }
 }
 
+// The FM generation payload. Named Payload because the ungated validator enum
+// (DrillDressing.swift) owns the plain DrillDressing name.
 @available(iOS 26.0, *)
 @Generable
-struct DrillDressing {
+struct DrillDressingPayload {
     @Guide(description: "The rewritten drill prompt: ≤2 sentences plus the question, every number kept exactly as given.")
     var prompt: String
 }

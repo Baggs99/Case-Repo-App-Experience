@@ -108,22 +108,19 @@ final class DrillEngineProviderTests: XCTestCase {
         }
     }
 
-    // MARK: - FM dressing validator
+    // MARK: - FM dressing validator (ungated — pure string logic, runs on any runtime)
 
-    func testDressingValidator() throws {
-        guard #available(iOS 26.0, *) else {
-            throw XCTSkip("dressingIsValid is on the iOS 26+ engine; not reachable on this runtime")
-        }
+    func testDressingValidator() {
         // Every number present verbatim.
-        XCTAssertTrue(FoundationModelDrillEngine.dressingIsValid(
+        XCTAssertTrue(DrillDressing.isValid(
             "Revenue climbed from 80 to 120 — what's the change?", numbers: ["80", "120"]))
         // A missing number rejects the dressing.
-        XCTAssertFalse(FoundationModelDrillEngine.dressingIsValid(
+        XCTAssertFalse(DrillDressing.isValid(
             "Revenue climbed from 80 — what's the change?", numbers: ["80", "120"]))
         // Reformatted "1,200" fails a verbatim "1200" requirement.
-        XCTAssertFalse(FoundationModelDrillEngine.dressingIsValid(
+        XCTAssertFalse(DrillDressing.isValid(
             "About 1,200 coffee shops.", numbers: ["1200"]))
         // No numbers → vacuously valid.
-        XCTAssertTrue(FoundationModelDrillEngine.dressingIsValid("A prose-only recall prompt.", numbers: []))
+        XCTAssertTrue(DrillDressing.isValid("A prose-only recall prompt.", numbers: []))
     }
 }
