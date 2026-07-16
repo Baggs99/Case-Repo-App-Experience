@@ -1,7 +1,8 @@
 /*
  * Purpose: Root shell for CaseRoom — LoginView while logged out, four-tab
- *          navigation once authenticated. Also routes notification taps:
- *          any pending push route selects the Sessions tab.
+ *          navigation once authenticated. Also routes notification taps: a
+ *          free_now (instant-match) push opens the Today tab and presents
+ *          ProposeNowView; every other route selects the Sessions tab.
  * Inputs: SessionStore (environment), whose bootstrap() checks the
  *         persisted session cookie on launch; PushCoordinator (environment),
  *         whose pendingRoute is set by a notification tap.
@@ -15,6 +16,7 @@ struct RootTabView: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(PushCoordinator.self) private var pushCoordinator
     @State private var selectedTab: RootTab = .today
+    @State private var presentedProposeTo: Int?
 
     enum RootTab: Hashable {
         case today, cases, sessions, profile
@@ -45,9 +47,23 @@ struct RootTabView: View {
                     await pushCoordinator.requestAuthorizationAndRegister()
                 }
                 .onChange(of: pushCoordinator.pendingRoute) { _, newRoute in
-                    guard newRoute != nil else { return }
-                    selectedTab = .sessions
+                    guard let newRoute else { return }
+                    switch newRoute {
+                    case .proposeTo(let userId):
+                        selectedTab = .today
+                        presentedProposeTo = userId
+                    case .proposals, .session:
+                        selectedTab = .sessions
+                    }
                     pushCoordinator.pendingRoute = nil
+                }
+                .sheet(isPresented: Binding(
+                    get: { presentedProposeTo != nil },
+                    set: { if !$0 { presentedProposeTo = nil } }
+                )) {
+                    if let userId = presentedProposeTo {
+                        ProposeNowView(toUser: userId)
+                    }
                 }
             } else {
                 LoginView()

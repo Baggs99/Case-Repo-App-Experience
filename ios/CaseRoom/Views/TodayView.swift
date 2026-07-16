@@ -1,7 +1,8 @@
 /*
  * Purpose: Today tab — drill-of-the-day card (taps to open the drill sheet),
- *          next-session card (taps to Sessions), streak card, and a "Browse
- *          cases" CTA. Empty state when there's no upcoming session.
+ *          a free-now toggle with a list of classmates free now (taps open the
+ *          propose-now sheet), next-session card (taps to Sessions), streak
+ *          card, and a "Browse cases" CTA. Empty state when no upcoming session.
  * Inputs: TodayViewModel (default APIClient.shared); SessionStore (environment,
  *         for the drill engine's user seed); a binding to RootTabView's
  *         selectedTab so cards can switch tabs.
@@ -13,10 +14,19 @@ import SwiftUI
 
 struct TodayView: View {
     @State private var viewModel = TodayViewModel()
+    @State private var freeNowViewModel = FreeNowViewModel()
     @State private var drillViewModel: DrillViewModel?
     @State private var drillCompleted = false
+    @State private var proposeTo: FreeUser?
     @Environment(SessionStore.self) private var sessionStore
     @Binding var selectedTab: RootTabView.RootTab
+
+    private var freeBinding: Binding<Bool> {
+        Binding(
+            get: { freeNowViewModel.isFree },
+            set: { _ in Task { await freeNowViewModel.toggle() } }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -26,10 +36,15 @@ struct TodayView: View {
                     // Best-effort template refresh so the on-device FM engine has
                     // an offline pack; run alongside the dashboard load.
                     async let refresh: Void = TemplateCache().refresh(service: APIClient.shared)
+                    async let freeNow: Void = freeNowViewModel.refresh()
                     await viewModel.load()
                     await refresh
+                    await freeNow
                 }
-                .refreshable { await viewModel.load() }
+                .refreshable {
+                    await viewModel.load()
+                    await freeNowViewModel.refresh()
+                }
                 .sheet(item: $drillViewModel, onDismiss: handleDrillDismiss) {
                     DrillView(viewModel: $0)
                 }
@@ -70,6 +85,38 @@ struct TodayView: View {
                 }
 
                 Section {
+                    Toggle(isOn: freeBinding) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Free to practice now")
+                                .font(.headline)
+                            if freeNowViewModel.isFree, let freeUntil = freeNowViewModel.freeUntil {
+                                Text("Broadcasting until \(freeUntil, style: .time)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Let classmates know you're available")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .tint(Color("BrandAccent"))
+                }
+
+                if !freeNowViewModel.others.isEmpty {
+                    Section(freeNowCountLabel) {
+                        ForEach(freeNowViewModel.others) { user in
+                            Button {
+                                proposeTo = user
+                            } label: {
+                                FreeUserRow(user: user)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Section {
                     if let nextSession = viewModel.nextSession {
                         NextSessionCard(session: nextSession) {
                             selectedTab = .sessions
@@ -93,7 +140,39 @@ struct TodayView: View {
                     }
                 }
             }
+            .sheet(item: $proposeTo) { user in
+                ProposeNowView(toUser: user.userId, toName: user.name)
+            }
         }
+    }
+
+    private var freeNowCountLabel: String {
+        freeNowViewModel.others.count == 1
+            ? "1 classmate free now"
+            : "\(freeNowViewModel.others.count) classmates free now"
+    }
+}
+
+private struct FreeUserRow: View {
+    let user: FreeUser
+
+    var body: some View {
+        HStack {
+            Image(systemName: "bolt.fill")
+                .foregroundStyle(Color("BrandAccent"))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(user.name)
+                    .font(.headline)
+                Text("Free until \(user.freeUntil, style: .time)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text("Propose")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color("BrandAccent"))
+        }
+        .padding(.vertical, 2)
     }
 }
 

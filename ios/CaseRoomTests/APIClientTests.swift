@@ -191,6 +191,109 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(query.contains(URLQueryItem(name: "scope", value: "recent")))
     }
 
+    // MARK: - availability
+
+    func testAvailabilityRequestAndDecode() async throws {
+        stubJSON(#"""
+        {"free_until": "2026-07-16T18:00:00+00:00", "others": [
+          {"user_id": 7, "name": "Bob Dev", "free_until": "2026-07-16T18:30:00+00:00"}]}
+        """#)
+
+        let status = try await client.availability()
+
+        XCTAssertNotNil(status.freeUntil)
+        XCTAssertEqual(status.others.count, 1)
+        XCTAssertEqual(status.others[0].userId, 7)
+        XCTAssertEqual(status.others[0].name, "Bob Dev")
+        XCTAssertEqual(status.others[0].id, 7)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/availability")
+        XCTAssertEqual(request.httpMethod, "GET")
+    }
+
+    func testAvailabilityNullFreeUntilDecodes() async throws {
+        stubJSON(#"{"free_until": null, "others": []}"#)
+
+        let status = try await client.availability()
+
+        XCTAssertNil(status.freeUntil)
+        XCTAssertTrue(status.others.isEmpty)
+    }
+
+    func testSetFreeRequestBodyAndDecode() async throws {
+        stubJSON(#"{"free_until": "2026-07-16T18:00:00+00:00", "others": []}"#)
+
+        let status = try await client.setFree(minutes: 45)
+
+        XCTAssertNotNil(status.freeUntil)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/availability")
+        XCTAssertEqual(request.httpMethod, "PUT")
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertEqual(body["minutes"] as? Int, 45)
+    }
+
+    func testClearFreeSendsDelete() async throws {
+        stubJSON("", status: 204)
+
+        try await client.clearFree()
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/availability")
+        XCTAssertEqual(request.httpMethod, "DELETE")
+    }
+
+    // MARK: - createProposal
+
+    func testCreateProposalRequestBodyAndDecode() async throws {
+        stubJSON(#"""
+        {"id": 42, "from_name": "Alice Dev", "from_role": "interviewer",
+          "case_id": 5, "case_title": "Widget Co", "case_type": "Profitability",
+          "difficulty": "Medium", "message": "now?",
+          "proposed_times": ["2026-07-16T18:00:00+00:00"],
+          "created_at": "2026-07-16T17:00:00+00:00"}
+        """#)
+
+        let proposal = try await client.createProposal(
+            toUserId: 7, caseId: 5, fromRole: "interviewer", message: "now?"
+        )
+
+        XCTAssertEqual(proposal.id, 42)
+        XCTAssertEqual(proposal.fromRole, "interviewer")
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/proposals")
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertEqual(body["to_user_id"] as? Int, 7)
+        XCTAssertEqual(body["case_id"] as? Int, 5)
+        XCTAssertEqual(body["from_role"] as? String, "interviewer")
+        XCTAssertEqual(body["message"] as? String, "now?")
+        let times = body["proposed_times"] as? [Any]
+        XCTAssertEqual(times?.count, 1)
+        XCTAssertTrue(times?.first is String)
+    }
+
+    func testCreateProposalOmitsNilMessage() async throws {
+        stubJSON(#"""
+        {"id": 43, "from_name": "Alice Dev", "from_role": "candidate",
+          "case_id": 6, "case_title": "Acme", "case_type": null,
+          "difficulty": null, "message": null,
+          "proposed_times": ["2026-07-16T18:00:00+00:00"],
+          "created_at": "2026-07-16T17:00:00+00:00"}
+        """#)
+
+        _ = try await client.createProposal(
+            toUserId: 8, caseId: 6, fromRole: "candidate", message: nil
+        )
+
+        let request = StubURLProtocol.recordedRequests.first!
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertNil(body["message"])
+    }
+
     // MARK: - 401 mapping generally
 
     func testMeUnauthorizedMapsToAPIErrorUnauthorized() async {

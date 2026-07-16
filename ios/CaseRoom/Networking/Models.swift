@@ -85,3 +85,19 @@ struct AcceptedSession: Codable, Equatable {
     let sessionUrl: String
     let icsUrl: String
 }
+
+// Free-now availability (Task 9). GET/PUT /api/v1/availability both return this
+// shape; `freeUntil` is the caller's own broadcast (null when not free) and
+// `others` are classmates currently free. The server coalesces `name` to the
+// user's email, so it is never null.
+struct AvailabilityStatus: Codable, Equatable {
+    let freeUntil: Date?
+    let others: [FreeUser]
+}
+
+struct FreeUser: Codable, Identifiable, Equatable {
+    let userId: Int
+    let name: String
+    let freeUntil: Date
+    var id: Int { userId }
+}

@@ -39,6 +39,14 @@ protocol PairService {
     func pairClaim(token: String) async throws -> Int
 }
 
+// Free-now availability (Task 9). GET/PUT/DELETE /api/v1/availability, all
+// cookie-authed same-origin from the native client.
+protocol AvailabilityService {
+    func availability() async throws -> AvailabilityStatus
+    func setFree(minutes: Int) async throws -> AvailabilityStatus
+    func clearFree() async throws
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -65,7 +73,7 @@ protocol SessionService {
     func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
-actor APIClient: SessionService, PairService, DrillService {
+actor APIClient: SessionService, PairService, DrillService, AvailabilityService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -190,6 +198,42 @@ actor APIClient: SessionService, PairService, DrillService {
 
     func declineProposal(id: Int) async throws {
         try await sendNoContent(path: "/api/proposals/\(id)/decline", method: "POST")
+    }
+
+    // Creates a proposal from the free-now propose flow (Task 9). Hits the
+    // non-versioned /api/proposals (native-compatible; no Origin header passes
+    // CSRF) with a single "now" proposed time. `proposedTimes` encodes as plain
+    // ISO8601 via the shared encoder; nil `message` is omitted.
+    func createProposal(toUserId: Int, caseId: Int, fromRole: String, message: String?) async throws -> Proposal {
+        struct ProposalBody: Encodable {
+            let toUserId: Int
+            let caseId: Int
+            let fromRole: String
+            let message: String?
+            let proposedTimes: [Date]
+        }
+        let body = ProposalBody(
+            toUserId: toUserId, caseId: caseId, fromRole: fromRole,
+            message: message, proposedTimes: [Date()]
+        )
+        return try await send(path: "/api/proposals", method: "POST", body: body)
+    }
+
+    // MARK: - Availability (AvailabilityService)
+
+    func availability() async throws -> AvailabilityStatus {
+        try await send(path: "/api/v1/availability", method: "GET")
+    }
+
+    func setFree(minutes: Int) async throws -> AvailabilityStatus {
+        struct FreeBody: Encodable { let minutes: Int }
+        // The PUT response is {free_until, others} — the same shape as GET, so it
+        // decodes straight into AvailabilityStatus (own free_until included).
+        return try await send(path: "/api/v1/availability", method: "PUT", body: FreeBody(minutes: minutes))
+    }
+
+    func clearFree() async throws {
+        try await sendNoContent(path: "/api/v1/availability", method: "DELETE")
     }
 
     // MARK: - Sessions & dashboard

@@ -2,7 +2,7 @@
  * Purpose: Requests push authorization, triggers APNs registration, and
  *          maps notification taps to an in-app route.
  * Inputs: UNUserNotificationCenter delegate callbacks; push payload `data`
- *         keys from the backend (`kind`, `proposal_id`/`session_id`).
+ *         keys from the backend (`kind`, `proposal_id`/`session_id`/`user_id`).
  * Outputs: sets `pendingRoute` for RootTabView to consume; device-token
  *          registration itself happens in CaseRoomApp's AppDelegate.
  * Run: one instance created by CaseRoomApp's AppDelegate, shared via
@@ -16,6 +16,7 @@ import UserNotifications
 enum PushRoute: Equatable {
     case proposals
     case session(Int)
+    case proposeTo(Int)
 }
 
 @Observable
@@ -37,6 +38,11 @@ final class PushCoordinator: NSObject, UNUserNotificationCenterDelegate {
         case "accepted", "knock", "feedback", "starting_soon":
             guard let sessionID = intValue(userInfo["session_id"]) else { return nil }
             return .session(sessionID)
+        case "free_now":
+            // Instant-match: the toggler's `user_id` (Int or String, same as
+            // session_id) is who to propose a session to.
+            guard let userID = intValue(userInfo["user_id"]) else { return nil }
+            return .proposeTo(userID)
         default:
             return nil
         }

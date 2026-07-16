@@ -39,6 +39,21 @@ final class PushRouteTests: XCTestCase {
         XCTAssertEqual(PushCoordinator.route(from: userInfo), .session(7))
     }
 
+    func testFreeNowRoutesToProposeToWithIntUserId() {
+        let userInfo: [AnyHashable: Any] = ["kind": "free_now", "user_id": 7, "name": "Bob Dev"]
+        XCTAssertEqual(PushCoordinator.route(from: userInfo), .proposeTo(7))
+    }
+
+    func testFreeNowRoutesToProposeToWithStringUserId() {
+        let userInfo: [AnyHashable: Any] = ["kind": "free_now", "user_id": "7", "name": "Bob Dev"]
+        XCTAssertEqual(PushCoordinator.route(from: userInfo), .proposeTo(7))
+    }
+
+    func testFreeNowMissingUserIDReturnsNil() {
+        let userInfo: [AnyHashable: Any] = ["kind": "free_now", "name": "Bob Dev"]
+        XCTAssertNil(PushCoordinator.route(from: userInfo))
+    }
+
     func testUnknownKindReturnsNil() {
         let userInfo: [AnyHashable: Any] = ["kind": "mystery", "session_id": 7]
         XCTAssertNil(PushCoordinator.route(from: userInfo))
