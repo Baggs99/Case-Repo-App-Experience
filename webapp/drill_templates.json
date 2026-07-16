@@ -60,7 +60,7 @@
     {"key": "mm_cagr_2yr_approx", "drill_type": "mental_math",
      "framing": "Vantage Logistics grew revenue from ${start}M to ${end}M over two years.",
      "question": "Using the quick approximation (total percentage growth divided by the number of years), what annual growth rate does this imply, in percent?",
-     "op": "cagr_2yr_approx", "params": {"start": [80, 200, 20], "end": [160, 320, 10]},
+     "op": "cagr_2yr_approx", "params": {"start": [80, 200, 20], "end": [220, 360, 10]},
      "answer_format": "percent", "tolerance_pct": 2.0,
      "explanation": "Quick approximation = total growth ÷ years = (({end} − {start}) ÷ {start}) ÷ 2 × 100 ≈ {answer}%. True CAGR runs a bit lower."},
 
