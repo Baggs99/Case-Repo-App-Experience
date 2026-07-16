@@ -73,6 +73,10 @@ struct DashboardStats: Codable, Equatable {
     let sessionsFinalized: Int
     let streakWeeks: Int
     let nextSession: SessionSummary?
+    // Added by the P4 drill layer; optional so pre-P4 fixtures/back-compat
+    // responses (without these keys) still decode.
+    let streakDays: Int?
+    let drillDoneToday: Bool?
 }
 
 struct AcceptedSession: Codable, Equatable {

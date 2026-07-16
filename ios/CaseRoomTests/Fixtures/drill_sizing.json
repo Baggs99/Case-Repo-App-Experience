@@ -1,0 +1,1 @@
+{"drill":{"key":"ms_pharmacies","drill_type":"market_sizing","prompt":"About how many retail pharmacies serve a population of 6 million?","answer":{"kind":"numeric","value":1590.0,"tolerance_factor":2.0},"explanation":"~1 pharmacy per ~3,800 people: 6M → about 1,590 pharmacies.","numbers":["6"]},"date":"2026-07-16"}

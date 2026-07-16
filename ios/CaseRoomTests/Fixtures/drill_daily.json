@@ -1,0 +1,1 @@
+{"drill":{"key":"mm_markup_price","drill_type":"mental_math","prompt":"A unit costs Ridgeline Goods $50 to make; they add a 50% markup. What is the selling price?","answer":{"kind":"numeric","value":75.0,"tolerance_pct":2.0},"explanation":"Selling price = cost × (1 + markup/100) = 50 × (1 + 50/100) ≈ $75.","numbers":["50","50"]},"date":"2026-07-16"}

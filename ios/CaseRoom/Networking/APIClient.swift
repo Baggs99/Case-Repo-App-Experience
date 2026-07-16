@@ -65,7 +65,7 @@ protocol SessionService {
     func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
-actor APIClient: SessionService, PairService {
+actor APIClient: SessionService, PairService, DrillService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -212,6 +212,35 @@ actor APIClient: SessionService, PairService {
     func registerDevice(token: String) async throws {
         struct DeviceBody: Encodable { let token: String; let platform: String = "ios" }
         try await sendNoContent(path: "/api/v1/devices", method: "POST", body: DeviceBody(token: token))
+    }
+
+    // MARK: - Drills (DrillService)
+
+    func dailyDrill() async throws -> Drill {
+        // Server wraps the drill in {drill, date}; the client only needs the drill.
+        struct DailyResponse: Decodable { let drill: Drill; let date: String }
+        let response: DailyResponse = try await send(path: "/api/v1/drills/daily", method: "GET")
+        return response.drill
+    }
+
+    func templatePack() async throws -> Data {
+        // Raw {version, templates} JSON — the on-device engine's offline cache
+        // (Task 6). Returned as Data so callers persist it verbatim.
+        let request = try makeRequest(path: "/api/v1/drills/templates", method: "GET")
+        return try await performRaw(request)
+    }
+
+    func recordAttempt(drillType: String, source: String, drillKey: String?, correct: Bool) async throws {
+        struct AttemptBody: Encodable {
+            let drillType: String
+            let source: String
+            let drillKey: String?
+            let correct: Bool
+        }
+        try await sendNoContent(
+            path: "/api/v1/drills/attempts", method: "POST",
+            body: AttemptBody(drillType: drillType, source: source, drillKey: drillKey, correct: correct)
+        )
     }
 
     // MARK: - Live Activity (Task 10)

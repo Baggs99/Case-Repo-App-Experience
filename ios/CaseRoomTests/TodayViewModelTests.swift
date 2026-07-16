@@ -12,7 +12,7 @@ import XCTest
 
 final class StubTodayService: TodayService {
     var dashboardResult: Result<DashboardStats, Error> = .success(
-        DashboardStats(sessionsFinalized: 0, streakWeeks: 0, nextSession: nil)
+        DashboardStats(sessionsFinalized: 0, streakWeeks: 0, nextSession: nil, streakDays: nil, drillDoneToday: nil)
     )
 
     func dashboard() async throws -> DashboardStats {
@@ -34,7 +34,7 @@ final class TodayViewModelTests: XCTestCase {
         let service = StubTodayService()
         let nextSession = makeSession(id: 3, caseTitle: "Widget Co")
         service.dashboardResult = .success(
-            DashboardStats(sessionsFinalized: 5, streakWeeks: 2, nextSession: nextSession)
+            DashboardStats(sessionsFinalized: 5, streakWeeks: 2, nextSession: nextSession, streakDays: nil, drillDoneToday: nil)
         )
         let viewModel = TodayViewModel(service: service)
 
@@ -49,7 +49,7 @@ final class TodayViewModelTests: XCTestCase {
     func testLoadWithNoNextSessionDrivesEmptyStateButStillSurfacesStreakAndFinalized() async {
         let service = StubTodayService()
         service.dashboardResult = .success(
-            DashboardStats(sessionsFinalized: 7, streakWeeks: 4, nextSession: nil)
+            DashboardStats(sessionsFinalized: 7, streakWeeks: 4, nextSession: nil, streakDays: nil, drillDoneToday: nil)
         )
         let viewModel = TodayViewModel(service: service)
 
