@@ -350,3 +350,9 @@ Walk the sorted days: streak = consecutive run ending at UTC-today or UTC-yester
 - Placeholder scan: none — every step names real files/signatures; code shown where it's load-bearing (migrations, streak SQL, template shape, entitlements yaml).
 - Type consistency: `Drill/DrillAnswer/DrillType` (T5) consumed by T6/T7; `WidgetSnapshot/SnapshotStore/AppGroup` (T4) consumed by T7/T8/T10; `AvailabilityStatus/FreeUser` (T9) match T3's wire shape; `AppRoute` (T10) supersedes-wraps `PushRoute` (T9 adds `.proposeTo` before the fold — T10 folds BOTH, tasks ordered so T9's tests are updated in T10's step 1 if signatures shift).
 - Recon fidelity: dashboard shape, push kinds, `_MUTATING`, cookie-mint test idiom, `info.properties`, widget-bundle structure all quoted from the 2026-07-15 recon.
+
+---
+## Errata (found during execution — corrected in code, kept here so the plan text doesn't get re-trusted)
+- **Task 5 grading formula (Critical, fixed in 7da3773):** the plan's `abs(input-value) <= value*tolerancePct/100` is wrong for negative answers (live `mm_pct_change` draws produce them ~half the time — RHS goes negative, everything grades wrong). Correct: `abs(input-value) <= abs(value)*tolerancePct/100`; factor path normalizes to `[min(value/f, value*f), max(...)]`. Task 6's Swift-port property tests must use the corrected semantics.
+- **Task 2 `ms_coffee_shops` example anchor (fixed in 7484a5d):** the plan's illustrative `reference_per_unit: 700` was ~3× real-world density; bank ships 275.
+- **Task 3 `list_free` (fixed in af71975):** plan's `u.display_name AS name` can emit null names; shipped `COALESCE(u.display_name, u.email)` so the iOS `FreeUser.name: String` decode is safe.
