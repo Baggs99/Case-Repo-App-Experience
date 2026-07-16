@@ -1,5 +1,35 @@
 # PROGRESS
-Updated: 2026-07-14T19:15:00-04:00 · Branch: feature/ios-p3 (off feature/ios-p2 off feature/ios-app off feature/caseroom). **iOS P3 (remote WebRTC media) BUILD COMPLETE — see the P3 HANDOFF section directly below.**
+Updated: 2026-07-15T15:30:00-04:00 · Branch: **feature/caseroom** (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+
+## SESSION HANDOFF — 2026-07-15 (P3 merged into feature/caseroom; device call test PAUSED)
+
+### Verified state (commands run at handoff, not recalled)
+- On **`feature/caseroom` @ `2a2302e`**, working tree clean. `git merge --ff-only feature/ios-p3` fast-forwarded caseroom `b37bc0c → ae41550`; then commit `2a2302e` (test fix, below). **69 commits ahead of `origin/feature/caseroom` — NOT pushed** (Thomas pushes). `feature/ios-app`/`ios-p2`/`ios-p3` are now ancestors of caseroom (redundant; safe to delete when wanted).
+- Backend `pytest tests/` = **311 passed / 1 failed**. iOS `xcodebuild test iPhone 17` = **155 passed / 0** (at `d02752d`; iOS code unchanged since — later commits are docs/backend-test only).
+  - The 1 backend failure is **`test_api_v1_sessions.py::test_dashboard_shape`** — a PRE-EXISTING non-hermetic test (predates P3), NOT a code defect: the dashboard "next session" query returns an ACCUMULATED dev scheduled-session (id 2547) that sorts before the test's freshly-created one (RHS changes every run: 2547 != 2682). Passes on a clean DB. Fix = make the test hermetic (scope/clean the user's other upcoming sessions) — a follow-up, session-model tier.
+- **TURN verified working:** `.env` has `TURN_PROVIDER/TURN_KEY_ID/TURN_TOKEN` (Cloudflare, gitignored); `mint_turn_credentials(load_settings())` mints real short-lived stun/turn/turns creds. Source txt: `mycase/Cloudflare Turn Credentials.txt` (plaintext secret — Thomas should delete it; not in any git repo).
+- **Dev server RUNNING:** `nohup python main.py serve --host 0.0.0.0 --port 8077` (pid was 70355), reachable at `192.168.0.200:8077` (LAN) + localhost. Stop with `pkill -f "main.py serve"`.
+
+### What happened this session
+- Merged the iOS chain into `feature/caseroom` (fast-forward, local, not pushed) at Thomas's request.
+- Put the Cloudflare TURN creds into `.env` and proved they mint real relay creds.
+- Started the on-device call test (same-WiFi LAN) but **PAUSED it**: Thomas hit "no camera/mic permission popup" in **Safari-mobile on iPhone**. ROOT CAUSE (not a bug): browser `getUserMedia` requires a **secure context (HTTPS)** — allowed only over HTTPS or `localhost`. Safari on the iPhone at `http://192.168.0.200:8077` (LAN IP, plain HTTP) is insecure → the page can't request camera/mic → no popup. macOS firewall is OFF (not the cause).
+- Fixed a test I broke by adding TURN to `.env`: `test_turn.py` STUN-only test now overrides settings instead of reading ambient env (commit `2a2302e`).
+- The 3 temporary LAN-test edits (project.yml/Info.plist API_BASE_URL → LAN IP; RemoteMediaSession forceRelay → true) were **REVERTED**; `.xcodeproj` regenerated to the committed config.
+
+### Handoff partition
+| Chunk | Spec state | Tier | Next concrete action |
+|---|---|---|---|
+| Resume the on-device remote call test (item 3) | complete | Thomas (+ worker to set up tunnel) | Pick a path: (A) NATIVE iOS app over LAN — no HTTPS needed (native camera perms), build in Xcode, sign BOTH `CaseRoom` + `CaseRoomWidgets` targets with Thomas's team, temporarily set `ios/project.yml` API_BASE_URL→`http://192.168.0.200:8077` + `RemoteMediaSession.swift` forceRelay→true, `xcodegen generate`, ⌘R; OR (B) `brew install cloudflared` → `cloudflared tunnel --url http://localhost:8077` → open the https URL in Safari-mobile (and/or point the app at it for a true CELLULAR test). Then verify: remote video renders both ways, video-off, camera-dot-off after finalize, call routes through Cloudflare TURN. |
+| Push feature/caseroom | complete | Thomas | `git push origin feature/caseroom` when ready (69 commits ahead; I never push). |
+| Apple portal + APNs .p8 | manual | Thomas | App ID `studio.ogee.caseroom` + Push (+Time-Sensitive) capability; `.p8` → `.env` (`APNS_*`). Only needed for Live Activity push UPDATES + notifications — NOT the core call. |
+| Make test_dashboard_shape hermetic | needs-spec | session-model | Decide the fix: scope the dashboard "next session" query in the test to the user's freshly-created session, or clean the user's other upcoming sessions in setUp. Non-hermetic against shared dev DB; not P3 code. |
+| Execute P4 | complete (roadmap) | session-model → worker | P4 = Foundation-Models drills, widgets, App Intents/Entities, "free now" instant-match. Plan not yet written (brainstorm/writing-plans first). |
+
+### Gotchas learned this session (not already in the repo)
+- **Browser media needs HTTPS on a phone.** getUserMedia is blocked over http://LAN-IP on iPhone Safari (no secure context, no popup). Use a tunnel (https) for Safari-web/cellular, OR the NATIVE app (uses native AVFoundation perms, not getUserMedia — works over http-LAN with `NSAllowsLocalNetworking`).
+- **Adding real TURN_* to .env breaks env-dependent tests.** `test_turn.py`'s STUN-only test read ambient env — fixed to override `app.state.settings`. Watch for the same pattern elsewhere.
+- The final adversarial review's 6 real-device fixes (Unified-Plan remote track, 1.2Mbps cap, ICE restart, finalize broadcast+LA-end, media teardown, timestamp truncation) are CODE-verified but only truly proven on the (paused) device test — see the P3 HANDOFF section's "Known real-device RISKS".
 
 ## Now — TWO parallel tracks. Route by what Thomas asks for; if the
 session prompt doesn't say, ASK which track before touching anything.
