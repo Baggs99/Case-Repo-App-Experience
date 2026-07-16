@@ -35,10 +35,11 @@ def tokens_for_session(session_id: int) -> list[dict]:
             return cur.fetchall()
 
 
-def delete_token(push_token: str) -> None:
+def delete_token(user_id: int, push_token: str) -> None:
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM live_activity_tokens WHERE push_token = %s;",
-                (push_token,),
+                "DELETE FROM live_activity_tokens"
+                " WHERE push_token = %s AND user_id = %s;",
+                (push_token, user_id),
             )

@@ -83,7 +83,8 @@ async def push_live_activity_update(session_id: int, *, event: str = "update",
                         session_id, row["push_token"])
                     continue
                 if status == 410:
-                    await run_in_threadpool(delete_token, row["push_token"])
+                    await run_in_threadpool(
+                        delete_token, row["user_id"], row["push_token"])
         finally:
             await client.aclose()
     except Exception:

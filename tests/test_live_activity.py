@@ -124,6 +124,38 @@ class TestTokenUpsert(unittest.TestCase):
         by_user = {r["user_id"]: r["push_token"] for r in rows}
         self.assertEqual(by_user, {self.aid: "tok-v2", self.bid: "tok-bob"})
 
+    def test_delete_token_is_scoped_to_user(self):
+        import psycopg
+        from webapp.repositories.live_activity_tokens import (
+            delete_token, tokens_for_session, upsert_token,
+        )
+        # Isolate from other tests in this class that share the session.
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM live_activity_tokens WHERE session_id = %s;",
+                            (self.session_id,))
+
+        upsert_token(self.session_id, self.aid, "tok-alice")
+        upsert_token(self.session_id, self.bid, "tok-bob")
+
+        # A mismatched user_id must NOT delete another user's row.
+        delete_token(self.bid, "tok-alice")
+        remaining = {r["user_id"]: r["push_token"]
+                     for r in tokens_for_session(self.session_id)}
+        self.assertEqual(remaining, {self.aid: "tok-alice", self.bid: "tok-bob"})
+
+        # Correct (user_id, push_token) pair deletes exactly that row.
+        delete_token(self.aid, "tok-alice")
+        remaining = {r["user_id"]: r["push_token"]
+                     for r in tokens_for_session(self.session_id)}
+        self.assertEqual(remaining, {self.bid: "tok-bob"})
+
+        # Leave the session clean for sibling tests sharing this fixture.
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM live_activity_tokens WHERE session_id = %s;",
+                            (self.session_id,))
+
 
 class TestIso(unittest.TestCase):
     def test_truncates_microseconds(self):
