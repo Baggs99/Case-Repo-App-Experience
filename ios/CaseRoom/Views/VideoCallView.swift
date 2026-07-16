@@ -4,10 +4,12 @@
  *          web's btn-mute/btn-cam. Real camera capture + rendering only
  *          exercises on a device (Task 12); the simulator build only needs
  *          this to compile and the toggle wiring to be correct.
- * Inputs: a MediaCapturing (local capture, already start()ed by the caller)
- *         and a RemoteMediaSlot the session screen (Task 8) populates from
- *         MediaTransport.onRemoteTrack.
- * Outputs: none beyond capture.setVideoEnabled/setAudioEnabled side effects.
+ * Inputs: a MediaCapturing (local capture, already start()ed by the caller);
+ *         a RemoteMediaSlot the session screen (Task 8) populates from
+ *         MediaTransport.onRemoteTrack; the current videoEnabled/audioEnabled
+ *         flags; and onToggleVideo/onToggleAudio callbacks the parent owns.
+ * Outputs: none beyond the onToggleVideo/onToggleAudio callbacks the parent
+ *          uses to drive capture.setVideoEnabled/setAudioEnabled.
  * Run: pushed for a live session once local media capture has started.
  */
 
