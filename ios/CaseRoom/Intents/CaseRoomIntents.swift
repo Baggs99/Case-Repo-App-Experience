@@ -74,15 +74,23 @@ struct NextSessionIntent: AppIntent {
     static let openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let text = try await Self.run { try await APIClient.shared.dashboard() }
+        let text = await Self.run { try await APIClient.shared.dashboard() }
         return .result(dialog: IntentDialog(stringLiteral: text))
     }
 
     /// Injectable seam: composes the spoken dialog from a fetched dashboard.
-    /// Keeps perform() a one-liner while letting tests drive the fetch.
-    static func run(fetch: () async throws -> DashboardStats) async throws -> String {
-        dialogText(for: try await fetch())
+    /// Never throws — a failed fetch (logged out, offline) becomes a spoken
+    /// failure line instead of a generic Siri error, matching
+    /// ToggleFreeNowIntent's perform()-never-throws principle.
+    static func run(fetch: () async throws -> DashboardStats) async -> String {
+        do {
+            return dialogText(for: try await fetch())
+        } catch {
+            return failureDialogText
+        }
     }
+
+    static let failureDialogText = "Couldn't reach CaseRoom — open the app and try again."
 
     /// Pure dialog composition — the unit-tested core.
     static func dialogText(for stats: DashboardStats) -> String {

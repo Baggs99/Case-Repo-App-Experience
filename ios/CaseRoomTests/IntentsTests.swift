@@ -84,8 +84,14 @@ final class IntentsTests: XCTestCase {
             sessionsFinalized: 2, streakWeeks: 1, nextSession: next,
             streakDays: nil, drillDoneToday: nil
         )
-        let text = try await NextSessionIntent.run { stats }
+        let text = await NextSessionIntent.run { stats }
         XCTAssertTrue(text.hasPrefix("Next: Acme with Cara,"))
+    }
+
+    func testRunSpeaksFailureDialogWhenFetchThrows() async {
+        let text = await NextSessionIntent.run { throw TestCatalogError.boom }
+        XCTAssertEqual(text, NextSessionIntent.failureDialogText)
+        XCTAssertEqual(text, "Couldn't reach CaseRoom — open the app and try again.")
     }
 
     // MARK: - ToggleFreeNowIntent.nextAction

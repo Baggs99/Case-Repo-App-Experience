@@ -115,10 +115,10 @@ struct AvailabilityLite {
 
     func setFree(minutes: Int) async throws -> AvailabilityStatus {
         struct Body: Encodable { let minutes: Int }
-        var request = request("/api/v1/availability", method: "PUT")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(Body(minutes: minutes))
-        return try await perform(request)
+        var putRequest = request("/api/v1/availability", method: "PUT")
+        putRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        putRequest.httpBody = try encoder.encode(Body(minutes: minutes))
+        return try await perform(putRequest)
     }
 
     func clear() async throws {
