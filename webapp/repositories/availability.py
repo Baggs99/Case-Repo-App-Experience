@@ -56,7 +56,9 @@ def list_free(exclude_user_id: Optional[int] = None) -> list[dict]:
     """Currently-free users as {user_id, name, free_until}, newest window
     first. The `free_until > now()` filter IS the expiry — nothing sweeps."""
     sql = (
-        "SELECT a.user_id, COALESCE(u.display_name, u.email) AS name, a.free_until"
+        "SELECT a.user_id,"
+        " COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS name,"
+        " a.free_until"
         " FROM availability a JOIN users u ON u.id = a.user_id"
         " WHERE a.free_until > now()"
     )

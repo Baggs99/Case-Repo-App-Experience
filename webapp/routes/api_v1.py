@@ -86,13 +86,18 @@ def _user_json(user: User) -> dict:
 
 
 def _push_display_name(user: User) -> str:
-    """The toggling user's name for the free-now push — display_name, else
-    the full email (the brief's `display_name or email`)."""
+    """The toggling user's name for the free-now push — display_name, else the
+    email's local part (split_part(email,'@',1)), matching /me's convention
+    (never the full email, which is PII). Stays non-null."""
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT display_name FROM users WHERE id = %s;", (user.id,))
+            cur.execute(
+                "SELECT COALESCE(display_name, split_part(email::text, '@', 1))"
+                " FROM users WHERE id = %s;",
+                (user.id,),
+            )
             row = cur.fetchone()
-    return (row[0] if row else None) or user.email
+    return row[0] if row else user.email.split("@")[0]
 
 
 def _client_ip(request: Request) -> str | None:
