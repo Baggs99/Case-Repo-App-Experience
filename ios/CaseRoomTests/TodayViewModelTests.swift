@@ -173,6 +173,9 @@ final class TodayViewModelTests: XCTestCase {
         await viewModel.reloadTask?.value
         XCTAssertTrue(viewModel.drillDoneToday)
         XCTAssertEqual(viewModel.streakDays, 4)
+        // The dismissal reconcile is silent: its failure must not swap the
+        // Today tab for the error view (offline on-device drill path).
+        XCTAssertNil(viewModel.errorMessage)
     }
 
     func testDrillDismissalAfterCompletionReconcilesWithServerTruth() async {

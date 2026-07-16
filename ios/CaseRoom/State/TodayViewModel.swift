@@ -45,8 +45,8 @@ final class TodayViewModel {
         self.reloadWidgets = reloadWidgets
     }
 
-    func load() async {
-        errorMessage = nil
+    func load(silent: Bool = false) async {
+        if !silent { errorMessage = nil }
         do {
             let stats = try await service.dashboard()
             nextSession = stats.nextSession
@@ -54,9 +54,12 @@ final class TodayViewModel {
             streakDays = stats.streakDays ?? 0
             drillDoneToday = stats.drillDoneToday ?? false
             sessionsFinalized = stats.sessionsFinalized
+            errorMessage = nil
             writeWidgetSnapshot(from: stats)
         } catch {
-            errorMessage = "Couldn't load your dashboard. Try again."
+            // A silent (non-interactive) reconcile must not replace the tab's
+            // content with the error view — offline on-device drills hit this.
+            if !silent { errorMessage = "Couldn't load your dashboard. Try again." }
         }
     }
 
@@ -72,7 +75,7 @@ final class TodayViewModel {
             streakDays += 1
         }
         drillDoneToday = true
-        reloadTask = Task { await self.load() }
+        reloadTask = Task { await self.load(silent: true) }
     }
 
     // Mirrors the freshly loaded dashboard into the widget's shared snapshot so
