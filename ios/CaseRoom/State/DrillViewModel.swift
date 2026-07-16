@@ -33,6 +33,9 @@ final class DrillViewModel: Identifiable {
     private(set) var recordTask: Task<Void, Never>?
     /// The streak after submit, for the answered-state streak line.
     private(set) var streakDays = 0
+    /// Invoked once the answer is graded, letting the presenter mirror the
+    /// completion (TodayView's optimistic card update on sheet dismissal).
+    var onAnswered: (() -> Void)?
 
     private let engine: DrillEngine
     private let recorder: AttemptRecorder
@@ -79,6 +82,7 @@ final class DrillViewModel: Identifiable {
 
         writeSnapshotAfterSubmit()
         reloadWidgets()
+        onAnswered?()
     }
 
     // Marks today's drill done; bumps the streak only on the first completion of

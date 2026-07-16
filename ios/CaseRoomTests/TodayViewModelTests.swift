@@ -87,9 +87,19 @@ final class TodayViewModelTests: XCTestCase {
                 streakDays: 6, drillDoneToday: true
             )
         )
+        // Pre-seeded snapshot with freeUntil set: the dashboard write must carry
+        // it forward (another writer owns it), not clobber it to nil.
+        let freeUntil = Date(timeIntervalSince1970: 1_800_003_600)
         let capture = SnapshotCapture()
         let viewModel = TodayViewModel(
             service: service,
+            readSnapshot: {
+                WidgetSnapshot(
+                    streakDays: 0, drillDoneToday: false, nextSessionTitle: nil,
+                    nextSessionOther: nil, nextSessionAt: nil, freeUntil: freeUntil,
+                    updatedAt: Date(timeIntervalSince1970: 1)
+                )
+            },
             writeSnapshot: { capture.written = $0 },
             reloadWidgets: { capture.reloadCount += 1 }
         )
@@ -102,6 +112,7 @@ final class TodayViewModelTests: XCTestCase {
         XCTAssertEqual(capture.written?.drillDoneToday, true)
         XCTAssertEqual(capture.written?.nextSessionTitle, "Widget Co")
         XCTAssertEqual(capture.written?.nextSessionOther, "Bob Dev")
+        XCTAssertEqual(capture.written?.freeUntil, freeUntil)
         XCTAssertEqual(capture.reloadCount, 1)
     }
 
@@ -116,6 +127,7 @@ final class TodayViewModelTests: XCTestCase {
         let capture = SnapshotCapture()
         let viewModel = TodayViewModel(
             service: service,
+            readSnapshot: { nil },
             writeSnapshot: { capture.written = $0 },
             reloadWidgets: { capture.reloadCount += 1 }
         )
@@ -127,5 +139,81 @@ final class TodayViewModelTests: XCTestCase {
         XCTAssertEqual(capture.written?.streakDays, 0)
         XCTAssertEqual(capture.written?.drillDoneToday, false)
         XCTAssertNil(capture.written?.nextSessionTitle)
+        XCTAssertNil(capture.written?.freeUntil)
+    }
+
+    // MARK: - Drill sheet dismissal
+
+    private func makeLoadedViewModel(
+        service: StubTodayService, streakDays: Int, drillDoneToday: Bool
+    ) async -> TodayViewModel {
+        service.dashboardResult = .success(
+            DashboardStats(
+                sessionsFinalized: 1, streakWeeks: 1, nextSession: nil,
+                streakDays: streakDays, drillDoneToday: drillDoneToday
+            )
+        )
+        let viewModel = TodayViewModel(
+            service: service, readSnapshot: { nil }, writeSnapshot: { _ in }, reloadWidgets: {}
+        )
+        await viewModel.load()
+        return viewModel
+    }
+
+    func testDrillDismissalAfterCompletionUpdatesFieldsAndSurvivesFailedReload() async {
+        let service = StubTodayService()
+        let viewModel = await makeLoadedViewModel(service: service, streakDays: 3, drillDoneToday: false)
+
+        // Background reconcile fails (offline FM path): optimistic values stay.
+        service.dashboardResult = .failure(TestError.boom)
+        viewModel.drillSheetDismissed(completed: true)
+
+        XCTAssertTrue(viewModel.drillDoneToday)
+        XCTAssertEqual(viewModel.streakDays, 4)
+        await viewModel.reloadTask?.value
+        XCTAssertTrue(viewModel.drillDoneToday)
+        XCTAssertEqual(viewModel.streakDays, 4)
+    }
+
+    func testDrillDismissalAfterCompletionReconcilesWithServerTruth() async {
+        let service = StubTodayService()
+        let viewModel = await makeLoadedViewModel(service: service, streakDays: 3, drillDoneToday: false)
+
+        service.dashboardResult = .success(
+            DashboardStats(
+                sessionsFinalized: 2, streakWeeks: 1, nextSession: nil,
+                streakDays: 4, drillDoneToday: true
+            )
+        )
+        viewModel.drillSheetDismissed(completed: true)
+        await viewModel.reloadTask?.value
+
+        XCTAssertTrue(viewModel.drillDoneToday)
+        XCTAssertEqual(viewModel.streakDays, 4)
+        XCTAssertEqual(viewModel.sessionsFinalized, 2)
+    }
+
+    func testDrillDismissalAfterCompletionWhenAlreadyDoneDoesNotBumpStreak() async {
+        let service = StubTodayService()
+        let viewModel = await makeLoadedViewModel(service: service, streakDays: 5, drillDoneToday: true)
+
+        service.dashboardResult = .failure(TestError.boom)
+        viewModel.drillSheetDismissed(completed: true)
+
+        XCTAssertTrue(viewModel.drillDoneToday)
+        XCTAssertEqual(viewModel.streakDays, 5)
+        await viewModel.reloadTask?.value
+        XCTAssertEqual(viewModel.streakDays, 5)
+    }
+
+    func testDrillDismissalWithoutCompletionChangesNothing() async {
+        let service = StubTodayService()
+        let viewModel = await makeLoadedViewModel(service: service, streakDays: 3, drillDoneToday: false)
+
+        viewModel.drillSheetDismissed(completed: false)
+
+        XCTAssertFalse(viewModel.drillDoneToday)
+        XCTAssertEqual(viewModel.streakDays, 3)
+        XCTAssertNil(viewModel.reloadTask)
     }
 }

@@ -217,4 +217,17 @@ final class DrillViewModelTests: XCTestCase {
         XCTAssertEqual(capture.written?.drillDoneToday, true)
         XCTAssertEqual(capture.written?.streakDays, 5)
     }
+
+    @MainActor
+    func testSubmitInvokesOnAnsweredCallback() async {
+        let viewModel = makeViewModel(engine: StubDrillEngine(result: .success(numericDrill()), sourceLabel: "server"))
+        let calls = SnapshotCapture()
+        viewModel.onAnswered = { calls.reloadCount += 1 }
+        await viewModel.load()
+
+        viewModel.numericInput = "96"
+        await viewModel.submit()
+
+        XCTAssertEqual(calls.reloadCount, 1)
+    }
 }

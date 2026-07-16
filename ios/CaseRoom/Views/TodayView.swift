@@ -14,6 +14,7 @@ import SwiftUI
 struct TodayView: View {
     @State private var viewModel = TodayViewModel()
     @State private var drillViewModel: DrillViewModel?
+    @State private var drillCompleted = false
     @Environment(SessionStore.self) private var sessionStore
     @Binding var selectedTab: RootTabView.RootTab
 
@@ -29,17 +30,29 @@ struct TodayView: View {
                     await refresh
                 }
                 .refreshable { await viewModel.load() }
-                .sheet(item: $drillViewModel) { DrillView(viewModel: $0) }
+                .sheet(item: $drillViewModel, onDismiss: handleDrillDismiss) {
+                    DrillView(viewModel: $0)
+                }
         }
     }
 
     private func startDrill() {
-        drillViewModel = DrillViewModel(
+        drillCompleted = false
+        let drill = DrillViewModel(
             engine: DrillEngineProvider.make(
                 service: APIClient.shared, userId: sessionStore.user?.id ?? 0
             ),
             recorder: AttemptRecorder(service: APIClient.shared)
         )
+        // Flags graded completion for the dismissal handler — the sheet item is
+        // already nil by the time onDismiss runs, so the VM can't be read there.
+        drill.onAnswered = { drillCompleted = true }
+        drillViewModel = drill
+    }
+
+    private func handleDrillDismiss() {
+        viewModel.drillSheetDismissed(completed: drillCompleted)
+        drillCompleted = false
     }
 
     @ViewBuilder
