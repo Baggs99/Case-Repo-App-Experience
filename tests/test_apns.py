@@ -28,7 +28,7 @@ class _FakeSettings:
     pem_bytes: bytes
     apns_key_id: str = "K"
     apns_team_id: str = "T"
-    apns_bundle_id: str = "studio.ogee.caseroom"
+    apns_bundle_id: str = "study.mycase"
     apns_use_sandbox: bool = True
 
     def __post_init__(self):
@@ -84,7 +84,7 @@ class TestSend(unittest.IsolatedAsyncioTestCase):
             await client.aclose()
         self.assertEqual(status, 200)
         self.assertEqual(seen["path"], "/3/device/" + "ff00" * 16)
-        self.assertEqual(seen["topic"], "studio.ogee.caseroom")
+        self.assertEqual(seen["topic"], "study.mycase")
         self.assertEqual(seen["payload"]["aps"]["alert"]["title"], "Knock")
         self.assertEqual(seen["payload"]["kind"], "knock")
 

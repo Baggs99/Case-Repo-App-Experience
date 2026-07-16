@@ -1,6 +1,6 @@
 name: CaseRoom
 options:
-  bundleIdPrefix: studio.ogee
+  bundleIdPrefix: study.mycase
   deploymentTarget:
     iOS: "17.0"
 packages:
@@ -14,17 +14,18 @@ targets:
     sources: [CaseRoom]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom
+        PRODUCT_BUNDLE_IDENTIFIER: study.mycase
     entitlements:
       path: CaseRoom/Support/CaseRoom.entitlements
       properties:
-        com.apple.security.application-groups: [group.studio.ogee.caseroom]
+        com.apple.security.application-groups: [group.study.mycase]
     info:
       path: CaseRoom/Support/Info.plist
       properties:
         API_BASE_URL: http://127.0.0.1:8077
+        CFBundleDisplayName: myCase
         CFBundleURLTypes:
-          - CFBundleURLName: studio.ogee.caseroom
+          - CFBundleURLName: study.mycase
             CFBundleURLSchemes: [caseroom]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -46,11 +47,11 @@ targets:
     sources: [CaseRoomWidgets, CaseRoom/LiveActivity, CaseRoom/Shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: study.mycase.widgets
     entitlements:
       path: CaseRoomWidgets/CaseRoomWidgets.entitlements
       properties:
-        com.apple.security.application-groups: [group.studio.ogee.caseroom]
+        com.apple.security.application-groups: [group.study.mycase]
     info:
       path: CaseRoomWidgets/Info.plist
       properties:

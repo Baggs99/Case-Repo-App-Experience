@@ -38,7 +38,7 @@ class _FakeSettings:
     pem_bytes: bytes
     apns_key_id: str = "K"
     apns_team_id: str = "T"
-    apns_bundle_id: str = "studio.ogee.caseroom"
+    apns_bundle_id: str = "study.mycase"
     apns_use_sandbox: bool = True
 
     def __post_init__(self):
@@ -204,7 +204,7 @@ class TestSendLiveActivityPush(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 200)
         self.assertEqual(seen["path"], "/3/device/" + "ff00" * 16)
         self.assertEqual(seen["push_type"], "liveactivity")
-        self.assertEqual(seen["topic"], "studio.ogee.caseroom.push-type.liveactivity")
+        self.assertEqual(seen["topic"], "study.mycase.push-type.liveactivity")
         self.assertEqual(seen["priority"], "10")
         self.assertEqual(seen["payload"]["aps"]["timestamp"], 1752494400)
         self.assertEqual(seen["payload"]["aps"]["event"], "update")

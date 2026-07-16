@@ -1,6 +1,19 @@
 # PROGRESS
 Updated: 2026-07-16T04:05:00-04:00 · Branch: **feature/ios-p4** (P4 built + reviewed — see the P4 section below); feature/caseroom holds the merged web+iOS P1-P3 chain (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
 
+## ⚑ IDENTITY CHANGE — 2026-07-16 (owner-FINAL)
+Bundle ID **`studio.ogee.caseroom` → `study.mycase`** (owner decision, final —
+`studio.ogee` was a P1-plan default = an unrelated domain). App `study.mycase`,
+widget `study.mycase.widgets`, App Group `group.study.mycase`. Display name set
+to **myCase** (myCase = product, CaseRoom = the feature). Changed project.yml +
+AppGroup.swift + regenerated entitlements/plists + 3 backend push-test fixtures;
+**iOS sim build SUCCEEDED, 20 push tests green** (committed feature/ios-p4, not
+pushed). **Every `studio.ogee` reference below is SUPERSEDED** — register App ID
+**`study.mycase`** (+ App Group `group.study.mycase`, `APNS_BUNDLE_ID=study.mycase`)
+in the Apple portal, NOT the old id. Branding/logo plan:
+`docs/superpowers/plans/2026-07-16-mycase-branding-logo-plan.md` (display name +
+Liquid-Glass app icon still pending).
+
 ## P4 (habit + Siri layer) — BUILT + fully reviewed (2026-07-16 session end)
 
 **Branch `feature/ios-p4`** (off feature/caseroom @ 29aa610), tip = the Task-12

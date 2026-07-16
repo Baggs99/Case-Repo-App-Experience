@@ -22,7 +22,7 @@ class _FakeSettings:
     apns_key_path: str | None = "/tmp/fake.p8"
     apns_key_id: str | None = "K"
     apns_team_id: str | None = "T"
-    apns_bundle_id: str | None = "studio.ogee.caseroom"
+    apns_bundle_id: str | None = "study.mycase"
     apns_use_sandbox: bool = True
 
 

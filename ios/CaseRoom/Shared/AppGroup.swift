@@ -13,7 +13,7 @@
 import Foundation
 
 enum AppGroup {
-    static let id = "group.studio.ogee.caseroom"
+    static let id = "group.study.mycase"
 
     /// The App Group container, or nil on unprovisioned/dev builds where the
     /// group is not granted. Callers must treat nil as "no shared storage".
