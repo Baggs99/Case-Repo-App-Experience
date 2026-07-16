@@ -9,7 +9,7 @@ import ipaddress
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
@@ -27,6 +27,8 @@ from webapp.csrf import require_same_origin
 from webapp.db import get_pool
 from webapp import drills
 from webapp.preview_urls import preview_page_urls
+from webapp.push.events import push_to_user
+from webapp.repositories import availability as availability_repo
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import device_tokens as repo
 from webapp.repositories import drill_attempts as drills_repo
@@ -62,6 +64,10 @@ class DrillAttemptBody(BaseModel):
     correct: bool
 
 
+class AvailabilityBody(BaseModel):
+    minutes: int = Field(ge=5, le=240)
+
+
 def _user_json(user: User) -> dict:
     """User JSON shape shared by login and /me — the contract for the iOS
     User model. `name` falls back to the email's local part when no
@@ -77,6 +83,16 @@ def _user_json(user: User) -> dict:
             )
             row = cur.fetchone()
     return {"id": user.id, "email": user.email, "name": row["name"]}
+
+
+def _push_display_name(user: User) -> str:
+    """The toggling user's name for the free-now push — display_name, else
+    the full email (the brief's `display_name or email`)."""
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT display_name FROM users WHERE id = %s;", (user.id,))
+            row = cur.fetchone()
+    return (row[0] if row else None) or user.email
 
 
 def _client_ip(request: Request) -> str | None:
@@ -167,6 +183,41 @@ def daily_drill(user: User = Depends(require_auth_api)):
 def drill_templates(user: User = Depends(require_auth_api)):
     # The raw bank JSON ({version, templates}) — device offline cache for the FM engine.
     return drills.bank_document()
+
+
+@router.put("/availability", dependencies=_MUTATING)
+def set_availability(body: AvailabilityBody, background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+    result = availability_repo.set_free(user.id, body.minutes)
+    others = availability_repo.list_free(exclude_user_id=user.id)
+    # Instant-match push ONLY on a fresh toggle-on (was_free false) — an
+    # extend/refresh while already free must stay silent.
+    if not result["was_free"]:
+        name = _push_display_name(user)
+        for other in others:
+            background.add_task(
+                push_to_user, other["user_id"],
+                title="Free now",
+                body=f"{name} is free for a case now",
+                data={"kind": "free_now", "user_id": user.id, "name": name},
+            )
+    return {"free_until": result["free_until"], "others": others}
+
+
+@router.delete("/availability", status_code=204, dependencies=_MUTATING)
+def clear_availability(user: User = Depends(require_auth_api)):
+    availability_repo.clear_free(user.id)
+    return Response(status_code=204)
+
+
+@router.get("/availability")
+def get_availability(user: User = Depends(require_auth_api)):
+    # Lazy expiry: list_free already filters free_until > now(). One query
+    # yields both the caller's own window and everyone else's.
+    free = availability_repo.list_free()
+    mine = next((r for r in free if r["user_id"] == user.id), None)
+    others = [r for r in free if r["user_id"] != user.id]
+    return {"free_until": mine["free_until"] if mine else None, "others": others}
 
 
 @router.get("/cases")
