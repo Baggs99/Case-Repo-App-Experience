@@ -1,23 +1,90 @@
 # PROGRESS
-Updated: 2026-07-15T20:30:00-04:00 · Branch: **feature/caseroom** (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+Updated: 2026-07-16T04:05:00-04:00 · Branch: **feature/ios-p4** (P4 built + reviewed — see the P4 section below); feature/caseroom holds the merged web+iOS P1-P3 chain (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
 
-## IN FLIGHT — 2026-07-15 evening session (P4 kickoff)
-Thomas's directive: continue iOS development with parallel Opus agents.
-Executing from the 2026-07-15 handoff partition:
-1. Quick fixes on feature/caseroom (agent running): make test_dashboard_shape
-   hermetic (fix = compute the expected next-session from the DB in the test,
-   don't hardcode the created id) + the 5 P3 carried Minors.
-2. Recon (2 read-only agents): exact iOS + backend interfaces for the P4 plan.
-3. Write P4 plan (main model) → docs/superpowers/plans/2026-07-15-caseroom-
-   ios-p4-habit-siri-plan.md on new branch feature/ios-p4 (off feature/caseroom
-   AFTER step 1 lands). NOTE: migration 017 was informally reserved by the
-   Desktop drills plan; P4 takes the next free numbers and the Desktop plan
-   gets renumbered (it isn't started; its own gotchas say re-verify numbering
-   at execution time).
-4. Execute P4 subagent-driven (TDD + per-task review + final adversarial
-   review), Opus agents via Workflow.
-Device call test / branch push / Apple portal items remain Thomas-manual
-(unchanged from the handoff table).
+## P4 (habit + Siri layer) — BUILT + fully reviewed (2026-07-16 session end)
+
+**Branch `feature/ios-p4`** (off feature/caseroom @ 29aa610), tip = the Task-12
+handoff commit, ~35 commits, **NOT pushed — Thomas merges**. feature/caseroom
+itself gained 8 commits this session (621cd19 + the 7 quick-fix commits
+d3925ab..29aa610: hermetic dashboard test + all 5 P3 carried Minors) and is
+now 77 ahead of origin.
+
+### Verified state (commands run this session, not recalled)
+- Backend `pytest tests/` = **360 passed / 0 failed**. iOS `xcodebuild test
+  iPhone 17` = **273 tests / 0 failures**. Live E2E `tests/e2e_p4_flow.py`
+  (kept in repo) = **ALL STEPS PASSED exit 0**: drill determinism → attempt →
+  streak/dashboard → free-now reciprocity a↔b → propose → templates. Dev
+  server stopped after, port 8077 free, dev DB self-cleaned.
+- Migrations through **018** (017 drill_attempts, 018 availability) applied to
+  dev. Desktop drills plan RENUMBERED to 019 (both ~/Desktop docs edited with
+  dated notes).
+
+### What shipped (plan: docs/superpowers/plans/2026-07-15-caseroom-ios-p4-habit-siri-plan.md — read its Errata section too)
+- **Backend:** `drill_attempts` + `POST /api/v1/drills/attempts` + daily
+  `streak_days`/`drill_done_today` in /dashboard (weekly streak untouched);
+  template bank `webapp/drill_templates.json` (32 drills: 10 mental-math ops,
+  9 sizing, 13 recall — content-audited answer keys) + deterministic
+  interpreter `webapp/drills.py` + `GET /api/v1/drills/daily|templates`;
+  `availability` (lazy expiry, no sweep) + `PUT/DELETE/GET /api/v1/availability`
+  + instant-match push `kind=free_now` on fresh toggle-on to other free users
+  (names fall back to email LOCAL PART, never full email).
+- **iOS:** App Group `group.studio.ogee.caseroom` (repo's first entitlements,
+  both targets) + group-shared cookie store (APIClient + signaling WS; one-time
+  migration proven ordered before first network read) + `WidgetSnapshot`
+  cooperative-writer store; drill stack (`DrillEngine` protocol,
+  `ServerDrillEngine` fallback, iOS-26-gated `FoundationModelDrillEngine` —
+  FM only ever rewrites the prompt, validated verbatim-numbers, deterministic
+  core is a property-tested Swift port of drills.py w/ a byte-parity fixture
+  guard); Drill-of-the-day UI on Today (sheet, sign-toggle for negative
+  answers, optimistic streak w/ silent server reconcile); 3 widgets
+  (streak / next-session / free-now, home + lock, boundary-entry timelines);
+  free-now toggle + others-list + ProposeNowView + `caseroom://` scheme;
+  App Entities (Case/Session/Proposal) + StartDrill / NextSession /
+  ToggleFreeNow intents + App Shortcuts; interactive widget button runs
+  ToggleFreeNowIntent in the widget process via `AvailabilityLite`
+  (group cookies; widget Info.plist carries API_BASE_URL + ATS).
+
+### Process + review record
+Subagent-driven (Opus implementer + Opus reviewer per task, fix→re-review
+loops; ledger `.superpowers/sdd/progress.md`). Highlights: the PLAN's own
+grading formula was wrong for negative answers (caught task-5 review, fixed
+7da3773, errata committed); final whole-branch adversarial review (workflow:
+4 lenses + 2 refuters per finding, 14 agents) confirmed 2 defects both fixed —
+CRITICAL createProposal decoded a response the server never emits (every send
+errored + invited duplicates; now returns Void via raw path, e2e propose step
+added) and IMPORTANT decimalPad-has-no-minus (negative drills unanswerable;
+sign toggle added). Fix wave re-reviewed clean (5c52c2e..cc68ec4).
+
+### Accepted debt (documented, none blocking)
+Optimistic streak can over-count a day already earned via a finalized session
+(self-heals on next online load); cross-process snapshot RMW lost-update
+window (atomic file, transient); first-EVER concurrent free-toggle can
+double-push; any authed user can enumerate currently-free users (the feature's
+purpose at school scale); NextSession widget copy counts past zero between
+reloads; logged-out Siri/deep-link routes drop silently; streak repo tests can
+flake in a ~1s window at 00:00 UTC.
+
+### ⚠️ THOMAS — manual (P4 done-when needs 1-3)
+1. **Real-device FM drill** (iPhone 15 Pro, Apple Intelligence enabled): drill
+   generates offline on-device, prompt-dressing sane, grading right.
+2. **Siri**: run all three App Shortcuts by voice ("Start a drill in
+   CaseRoom" / "What's my next session in CaseRoom" / "I'm free now in
+   CaseRoom").
+3. **Widgets**: add all three (home + lock screen), live data renders, the
+   free-now widget BUTTON toggles (this also proves AvailabilityLite's live
+   path in the widget process).
+4. Sign BOTH targets with your team (App Group rides automatic signing).
+5. Instant-match push on 2 devices — needs the APNs .p8 (carried from P1).
+6. Interactive drill walkthrough (login → drill → streak) — sim or device.
+7. Merge `feature/ios-p4`; push `feature/caseroom` when ready.
+8. Carried: on-device P3 call test (paused at Safari-HTTPS — see the P3
+   handoff below), Apple portal App ID + push capability, delete
+   `mycase/Cloudflare Turn Credentials.txt` (plaintext secret).
+
+### Next (roadmap)
+Drills-DB track (Desktop plan, now migration 019, builds behind the
+/api/v1/drills seam) · P3 device call test → then the deferred DEPLOY.md when
+O1/O2 land · fall wave (iOS 27) explicitly deferred.
 
 ## SESSION HANDOFF — 2026-07-15 (P3 merged into feature/caseroom; device call test PAUSED)
 
