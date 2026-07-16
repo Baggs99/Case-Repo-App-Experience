@@ -59,10 +59,10 @@
 
     {"key": "mm_cagr_2yr_approx", "drill_type": "mental_math",
      "framing": "Vantage Logistics grew revenue from ${start}M to ${end}M over two years.",
-     "question": "What is the approximate annual growth rate, in percent?",
-     "op": "cagr_2yr_approx", "params": {"start": [80, 200, 20], "end": [220, 400, 20]},
+     "question": "Using the quick approximation (total percentage growth divided by the number of years), what annual growth rate does this imply, in percent?",
+     "op": "cagr_2yr_approx", "params": {"start": [80, 200, 20], "end": [160, 320, 10]},
      "answer_format": "percent", "tolerance_pct": 2.0,
-     "explanation": "Approx annual = total growth ÷ 2 = (({end} − {start}) ÷ {start}) ÷ 2 × 100 ≈ {answer}%."},
+     "explanation": "Quick approximation = total growth ÷ years = (({end} − {start}) ÷ {start}) ÷ 2 × 100 ≈ {answer}%. True CAGR runs a bit lower."},
 
     {"key": "mm_payback_months", "drill_type": "mental_math",
      "framing": "A ${invest}K automation tool saves Brightline ${monthly}K per month.",
@@ -73,9 +73,9 @@
 
     {"key": "ms_coffee_shops", "drill_type": "market_sizing",
      "question": "Estimate the number of coffee shops in a US city of {pop} million people.",
-     "params": {"pop": [1, 9, 1]}, "reference_per_unit": 700, "unit_param": "pop",
+     "params": {"pop": [1, 9, 1]}, "reference_per_unit": 275, "unit_param": "pop",
      "tolerance_factor": 2.0,
-     "explanation": "~1 shop per ~1,400 residents: {pop}M people → about {answer} shops. Anchor on people-per-shop, then sanity-check against a neighborhood you know."},
+     "explanation": "~1 shop per ~3,600 residents: {pop}M people → about {answer} shops. Anchor on people-per-shop, then sanity-check against a neighborhood you know."},
 
     {"key": "ms_gas_stations", "drill_type": "market_sizing",
      "question": "About how many gas stations serve a US metro of {pop} million residents?",
