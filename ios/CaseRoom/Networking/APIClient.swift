@@ -204,7 +204,12 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService 
     // non-versioned /api/proposals (native-compatible; no Origin header passes
     // CSRF) with a single "now" proposed time. `proposedTimes` encodes as plain
     // ISO8601 via the shared encoder; nil `message` is omitted.
-    func createProposal(toUserId: Int, caseId: Int, fromRole: String, message: String?) async throws -> Proposal {
+    //
+    // Returns Void: the endpoint responds 200 with the bare proposals-table row
+    // (proposed_times_json, no from_name/case_title), which does NOT match the
+    // enriched Proposal model — decoding it always threw. We require a 2xx via
+    // the raw path and discard the body; the propose flow only needs success.
+    func createProposal(toUserId: Int, caseId: Int, fromRole: String, message: String?) async throws {
         struct ProposalBody: Encodable {
             let toUserId: Int
             let caseId: Int
@@ -216,7 +221,10 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService 
             toUserId: toUserId, caseId: caseId, fromRole: fromRole,
             message: message, proposedTimes: [Date()]
         )
-        return try await send(path: "/api/proposals", method: "POST", body: body)
+        var request = try makeRequest(path: "/api/proposals", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        _ = try await performRaw(request)
     }
 
     // MARK: - Availability (AvailabilityService)

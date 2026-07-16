@@ -247,21 +247,22 @@ final class APIClientTests: XCTestCase {
 
     // MARK: - createProposal
 
-    func testCreateProposalRequestBodyAndDecode() async throws {
+    func testCreateProposalPostsBodyAndSucceedsAgainstBareRow() async throws {
+        // The server returns the bare proposals-table row (proposed_times_json,
+        // no from_name/case_title) — NOT the enriched Proposal shape. The client
+        // discards it, so this must succeed even though the body can't decode
+        // into Proposal. Mirrors webapp/repositories/proposals._COLS RETURNING.
         stubJSON(#"""
-        {"id": 42, "from_name": "Alice Dev", "from_role": "interviewer",
-          "case_id": 5, "case_title": "Widget Co", "case_type": "Profitability",
-          "difficulty": "Medium", "message": "now?",
-          "proposed_times": ["2026-07-16T18:00:00+00:00"],
-          "created_at": "2026-07-16T17:00:00+00:00"}
+        {"id": 42, "from_user_id": 1, "to_user_id": 7, "case_id": 5,
+          "from_role": "interviewer", "message": "now?",
+          "proposed_times_json": ["2026-07-16T18:00:00+00:00"],
+          "state": "pending", "session_id": null,
+          "created_at": "2026-07-16T17:00:00+00:00", "responded_at": null}
         """#)
 
-        let proposal = try await client.createProposal(
+        try await client.createProposal(
             toUserId: 7, caseId: 5, fromRole: "interviewer", message: "now?"
         )
-
-        XCTAssertEqual(proposal.id, 42)
-        XCTAssertEqual(proposal.fromRole, "interviewer")
 
         let request = StubURLProtocol.recordedRequests.first!
         XCTAssertEqual(request.url?.path, "/api/proposals")
@@ -278,14 +279,14 @@ final class APIClientTests: XCTestCase {
 
     func testCreateProposalOmitsNilMessage() async throws {
         stubJSON(#"""
-        {"id": 43, "from_name": "Alice Dev", "from_role": "candidate",
-          "case_id": 6, "case_title": "Acme", "case_type": null,
-          "difficulty": null, "message": null,
-          "proposed_times": ["2026-07-16T18:00:00+00:00"],
-          "created_at": "2026-07-16T17:00:00+00:00"}
+        {"id": 43, "from_user_id": 1, "to_user_id": 8, "case_id": 6,
+          "from_role": "candidate", "message": null,
+          "proposed_times_json": ["2026-07-16T18:00:00+00:00"],
+          "state": "pending", "session_id": null,
+          "created_at": "2026-07-16T17:00:00+00:00", "responded_at": null}
         """#)
 
-        _ = try await client.createProposal(
+        try await client.createProposal(
             toUserId: 8, caseId: 6, fromRole: "candidate", message: nil
         )
 

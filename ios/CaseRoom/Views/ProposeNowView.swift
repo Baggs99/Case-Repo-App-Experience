@@ -123,7 +123,7 @@ struct ProposeNowView: View {
         errorMessage = nil
         defer { isSending = false }
         do {
-            _ = try await APIClient.shared.createProposal(
+            try await APIClient.shared.createProposal(
                 toUserId: toUser,
                 caseId: selectedCase.id,
                 fromRole: role.rawValue,

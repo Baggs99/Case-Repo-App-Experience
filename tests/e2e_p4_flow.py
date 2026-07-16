@@ -1,12 +1,14 @@
 """
 Purpose: P4 capstone live E2E over real HTTP against a running `main.py serve` —
          proves the daily-drill determinism -> attempt -> streak/dashboard loop,
-         the free-now availability reciprocity across users a/b, and the offline
-         drill-templates pack, then cleans up user a's own drill rows for today.
+         the free-now availability reciprocity across users a/b, a propose-now
+         proposal a->b showing pending in b's inbox, and the offline drill-
+         templates pack, then cleans up everything it created.
 Inputs:  a running `.venv/bin/python main.py serve --port 8077` at 127.0.0.1:8077;
          dev seed (a@yale.edu / b@yale.edu, password caseroom-dev-1); .env DATABASE_URL.
 Outputs: prints each step PASS/FAIL to stdout; deletes user a's drill_attempts rows
-         for today (parameterized SQL); exits non-zero on any assertion failure.
+         for today, both users' availability, and any proposal row it created
+         (all parameterized SQL/HTTP); exits non-zero on any assertion failure.
 Run:     .venv/bin/python main.py serve --port 8077 &   # one shell
          .venv/bin/python tests/e2e_p4_flow.py          # another shell
 """
@@ -15,6 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
@@ -64,6 +67,16 @@ def _db_url() -> str:
     raise RuntimeError("DATABASE_URL not set in env or .env")
 
 
+def cleanup_proposal(proposal_id: int) -> None:
+    """Delete a single proposal row by id (parameterized) so the propose-now
+    step leaves the shared dev DB clean."""
+    with psycopg.connect(_db_url()) as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM proposals WHERE id = %(id)s;",
+                        {"id": proposal_id})
+        conn.commit()
+
+
 def cleanup_today_attempts(user_id: int) -> int:
     """Delete only user_id's drill_attempts rows for the current UTC day so the
     shared dev DB stays clean. Parameterized; scoped to user + today."""
@@ -85,6 +98,7 @@ def main() -> None:
     a_id = me_id(a)
     b: requests.Session | None = None
     b_id: int | None = None
+    proposal_id: int | None = None
     try:
         # --- Daily drill: deterministic within the day, correct wire shape ---
         r1 = a.get(f"{BASE}/api/v1/drills/daily")
@@ -149,6 +163,30 @@ def main() -> None:
            all(o.get("user_id") != a_id for o in b_after),
            f"-> others user_ids={[o.get('user_id') for o in b_after]}")
 
+        # --- Propose-now: a proposes a live session to b; b sees it pending ---
+        r = a.get(f"{BASE}/api/v1/cases", params={"limit": 1})
+        ok("GET /cases", r.status_code == 200, f"-> {r.status_code}")
+        cases = r.json().get("cases", [])
+        ok("cases list non-empty", len(cases) > 0, f"-> {len(cases)}")
+        case_id = cases[0]["id"]
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        r = a.post(f"{BASE}/api/proposals", json={
+            "to_user_id": b_id,
+            "case_id": case_id,
+            "from_role": "interviewer",
+            "proposed_times": [now_iso],
+        })
+        ok("a POST /api/proposals -> b", r.status_code == 200, f"-> {r.status_code}")
+        proposal_id = r.json()["id"]
+
+        r = b.get(f"{BASE}/api/v1/proposals")
+        ok("b GET /proposals", r.status_code == 200, f"-> {r.status_code}")
+        b_props = r.json().get("proposals", [])
+        ok("b's proposals lists a's new pending proposal",
+           any(p.get("id") == proposal_id for p in b_props),
+           f"-> proposal_ids={[p.get('id') for p in b_props]}")
+
         # --- Offline drill-templates pack ---
         r = a.get(f"{BASE}/api/v1/drills/templates")
         ok("GET /drills/templates", r.status_code == 200, f"-> {r.status_code}")
@@ -166,6 +204,12 @@ def main() -> None:
                 b.delete(f"{BASE}/api/v1/availability")
             except requests.RequestException:
                 pass
+        if proposal_id is not None:
+            try:
+                cleanup_proposal(proposal_id)
+                print(f"[cleanup] deleted proposal row {proposal_id}")
+            except Exception as exc:  # cleanup must never mask the test verdict
+                print(f"[cleanup] WARNING: could not delete proposal: {exc}")
         try:
             deleted = cleanup_today_attempts(a_id)
             print(f"[cleanup] deleted {deleted} drill_attempts row(s) for user "
