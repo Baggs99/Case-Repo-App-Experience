@@ -213,11 +213,19 @@ class TestJoinConfigTurn(unittest.TestCase):
             self.assertNotIn("turn:", json.dumps(server))
 
     def test_remote_session_join_config_stun_only_when_turn_unconfigured(self):
-        """No monkeypatch: real mint_turn_credentials runs against whatever
-        TURN_* env is set in this environment; dev env has TURN unset, so
-        this asserts the STUN-only degrade never 500s."""
-        session_id = self.remote_session["id"]
-        r = self.alice.get(f"/api/practice/{session_id}/join-config")
+        """STUN-only degrade when TURN is unconfigured (never 500). Overrides
+        app.state.settings to unset TURN so the assertion is hermetic
+        regardless of the ambient TURN_* env (a real .env with Cloudflare
+        creds would otherwise mint a real turn: entry and fail this)."""
+        from dataclasses import replace
+        from webapp.main import app
+        original = app.state.settings
+        app.state.settings = replace(original, turn_key_id=None, turn_token=None)
+        try:
+            session_id = self.remote_session["id"]
+            r = self.alice.get(f"/api/practice/{session_id}/join-config")
+        finally:
+            app.state.settings = original
         self.assertEqual(r.status_code, 200, r.text)
         ice_servers = r.json()["ice_servers"]
         for server in ice_servers:
