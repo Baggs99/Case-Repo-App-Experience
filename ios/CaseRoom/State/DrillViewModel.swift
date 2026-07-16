@@ -25,6 +25,10 @@ final class DrillViewModel: Identifiable {
 
     var phase: Phase = .loading
     var numericInput = ""
+    /// The decimal pad has no minus key, so a "+/−" toggle carries the sign for
+    /// numeric drills whose answer is negative (e.g. a mm_pct_change with b<a).
+    /// Applied to the parsed input at grade time; does not affect parseability.
+    var isNegative = false
     var selectedChoice: Int?
     /// The loaded drill, retained so the answered state can show the correct
     /// value/choice and explanation (the .answered case carries only the Bool).
@@ -58,6 +62,7 @@ final class DrillViewModel: Identifiable {
     func load() async {
         phase = .loading
         numericInput = ""
+        isNegative = false
         selectedChoice = nil
         do {
             let drill = try await engine.dailyDrill()
@@ -70,8 +75,9 @@ final class DrillViewModel: Identifiable {
 
     func submit() async {
         guard let drill = drill else { return }
+        let signedInput = Double(numericInput).map { isNegative ? -$0 : $0 }
         let correct = DrillGrader.grade(
-            drill, numericInput: Double(numericInput), choiceIndex: selectedChoice
+            drill, numericInput: signedInput, choiceIndex: selectedChoice
         )
         phase = .answered(correct: correct)
 

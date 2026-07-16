@@ -50,11 +50,32 @@ struct DrillView: View {
             switch drill.answer.kind {
             case .numeric:
                 VStack(alignment: .leading, spacing: 6) {
-                    TextField("Your answer", text: $viewModel.numericInput)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.title2)
-                    Text("Enter a number.")
+                    HStack(spacing: 10) {
+                        Button {
+                            viewModel.isNegative.toggle()
+                        } label: {
+                            Image(systemName: "plusminus")
+                                .font(.title3)
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(viewModel.isNegative ? .red : Color("BrandAccent"))
+                        .accessibilityLabel("Toggle negative")
+
+                        HStack(spacing: 4) {
+                            if viewModel.isNegative {
+                                Text("−")
+                                    .font(.title2)
+                                    .foregroundStyle(.red)
+                                    .accessibilityHidden(true)
+                            }
+                            TextField("Your answer", text: $viewModel.numericInput)
+                                .keyboardType(.decimalPad)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.title2)
+                        }
+                    }
+                    Text("Enter a number. Tap ± for a negative answer.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -59,6 +59,15 @@ final class DrillViewModelTests: XCTestCase {
         )
     }
 
+    private func negativeDrill() -> Drill {
+        // mm_pct_change style: reference answer is negative (b < a), tol ±5%.
+        Drill(
+            key: "mm_neg", drillType: .mentalMath, prompt: "Change from 20 to 17?", choices: nil,
+            answer: DrillAnswer(kind: .numeric, value: -15, tolerancePct: 5, toleranceFactor: nil, correctIndex: nil),
+            explanation: "(17-20)/20 = -15%.", numbers: ["20", "17"]
+        )
+    }
+
     private func choiceDrill() -> Drill {
         Drill(
             key: "fr_1", drillType: .frameworkRecall, prompt: "Which framework fits pricing?",
@@ -130,6 +139,51 @@ final class DrillViewModelTests: XCTestCase {
         await viewModel.load()
 
         viewModel.numericInput = "40"
+        await viewModel.submit()
+
+        guard case .answered(let correct) = viewModel.phase else {
+            return XCTFail("expected .answered, got \(viewModel.phase)")
+        }
+        XCTAssertFalse(correct)
+    }
+
+    @MainActor
+    func testNegativeAnswerGradedCorrectWithSignToggle() async {
+        let viewModel = makeViewModel(engine: StubDrillEngine(result: .success(negativeDrill()), sourceLabel: "server"))
+        await viewModel.load()
+
+        viewModel.isNegative = true
+        viewModel.numericInput = "15"   // exact: -15
+        await viewModel.submit()
+
+        guard case .answered(let correct) = viewModel.phase else {
+            return XCTFail("expected .answered, got \(viewModel.phase)")
+        }
+        XCTAssertTrue(correct)
+    }
+
+    @MainActor
+    func testNegativeAnswerGradedCorrectAtToleranceBoundary() async {
+        let viewModel = makeViewModel(engine: StubDrillEngine(result: .success(negativeDrill()), sourceLabel: "server"))
+        await viewModel.load()
+
+        viewModel.isNegative = true
+        viewModel.numericInput = "14.25"  // -14.25: exactly +5% of -15 (boundary)
+        await viewModel.submit()
+
+        guard case .answered(let correct) = viewModel.phase else {
+            return XCTFail("expected .answered, got \(viewModel.phase)")
+        }
+        XCTAssertTrue(correct)
+    }
+
+    @MainActor
+    func testSignToggleOnPositiveAnswerGradesWrong() async {
+        let viewModel = makeViewModel(engine: StubDrillEngine(result: .success(numericDrill()), sourceLabel: "server"))
+        await viewModel.load()
+
+        viewModel.isNegative = true
+        viewModel.numericInput = "96"   // negated to -96 against a +96 answer
         await viewModel.submit()
 
         guard case .answered(let correct) = viewModel.phase else {
