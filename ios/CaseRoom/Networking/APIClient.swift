@@ -2,8 +2,9 @@
  * Purpose: Talks to the CaseRoom /api/v1 and /api/practice endpoints over
  *          cookie-session auth.
  * Inputs: Info.plist key API_BASE_URL (falls back to localhost:8077 for sim).
- * Outputs: none (network side effects only); cookies persist via
- *          HTTPCookieStorage.shared, the URLSession default.
+ * Outputs: none (network side effects only); cookies persist via the App
+ *          Group's shared cookie store (AppGroup.makeURLSessionConfiguration),
+ *          shared with the widget extension.
  * Run: APIClient.shared.login(email:password:) etc., from SessionStore.
  */
 
@@ -74,7 +75,7 @@ actor APIClient: SessionService, PairService {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = URLSession(configuration: AppGroup.makeURLSessionConfiguration())) {
         if let configured = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
            let url = URL(string: configured) {
             self.baseURL = url

@@ -15,6 +15,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom
+    entitlements:
+      path: CaseRoom/Support/CaseRoom.entitlements
+      properties:
+        com.apple.security.application-groups: [group.studio.ogee.caseroom]
     info:
       path: CaseRoom/Support/Info.plist
       properties:
@@ -36,10 +40,14 @@ targets:
   CaseRoomWidgets:
     type: app-extension
     platform: iOS
-    sources: [CaseRoomWidgets, CaseRoom/LiveActivity]
+    sources: [CaseRoomWidgets, CaseRoom/LiveActivity, CaseRoom/Shared]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: studio.ogee.caseroom.widgets
+    entitlements:
+      path: CaseRoomWidgets/CaseRoomWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.studio.ogee.caseroom]
     info:
       path: CaseRoomWidgets/Info.plist
       properties:

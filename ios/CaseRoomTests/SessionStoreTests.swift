@@ -50,4 +50,21 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(onLogoutCalled)
         XCTAssertNil(store.user)
     }
+
+    func testLogoutClearsWidgetSnapshot() async throws {
+        try XCTSkipIf(AppGroup.containerURL == nil, "App Group container did not resolve in this sim.")
+        SnapshotStore.write(WidgetSnapshot(
+            streakDays: 3, drillDoneToday: true,
+            nextSessionTitle: nil, nextSessionOther: nil,
+            nextSessionAt: nil, freeUntil: nil,
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
+        ))
+        XCTAssertNotNil(SnapshotStore.read())
+        let store = SessionStore(client: client)
+        store.user = User(id: 1, email: "a@yale.edu", name: "Alice Dev")
+
+        await store.logout()
+
+        XCTAssertNil(SnapshotStore.read())
+    }
 }

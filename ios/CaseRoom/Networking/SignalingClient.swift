@@ -2,8 +2,9 @@
  * Purpose: WebSocket client for the practice-session signaling channel
  *          (GET /ws/practice/{session_id}) — connect, send, receive,
  *          heartbeat, and a single automatic reconnect on unexpected drop.
- * Inputs: API_BASE_URL (Bundle Info.plist); session cookie in
- *         HTTPCookieStorage.shared (set by APIClient's login flow).
+ * Inputs: API_BASE_URL (Bundle Info.plist); session cookie in the App Group's
+ *         shared cookie store (set by APIClient's login flow), so the WS
+ *         handshake carries the same auth cookie.
  * Outputs: none (network side effects only); inbound messages are surfaced
  *          via an AsyncStream<SignalMessage>.
  * Run: let client = SignalingClient(); for await msg in client.connect(sessionId: id) { ... }
@@ -79,9 +80,7 @@ final class SignalingClient {
             return
         }
 
-        let configuration = URLSessionConfiguration.default
-        configuration.httpCookieStorage = HTTPCookieStorage.shared
-        let session = URLSession(configuration: configuration)
+        let session = URLSession(configuration: AppGroup.makeURLSessionConfiguration())
         let task = session.webSocketTask(with: url)
 
         self.session = session

@@ -2,7 +2,8 @@
  * Purpose: Observable auth state gating the app between LoginView and tabs.
  * Inputs: APIClient.shared (cookie-session backed).
  * Outputs: none (in-memory state only; the session cookie is the durable
- *          store, held by HTTPCookieStorage.shared).
+ *          store, held in the App Group's shared cookie store). Logout also
+ *          clears the widget snapshot and the API-host group cookies.
  * Run: instantiated once by CaseRoomApp and passed down via environment.
  */
 
@@ -55,6 +56,10 @@ final class SessionStore {
             // Best-effort — clear local state regardless of server outcome.
         }
         user = nil
+        // Clear App Group state so the widget process can't read the
+        // logged-out user's snapshot or reuse the group session cookie.
+        SnapshotStore.clear()
+        AppGroup.clearCookies(for: client.baseURL.host ?? "127.0.0.1")
         await onLogout?()
     }
 }

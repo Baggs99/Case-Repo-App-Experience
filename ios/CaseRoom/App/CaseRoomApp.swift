@@ -15,6 +15,13 @@ struct CaseRoomApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var sessionStore = SessionStore()
 
+    init() {
+        // Before any network use: bring an older build's session cookie into
+        // the App Group's shared store so an already-logged-in user stays
+        // authenticated after upgrading (idempotent, group-container gated).
+        AppGroup.migrateCookiesIfNeeded(apiHost: Self.apiHost)
+    }
+
     var body: some Scene {
         WindowGroup {
             RootTabView()
@@ -31,6 +38,10 @@ struct CaseRoomApp: App {
                     }
                 }
         }
+    }
+
+    private static var apiHost: String {
+        APIClient.shared.baseURL.host ?? "127.0.0.1"
     }
 }
 

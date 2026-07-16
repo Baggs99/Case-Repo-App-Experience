@@ -309,6 +309,58 @@ final class APIClientTests: XCTestCase {
         let stats = try fixtureDecoder().decode(DashboardStats.self, from: data)
         XCTAssertGreaterThanOrEqual(stats.sessionsFinalized, 0)
     }
+
+    // MARK: - App Group session configuration
+
+    // The default APIClient session must have a cookie store — the group store
+    // when the container resolves, or HTTPCookieStorage.shared as the
+    // unprovisioned/dev-build fallback. Either way it is never nil, so cookie
+    // auth keeps working.
+    func testGroupSessionConfigurationHasCookieStorage() {
+        let config = AppGroup.makeURLSessionConfiguration()
+
+        XCTAssertNotNil(config.httpCookieStorage)
+    }
+
+    // Cookie migration copies the API host's cookies into the destination and
+    // is idempotent: HTTPCookieStorage keys cookies by (domain, path, name), so
+    // running the copy twice replaces rather than duplicates. A scratch source/
+    // destination pair keeps the assertion off any global cookie store.
+    func testCookieMigrationCopyIsIdempotent() throws {
+        let source = try XCTUnwrap(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let destination = try XCTUnwrap(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let cookie = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "127.0.0.1",
+            .path: "/",
+            .name: "session",
+            .value: "abc123",
+        ]))
+        source.setCookie(cookie)
+
+        AppGroup.copyCookies(for: "127.0.0.1", from: source, into: destination)
+        AppGroup.copyCookies(for: "127.0.0.1", from: source, into: destination)
+
+        let sessionCookies = (destination.cookies ?? []).filter { $0.name == "session" }
+        XCTAssertEqual(sessionCookies.count, 1)
+        XCTAssertEqual(sessionCookies.first?.value, "abc123")
+    }
+
+    // A cookie for an unrelated host is not swept into the destination.
+    func testCookieMigrationCopyIgnoresOtherHosts() throws {
+        let source = try XCTUnwrap(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let destination = try XCTUnwrap(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let other = try XCTUnwrap(HTTPCookie(properties: [
+            .domain: "example.com",
+            .path: "/",
+            .name: "session",
+            .value: "nope",
+        ]))
+        source.setCookie(other)
+
+        AppGroup.copyCookies(for: "127.0.0.1", from: source, into: destination)
+
+        XCTAssertTrue((destination.cookies ?? []).isEmpty)
+    }
 }
 
 // Not private: reused by SessionServiceTests.swift (same test target).
