@@ -22,6 +22,13 @@ final class StubTodayService: TodayService {
 
 private enum TestError: Error { case boom }
 
+// Reference box so the injected snapshot-write closure records the value written
+// during load() without an @escaping mutable-capture warning.
+private final class SnapshotCapture {
+    var written: WidgetSnapshot?
+    var reloadCount = 0
+}
+
 final class TodayViewModelTests: XCTestCase {
     private func makeSession(id: Int, caseTitle: String) -> SessionSummary {
         SessionSummary(
@@ -69,5 +76,56 @@ final class TodayViewModelTests: XCTestCase {
 
         XCTAssertNotNil(viewModel.errorMessage)
         XCTAssertNil(viewModel.nextSession)
+    }
+
+    func testLoadSurfacesStreakDaysAndDrillDoneAndWritesSnapshot() async {
+        let service = StubTodayService()
+        let nextSession = makeSession(id: 9, caseTitle: "Widget Co")
+        service.dashboardResult = .success(
+            DashboardStats(
+                sessionsFinalized: 5, streakWeeks: 2, nextSession: nextSession,
+                streakDays: 6, drillDoneToday: true
+            )
+        )
+        let capture = SnapshotCapture()
+        let viewModel = TodayViewModel(
+            service: service,
+            writeSnapshot: { capture.written = $0 },
+            reloadWidgets: { capture.reloadCount += 1 }
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.streakDays, 6)
+        XCTAssertTrue(viewModel.drillDoneToday)
+        XCTAssertEqual(capture.written?.streakDays, 6)
+        XCTAssertEqual(capture.written?.drillDoneToday, true)
+        XCTAssertEqual(capture.written?.nextSessionTitle, "Widget Co")
+        XCTAssertEqual(capture.written?.nextSessionOther, "Bob Dev")
+        XCTAssertEqual(capture.reloadCount, 1)
+    }
+
+    func testLoadDefaultsStreakDaysAndDrillDoneWhenNil() async {
+        let service = StubTodayService()
+        service.dashboardResult = .success(
+            DashboardStats(
+                sessionsFinalized: 0, streakWeeks: 0, nextSession: nil,
+                streakDays: nil, drillDoneToday: nil
+            )
+        )
+        let capture = SnapshotCapture()
+        let viewModel = TodayViewModel(
+            service: service,
+            writeSnapshot: { capture.written = $0 },
+            reloadWidgets: { capture.reloadCount += 1 }
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.streakDays, 0)
+        XCTAssertFalse(viewModel.drillDoneToday)
+        XCTAssertEqual(capture.written?.streakDays, 0)
+        XCTAssertEqual(capture.written?.drillDoneToday, false)
+        XCTAssertNil(capture.written?.nextSessionTitle)
     }
 }

@@ -1,9 +1,10 @@
 /*
- * Purpose: Today tab — next-session card (taps to Sessions), streak card,
- *          and a "Browse cases" CTA (taps to Cases). Empty state when there's
- *          no upcoming session.
- * Inputs: TodayViewModel (default APIClient.shared); a binding to
- *         RootTabView's selectedTab so cards can switch tabs.
+ * Purpose: Today tab — drill-of-the-day card (taps to open the drill sheet),
+ *          next-session card (taps to Sessions), streak card, and a "Browse
+ *          cases" CTA. Empty state when there's no upcoming session.
+ * Inputs: TodayViewModel (default APIClient.shared); SessionStore (environment,
+ *         for the drill engine's user seed); a binding to RootTabView's
+ *         selectedTab so cards can switch tabs.
  * Outputs: none.
  * Run: shown as a tab by RootTabView.
  */
@@ -12,15 +13,33 @@ import SwiftUI
 
 struct TodayView: View {
     @State private var viewModel = TodayViewModel()
+    @State private var drillViewModel: DrillViewModel?
+    @Environment(SessionStore.self) private var sessionStore
     @Binding var selectedTab: RootTabView.RootTab
 
     var body: some View {
         NavigationStack {
             content
                 .navigationTitle("Today")
-                .task { await viewModel.load() }
+                .task {
+                    // Best-effort template refresh so the on-device FM engine has
+                    // an offline pack; run alongside the dashboard load.
+                    async let refresh: Void = TemplateCache().refresh(service: APIClient.shared)
+                    await viewModel.load()
+                    await refresh
+                }
                 .refreshable { await viewModel.load() }
+                .sheet(item: $drillViewModel) { DrillView(viewModel: $0) }
         }
+    }
+
+    private func startDrill() {
+        drillViewModel = DrillViewModel(
+            engine: DrillEngineProvider.make(
+                service: APIClient.shared, userId: sessionStore.user?.id ?? 0
+            ),
+            recorder: AttemptRecorder(service: APIClient.shared)
+        )
     }
 
     @ViewBuilder
@@ -29,6 +48,14 @@ struct TodayView: View {
             ContentUnavailableView(viewModel.errorMessage!, systemImage: "wifi.slash")
         } else {
             List {
+                Section {
+                    DrillCard(
+                        drillDoneToday: viewModel.drillDoneToday,
+                        streakDays: viewModel.streakDays,
+                        onTap: startDrill
+                    )
+                }
+
                 Section {
                     if let nextSession = viewModel.nextSession {
                         NextSessionCard(session: nextSession) {
@@ -54,6 +81,41 @@ struct TodayView: View {
                 }
             }
         }
+    }
+}
+
+private struct DrillCard: View {
+    let drillDoneToday: Bool
+    let streakDays: Int
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Drill of the day")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    if drillDoneToday {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Color("BrandAccent"))
+                        Text("Completed today")
+                            .font(.headline)
+                    } else {
+                        Text("Start today's drill")
+                            .font(.headline)
+                            .foregroundStyle(Color("BrandAccent"))
+                    }
+                    Spacer()
+                    Image(systemName: "flame")
+                        .foregroundStyle(Color("BrandAccent"))
+                    Text("\(streakDays)")
+                        .font(.headline)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -118,4 +180,5 @@ private struct StreakCard: View {
 
 #Preview {
     TodayView(selectedTab: .constant(.today))
+        .environment(SessionStore())
 }
