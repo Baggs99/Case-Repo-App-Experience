@@ -20,8 +20,18 @@ struct PendingAttempt: Codable, Equatable {
     let correct: Bool
 }
 
-struct AttemptRecorder {
+// An actor, not a struct: record() and flushPending() run non-atomic
+// load-modify-save on UserDefaults, and a struct offers no isolation across the
+// network `await`. Concurrent record() + flushPending() on a struct could lose
+// an attempt (flush's final save clobbering an append that landed mid-flight).
+// The actor serializes every queue mutation and — critically — the network POST
+// happens OUTSIDE any load-save pair, so no `await` ever sits between a queue
+// read and its matching write.
+actor AttemptRecorder {
     static let queueKey = "pendingDrillAttempts"
+    // Cap the retry backlog so an extended offline streak can't grow the App
+    // Group defaults without bound. Oldest attempts are dropped first.
+    static let maxQueue = 50
 
     let service: DrillService
     let defaults: UserDefaults
@@ -43,15 +53,24 @@ struct AttemptRecorder {
                 drillKey: attempt.drillKey, correct: attempt.correct
             )
         } catch {
+            // Synchronous, actor-isolated: load+append+cap+save runs atomically.
             enqueue(attempt)
         }
     }
 
-    // Retries every queued attempt; drops the ones that post, keeps the ones
-    // that fail again (order preserved). A no-op when the queue is empty.
+    // Retries every queued attempt; drops the ones that post, re-queues the ones
+    // that fail again. A no-op when the queue is empty.
+    //
+    // Ordering matters for actor-safety: we lift the whole queue out and clear
+    // it under isolation (loadQueue + saveQueue([]), no await between), THEN
+    // release isolation for the network POSTs. Attempts that fail again are
+    // re-appended via enqueue() — a second serialized mutation that loads the
+    // *current* queue, so any record() that enqueued while we were awaiting is
+    // preserved rather than clobbered.
     func flushPending() async {
         let pending = loadQueue()
         guard !pending.isEmpty else { return }
+        saveQueue([])
         var stillPending: [PendingAttempt] = []
         for attempt in pending {
             do {
@@ -63,7 +82,9 @@ struct AttemptRecorder {
                 stillPending.append(attempt)
             }
         }
-        saveQueue(stillPending)
+        for attempt in stillPending {
+            enqueue(attempt)
+        }
     }
 
     // MARK: - Queue persistence
@@ -71,6 +92,9 @@ struct AttemptRecorder {
     private func enqueue(_ attempt: PendingAttempt) {
         var queue = loadQueue()
         queue.append(attempt)
+        if queue.count > Self.maxQueue {
+            queue.removeFirst(queue.count - Self.maxQueue)
+        }
         saveQueue(queue)
     }
 

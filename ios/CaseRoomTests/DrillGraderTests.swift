@@ -52,6 +52,21 @@ final class DrillGraderTests: XCTestCase {
         XCTAssertFalse(DrillGrader.grade(drill, numericInput: nil, choiceIndex: nil))
     }
 
+    func testNumericPctNegativeValueGradesCorrect() {
+        // mm_pct_change with b<a produces a negative answer. With the old
+        // `value * tolerancePct / 100` the RHS is negative and NOTHING grades
+        // correct — not even the exact answer. Window is value ± abs(value)*2%.
+        let value = -91.67, tol = 2.0
+        let margin = abs(value) * tol / 100      // 1.8334
+        let drill = numericPct(value: value, tolerancePct: tol)
+        XCTAssertTrue(DrillGrader.grade(drill, numericInput: value, choiceIndex: nil))
+        XCTAssertTrue(DrillGrader.grade(drill, numericInput: value - margin, choiceIndex: nil))
+        XCTAssertTrue(DrillGrader.grade(drill, numericInput: value + margin, choiceIndex: nil))
+        // Just outside either edge grades wrong.
+        XCTAssertFalse(DrillGrader.grade(drill, numericInput: value - margin - 0.01, choiceIndex: nil))
+        XCTAssertFalse(DrillGrader.grade(drill, numericInput: value + margin + 0.01, choiceIndex: nil))
+    }
+
     // MARK: - market-sizing factor bounds (inclusive)
 
     func testSizingFactorBoundsInclusive() {
@@ -66,6 +81,18 @@ final class DrillGraderTests: XCTestCase {
         let drill = sizing(value: 1590, factor: 2)
         XCTAssertFalse(DrillGrader.grade(drill, numericInput: 794, choiceIndex: nil))
         XCTAssertFalse(DrillGrader.grade(drill, numericInput: 3181, choiceIndex: nil))
+    }
+
+    func testSizingFactorNegativeValueUsesNormalizedBounds() {
+        // Documents the hardened bounds: for a negative reference, value/factor
+        // and value*factor swap order, so the grader normalizes to [lo, hi].
+        // value -1590, factor 2 -> [-3180, -795]; both edges inclusive.
+        let drill = sizing(value: -1590, factor: 2)
+        XCTAssertTrue(DrillGrader.grade(drill, numericInput: -1590, choiceIndex: nil))
+        XCTAssertTrue(DrillGrader.grade(drill, numericInput: -795, choiceIndex: nil))
+        XCTAssertTrue(DrillGrader.grade(drill, numericInput: -3180, choiceIndex: nil))
+        XCTAssertFalse(DrillGrader.grade(drill, numericInput: -794, choiceIndex: nil))
+        XCTAssertFalse(DrillGrader.grade(drill, numericInput: -3181, choiceIndex: nil))
     }
 
     // MARK: - choice

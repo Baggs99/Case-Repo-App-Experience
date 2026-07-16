@@ -30,6 +30,41 @@ final class MockDrillService: DrillService, @unchecked Sendable {
     }
 }
 
+// Suspends the flushed attempt inside recordAttempt until released, so a test
+// can drive a record() concurrently while flushPending() is mid-POST and prove
+// no attempt is lost. All attempts throw (forcing enqueue/re-append).
+final class GatedDrillService: DrillService, @unchecked Sendable {
+    let entered: XCTestExpectation
+    private var continuation: CheckedContinuation<Void, Never>?
+    private let lock = NSLock()
+
+    init(entered: XCTestExpectation) { self.entered = entered }
+
+    func dailyDrill() async throws -> Drill { throw APIError.server(500) }
+    func templatePack() async throws -> Data { Data() }
+
+    func recordAttempt(drillType: String, source: String, drillKey: String?, correct: Bool) async throws {
+        if drillKey == "flushed" {
+            // Park the flush's POST; the test releases it after driving record().
+            await withCheckedContinuation { cont in
+                lock.lock()
+                continuation = cont
+                lock.unlock()
+                entered.fulfill()
+            }
+        }
+        throw APIError.server(500)
+    }
+
+    func release() {
+        lock.lock()
+        let cont = continuation
+        continuation = nil
+        lock.unlock()
+        cont?.resume()
+    }
+}
+
 final class ServerDrillEngineTests: XCTestCase {
     private var client: APIClient!
     private var defaults: UserDefaults!
@@ -161,6 +196,56 @@ final class ServerDrillEngineTests: XCTestCase {
         await recorder.flushPending()
 
         XCTAssertEqual(try XCTUnwrap(pendingQueue()).count, 2)
+    }
+
+    // MARK: - pending queue is capped (drop-oldest beyond 50)
+
+    func testRecordFailureCapsQueueAtFifty() async throws {
+        let mock = MockDrillService()
+        mock.shouldFail = true
+        let recorder = AttemptRecorder(service: mock, defaults: defaults)
+
+        for i in 0..<51 {
+            await recorder.record(drill: makeDrill(key: "k\(i)"), source: "server", correct: true)
+        }
+
+        let pending = try XCTUnwrap(pendingQueue())
+        XCTAssertEqual(pending.count, 50)
+        // Oldest (k0) dropped; window is now k1...k50.
+        XCTAssertEqual(pending.first?.drillKey, "k1")
+        XCTAssertEqual(pending.last?.drillKey, "k50")
+    }
+
+    // MARK: - record() during flushPending() loses neither attempt
+
+    func testConcurrentRecordDuringFlushLosesNothing() async throws {
+        // Seed one pending attempt ("flushed") that flushPending will lift out.
+        let seeder = MockDrillService()
+        seeder.shouldFail = true
+        await AttemptRecorder(service: seeder, defaults: defaults)
+            .record(drill: makeDrill(key: "flushed"), source: "server", correct: true)
+        XCTAssertEqual(try XCTUnwrap(pendingQueue()).count, 1)
+
+        let entered = expectation(description: "flush POST entered")
+        let gated = GatedDrillService(entered: entered)
+        let recorder = AttemptRecorder(service: gated, defaults: defaults)
+
+        // Start the flush; it clears the queue, then parks inside the POST.
+        let flush = Task { await recorder.flushPending() }
+        await fulfillment(of: [entered], timeout: 2.0)
+
+        // Actor reentrancy lets this record() run while flush is parked. It
+        // fails and enqueues a NEW attempt into the (now-empty) queue.
+        await recorder.record(drill: makeDrill(key: "concurrent"), source: "server", correct: false)
+
+        // Release the parked POST; it fails, so "flushed" is re-appended.
+        gated.release()
+        await flush.value
+
+        let pending = try XCTUnwrap(pendingQueue())
+        let keys = Set(pending.map { $0.drillKey })
+        XCTAssertEqual(pending.count, 2)
+        XCTAssertEqual(keys, ["concurrent", "flushed"])
     }
 
     // Decodes the recorder's queue from the scratch suite.

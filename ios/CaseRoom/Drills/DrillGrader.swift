@@ -15,13 +15,19 @@ enum DrillGrader {
         switch answer.kind {
         case .numeric:
             guard let input = numericInput, let value = answer.value else { return false }
-            // mental_math: within ±tolerancePct of the value.
+            // mental_math: within ±tolerancePct of the value. abs(value) so a
+            // negative reference (e.g. mm_pct_change with b<a) still yields a
+            // positive tolerance window instead of grading nothing correct.
             if let tolerancePct = answer.tolerancePct {
-                return abs(input - value) <= value * tolerancePct / 100
+                return abs(input - value) <= abs(value) * tolerancePct / 100
             }
             // market_sizing: within a multiplicative factor either way (inclusive).
+            // value/factor and value*factor swap order when value is negative, so
+            // normalize to [lo, hi] rather than assume value/factor is the lower.
             if let factor = answer.toleranceFactor {
-                return value / factor <= input && input <= value * factor
+                let lo = min(value / factor, value * factor)
+                let hi = max(value / factor, value * factor)
+                return input >= lo && input <= hi
             }
             return false
         case .choice:
