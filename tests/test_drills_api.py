@@ -99,10 +99,40 @@ class TestDrillsRepo(unittest.TestCase):
         cls._ctx.__exit__(None, None, None)
 
     def setUp(self):
+        self._sweep_stale_ephemeral()
         self._clean()
 
     def tearDown(self):
         self._clean()
+
+    def _sweep_stale_ephemeral(self):
+        """A prior crashed run (setUpClass raising skips tearDownClass) can
+        strand this fixture's ephemeral p4-drill-* user plus its drill_attempts
+        and finalized sessions. Sweep every such user except this run's own so
+        the exact streak counts here stay hermetic. Parameterized throughout;
+        the % in the LIKE pattern is a bound value, not SQL, so needs no escape."""
+        import psycopg
+
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM users WHERE email LIKE %(pat)s AND id <> %(keep)s;",
+                    {"pat": "p4-drill-%@yale.edu", "keep": self.uid},
+                )
+                stale = [row[0] for row in cur.fetchall()]
+                if stale:
+                    # practice_sessions has no ON DELETE on interviewer/candidate,
+                    # so clear it before the users; drill_attempts cascade on the
+                    # user delete, but drop them explicitly too.
+                    cur.execute(
+                        "DELETE FROM practice_sessions"
+                        " WHERE interviewer_id = ANY(%(ids)s) OR candidate_id = ANY(%(ids)s);",
+                        {"ids": stale},
+                    )
+                    cur.execute("DELETE FROM drill_attempts WHERE user_id = ANY(%(ids)s);",
+                                {"ids": stale})
+                    cur.execute("DELETE FROM users WHERE id = ANY(%(ids)s);",
+                                {"ids": stale})
 
     def _clean(self):
         import psycopg

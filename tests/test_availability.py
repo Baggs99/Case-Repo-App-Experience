@@ -1,11 +1,12 @@
 """
-Task 3 (P4): free-now availability — repo + /api/v1/availability endpoints
-and the fresh-toggle instant-match push.
-
-Needs the seeded dev Postgres — skips cleanly otherwise. Uses the same
-login/cookie fixture idiom as tests/test_api_v1_devices.py; the push
-assertion monkeypatches api_v1's imported push_to_user (patched where it's
-used) mirroring tests/test_push_events.py.
+Purpose: Task 3 (P4) free-now availability — repo + /api/v1/availability
+         endpoints (PUT/GET/DELETE, minutes clamp, lazy expiry, auth guard)
+         and the fresh-toggle instant-match push.
+Inputs:  seeded dev Postgres via tests.test_ws_integration (_DB_URL/_READY/
+         _HTTPX); a@yale.edu and b@yale.edu; skips cleanly when unavailable.
+Outputs: no files; inserts/deletes only its own availability rows in setUp/
+         tearDown; the push test monkeypatches api_v1.push_to_user.
+Run:     .venv/bin/python -m pytest tests/test_availability.py -q
 """
 
 from __future__ import annotations

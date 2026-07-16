@@ -193,17 +193,33 @@ def main() -> None:
         tpl = r.json()
         ok("templates payload has version", "version" in tpl,
            f"-> version={tpl.get('version')}")
-        ok("templates count == 32", len(tpl.get("templates", [])) == 32,
-           f"-> {len(tpl.get('templates', []))}")
+        templates = tpl.get("templates", [])
+        ok("templates count >= 30", len(templates) >= 30, f"-> {len(templates)}")
+        # Per-type minimums mirror tests/test_drills_bank.py::test_per_type_minimums,
+        # so a bank edit that shrinks one type below floor fails here too.
+        by_type: dict[str, int] = {}
+        for t in templates:
+            by_type[t["drill_type"]] = by_type.get(t["drill_type"], 0) + 1
+        ok("mental_math >= 10", by_type.get("mental_math", 0) >= 10,
+           f"-> {by_type.get('mental_math', 0)}")
+        ok("market_sizing >= 8", by_type.get("market_sizing", 0) >= 8,
+           f"-> {by_type.get('market_sizing', 0)}")
+        ok("framework_recall >= 12", by_type.get("framework_recall", 0) >= 12,
+           f"-> {by_type.get('framework_recall', 0)}")
 
         print("\nALL STEPS PASSED")
     finally:
-        # Keep the shared dev DB clean regardless of outcome.
-        if b is not None:
-            try:
-                b.delete(f"{BASE}/api/v1/availability")
-            except requests.RequestException:
-                pass
+        # Keep the shared dev DB clean regardless of which step failed: clear
+        # both users' availability (a's is set mid-flow before its own DELETE
+        # step, so a mid-step failure could leave it live), delete any proposal
+        # created, then a's drill rows for today. (Server teardown is the
+        # caller's job — this script does not own the `main.py serve` process.)
+        for sess in (a, b):
+            if sess is not None:
+                try:
+                    sess.delete(f"{BASE}/api/v1/availability")
+                except requests.RequestException:
+                    pass
         if proposal_id is not None:
             try:
                 cleanup_proposal(proposal_id)
