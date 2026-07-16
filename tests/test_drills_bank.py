@@ -15,11 +15,13 @@ import random
 import re
 import unittest
 from datetime import date
+from pathlib import Path
 
 from webapp import drills
 from webapp.drills import _BANK, _draw_params, daily_drill, generate_drill
 
 _NUM_RE = re.compile(r"\d+(?:\.\d+)?")
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _REQUIRED_OPS = {
     "pct_change", "growth_compound", "breakeven_units", "margin_pct",
@@ -56,6 +58,22 @@ def _expected_answer(op, p):
     if op == "payback_months":
         return p["invest"] / p["monthly"]
     raise AssertionError(f"unhandled op {op!r}")
+
+
+class TestFixtureParity(unittest.TestCase):
+    """The iOS bundled fixture must stay byte-identical to the backend bank so
+    the on-device engine and the server draw the same drills. Nothing else
+    guards the copy — a regenerate that skips it would drift silently."""
+
+    def test_ios_fixture_matches_backend_bank(self):
+        backend = _REPO_ROOT / "webapp" / "drill_templates.json"
+        ios = _REPO_ROOT / "ios" / "CaseRoomTests" / "Fixtures" / "drill_templates.json"
+        self.assertEqual(
+            backend.read_bytes(),
+            ios.read_bytes(),
+            "iOS ios/CaseRoomTests/Fixtures/drill_templates.json drifted from"
+            " webapp/drill_templates.json — regenerate the iOS fixture copy.",
+        )
 
 
 class TestDrillBankIntegrity(unittest.TestCase):
