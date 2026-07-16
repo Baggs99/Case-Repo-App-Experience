@@ -1,5 +1,52 @@
 # PROGRESS
-Updated: 2026-07-16T04:05:00-04:00 · Branch: **feature/ios-p4** (P4 built + reviewed — see the P4 section below); feature/caseroom holds the merged web+iOS P1-P3 chain (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+Updated: 2026-07-16 (handoff → UI corrections; current handoff is the FIRST section below) · Branch: **feature/ios-p4** (P4 + post-P4 branding/identity/icon; NOT merged — Thomas merges); feature/caseroom holds the merged web+iOS P1-P3 chain (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+
+## ▶ NEXT SESSION — UI CORRECTIONS (handoff 2026-07-16)
+GOAL: iterate on the **myCase iOS app UI**. The app builds, is branded (name
+**myCase**, Liquid Glass icon, bundle `study.mycase`), runs on Thomas's iPhone
+15 Pro, and reaches the dev backend over LAN. **The specific UI corrections are
+NOT yet specified — Thomas names them first**, so the opening task is
+session-model (gather the spec), not a workhorse edit.
+
+### Verified at handoff (commands run, not recalled)
+- `~/dev/Case-Repo-App-Experience` @ **feature/ios-p4**: tip `1de19e4` (Liquid
+  Glass icon) ← `8a8bcf6` (identity `study.mycase` + display `myCase`) ← `4e97650`
+  (P4). Working tree carries the **floating LAN-IP repoint** in `ios/project.yml`
+  + both `Info.plist`s (`10.66.142.109`) — EXPECTED, do NOT commit (`ship`
+  rewrites it every run). `~/Documents/Projects/mycase` is a symlink dir to this repo.
+- Backend **RUNNING**: pid 8668, `.venv/bin/python main.py serve --host 0.0.0.0
+  --port 8077`, `http://10.66.142.109:8077` → 303. Log `~/mycase-server.log`;
+  stop `pkill -f "main.py serve"`.
+- Deploy loop **VERIFIED**: `ship myCase --build-only` built in 3s.
+- iOS suite last green **273/0** in the P4 session; branding commits are
+  build-verified (BUILD SUCCEEDED) but the full suite was **NOT re-run** after
+  branding — `UNVERIFIED` it is still 273 (strings-only change, near-certain).
+
+### The iterate loop (how to SEE a UI change)
+1. Backend up (above). 2. Edit SwiftUI in **`ios/CaseRoom/Views/`**.
+3. `ship myCase --sim` (fast simulator) or `ship myCase` (device). Tool + README:
+   `~/Documents/Projects/appship/` (see memory [[ship-deploy-tool]]).
+
+### Design references — READ before changing UI
+- **`~/Documents/Projects/mycase/myCase Style Guide.html`** — brand system, AUTHORITATIVE for UI.
+- `~/Documents/Projects/mycase/myCase Interviewer Console.html` — console design.
+- iOS brand tokens: `ios/CaseRoom/Support/Assets.xcassets` Brand Primary/Accent/Surface;
+  ink `#0D1C31`, uptick-green `#1B9A5F`; logo = staircase (`webapp/static/favicon.svg`,
+  `mycase/myCase.icon`). Web UI for parity: `webapp/` (Jinja `base.html`).
+
+### Handoff partition
+| Chunk | Spec state | Tier | Next concrete action |
+|---|---|---|---|
+| Gather the specific UI corrections from Thomas | needs-spec | session-model | Ask which screens/elements to fix; capture a checklist. NO UI edits until specified. |
+| Launch screen + in-app logo placement | complete | worker | Implement Phase 4 of `docs/superpowers/plans/2026-07-16-mycase-branding-logo-plan.md`; preview `ship myCase --sim`. |
+| Each specified UI fix | needs-spec→complete | worker once specified | Edit the relevant `ios/CaseRoom/Views/*.swift`; `ship myCase --sim`; iterate. |
+
+### Gotchas (not already in the repo)
+- `project.yml` `API_BASE_URL` floats to the Mac's current LAN IP each `ship` run — never commit it; it is not a real change.
+- Signing: team **5D3SG8J26X** is passed on the xcodebuild CLI by `ship`; the `.xcodeproj` is gitignored/regenerated — do not rely on it for signing.
+- On device, first launch after an install → iOS **Local Network** prompt → **Allow**.
+- **OTHER AGENTS are active in `~/Documents/Projects/mycase`** (a `claude` daemon with cwd=mycase, `playwright-mcp` browser procs, job dir `8fa22c97`). Do NOT kill their processes or delete `.playwright-mcp` / `.claude` / their job dir.
+- Video call (P3) still never hardware-tested; Siri / widgets / FM-drill still to exercise on device (see the ON-DEVICE DEMO section below).
 
 ## ⚑ IDENTITY CHANGE — 2026-07-16 (owner-FINAL)
 Bundle ID **`studio.ogee.caseroom` → `study.mycase`** (owner decision, final —
@@ -13,6 +60,20 @@ pushed). **Every `studio.ogee` reference below is SUPERSEDED** — register App 
 in the Apple portal, NOT the old id. Branding/logo plan:
 `docs/superpowers/plans/2026-07-16-mycase-branding-logo-plan.md` (display name +
 Liquid-Glass app icon still pending).
+
+## ✅ FIRST ON-DEVICE DEMO — 2026-07-16 (works!)
+myCase built, signed (both targets, Thomas's team), installed, and LAUNCHED on
+Thomas's iPhone 15 Pro; connects to the dev backend over LAN
+(`http://10.66.142.109:8077`). Resolves the long-open "never run on hardware"
+gap — signing, Liquid Glass app icon (Icon Composer `.icon`), display name
+myCase, and phone→Mac networking all confirmed on device. Root cause of the
+initial "couldn't reach server" was simply the backend not running (firewall
+off, IP unchanged); started detached: `nohup .venv/bin/python main.py serve
+--host 0.0.0.0 --port 8077` (log `~/mycase-server.log`, stop `pkill -f "main.py
+serve"`). STILL TO EXERCISE on device: WebRTC video call (never hardware-tested
+— the P3 risk), Siri ×3 shortcuts, widget gallery + free-now button, on-device
+FM drill (needs Apple Intelligence on). Portal App ID `study.mycase` + APNs .p8
+still pending — only needed for push/TestFlight, not this cabled demo.
 
 ## P4 (habit + Siri layer) — BUILT + fully reviewed (2026-07-16 session end)
 
