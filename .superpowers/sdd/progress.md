@@ -30,3 +30,5 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 - BASE for Task 7 = 0a21dbe
 - Task 7: complete (commits 58bd77f..1dfe849, review APPROVE). MINORs (ledger): onboarding.py unused `Response` import; NO rate-limit on otp/request (email-bombing/unbounded codes — recommend follow-up; brute force already mitigated by newest-code-only + 3-attempt cap); two test-strength nits (cap test uses wrong code on 4th; no verify test for unregistered email).
 - BASE for Task 8 = 1dfe849
+- Task 8: complete (commits eea26d4..7031f58, review APPROVE). MINORs (ledger): timing side-channel on signup/request (same as otp pattern; spec only mandates status+body parity); cosmetic test docstring says "yale" but constant is umich.
+- BASE for Task 9 = 7031f58
