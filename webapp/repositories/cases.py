@@ -375,6 +375,34 @@ def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict
     return rows, total
 
 
+def library_counts(filters: SearchFilters, user_id: int) -> dict:
+    """{"open_count", "done_count"} over the user's canonical (deduped) library
+    matching `filters` — done = burned for the user. Reuses the search dedup CTE
+    and filter clause so the counts track the active filter set."""
+    raw_distinct = _distinct_raw_industries()
+    params: dict[str, object] = {
+        "q": filters.q, "difficulty": filters.difficulty,
+        "case_type": filters.case_type, "school": filters.school,
+        "user_id": user_id,
+    }
+    params.update(_industry_filter_params(filters, raw_distinct=raw_distinct))
+    sql = f"""
+        {_DEDUP_CTE}
+        SELECT
+            COUNT(*) FILTER (WHERE b.user_id IS NOT NULL) AS done_count,
+            COUNT(*) FILTER (WHERE b.user_id IS NULL)     AS open_count
+        FROM ranked
+        LEFT JOIN burned b ON b.case_id = ranked.id AND b.user_id = %(user_id)s
+        WHERE ranked.rn = 1 AND {_FILTER_WHERE};
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+    return {"open_count": int(row["open_count"] or 0),
+            "done_count": int(row["done_count"] or 0)}
+
+
 def count_all_cases(*, include_duplicates: bool = False) -> int:
     """Return total case count for the footer / "showing X of Y" text.
 
