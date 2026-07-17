@@ -40,6 +40,8 @@ def submit(user_id: int, answers: list[dict], on: date | None = None) -> dict:
     the repo raises AlreadySubmitted on a repeat same-day submission."""
     day, set_key = _today_key(on)
     full = drills.daily_set(day)
+    if not all(isinstance(a.get("slot"), int) for a in answers):
+        raise InvalidSubmission("each answer needs an integer slot")
     slots_seen = sorted(a.get("slot") for a in answers)
     if slots_seen != list(range(drills.GAUNTLET_SLOTS)):
         raise InvalidSubmission(f"expected slots 0..{drills.GAUNTLET_SLOTS - 1}, got {slots_seen}")
@@ -57,8 +59,8 @@ def submit(user_id: int, answers: list[dict], on: date | None = None) -> dict:
 
 
 def _group_block(user_id: int) -> dict | None:
-    """The user's primary joined group (most recently joined — list_my_groups
-    orders created_at DESC) as a rank+points block — the ONLY scope where literal
+    """The user's primary joined group (most recently created group you belong to
+    (list_my_groups orders by group created_at DESC)) as a rank+points block — the ONLY scope where literal
     rank/points are exposed. None if unaffiliated."""
     my = groups_repo.list_my_groups(user_id)
     if not my:
@@ -92,6 +94,8 @@ def results_for(user_id: int, set_key: str) -> dict | None:
         "points_awarded": int(summary["score"] * leaderboards.POINTS_PER_GAUNTLET_POINT),
         "daily_percentile": repo.daily_percentile(user_id, set_key),
         "group": group,
+        # reuses the B6 global percentile (== my_school_standing.your_percentile, the
+        # school-card standing); a within-school population is a future refinement
         "school_percentile": leaderboards.user_global_percentile(user_id),
         "vs_peers_delta": group["points_behind_next"] if group else None,
         "weak_section": weak_section,

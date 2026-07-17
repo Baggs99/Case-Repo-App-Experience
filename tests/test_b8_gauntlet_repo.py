@@ -98,9 +98,11 @@ class TestGauntletRepo(unittest.TestCase):
         with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("UPDATE users SET is_guest = TRUE WHERE id = %s;", (self.u2,))
         try:
-            repo.record_submission(self.u1, "2026-07-17", self._slots([True, True]))   # score 2
-            repo.record_submission(self.u2, "2026-07-17", self._slots([True, True, True]))  # guest, score 3
-            # Only u1 counts → sole non-guest submitter → percent_rank 0.0.
+            repo.record_submission(self.u1, "2026-07-17", self._slots([True, True]))   # non-guest, score 2
+            repo.record_submission(self.u2, "2026-07-17", self._slots([True]))          # guest, score 1 (lower)
+            # If the guest were counted, u1 (higher) would be 100.0; with the guest
+            # excluded u1 is the sole population member → percent_rank 0.0. This
+            # assertion now fails if the guest filter is removed.
             self.assertEqual(repo.daily_percentile(self.u1, "2026-07-17"), 0.0)
         finally:
             with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:

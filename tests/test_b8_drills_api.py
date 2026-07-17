@@ -140,6 +140,53 @@ class TestDrillsGauntletApi(unittest.TestCase):
         with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM groups WHERE id = %s;", (g["id"],))
 
+    def test_group_board_populated_via_route(self):
+        import psycopg
+        from webapp.repositories import groups as groups_repo
+        g = groups_repo.create_group("B8 Board Pop", self.u1)
+        try:
+            groups_repo.join_by_code(g["invite_code"], self.u2)
+            r = self.c1.get(f"/api/v1/drills/boards?scope=group&group_id={g['id']}")
+            self.assertEqual(r.status_code, 200, r.text)
+            body = r.json()
+            self.assertEqual(body["group"]["id"], g["id"])
+            self.assertTrue(body["entries"])
+            for e in body["entries"]:
+                for k in ("user_id", "points", "rank", "streak"):
+                    self.assertIn(k, e)
+            _assert_no_counts(self, body)
+        finally:
+            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM groups WHERE id = %s;", (g["id"],))
+
+    def test_school_and_global_boards_populated_no_counts(self):
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("UPDATE users SET school_id = (SELECT id FROM schools ORDER BY id LIMIT 1)"
+                        " WHERE id = %s;", (self.u1,))
+        try:
+            self.c1.post("/api/v1/drills/gauntlet/attempts", json={"answers": _answers_for(self.c1)})
+            rs = self.c1.get("/api/v1/drills/boards?scope=school")
+            self.assertEqual(rs.status_code, 200, rs.text)
+            school = rs.json()
+            _assert_no_counts(self, school)
+            self.assertIsNotNone(school["school"])
+            self.assertIsInstance(school["your_percentile"], (int, float))
+            rg = self.c1.get("/api/v1/drills/boards?scope=global")
+            self.assertEqual(rg.status_code, 200, rg.text)
+            glob = rg.json()
+            _assert_no_counts(self, glob)
+            self.assertIsInstance(glob["your_percentile"], (int, float))
+        finally:
+            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("UPDATE users SET school_id = NULL WHERE id = %s;", (self.u1,))
+
+    def test_submit_cross_origin_403(self):
+        r = self.c1.post("/api/v1/drills/gauntlet/attempts",
+                         json={"answers": _answers_for(self.c1)},
+                         headers={"Origin": "https://evil.example"})
+        self.assertEqual(r.status_code, 403, r.text)
+
     def test_trends_shape(self):
         self.c1.post("/api/v1/drills/gauntlet/attempts", json={"answers": _answers_for(self.c1)})
         r = self.c1.get("/api/v1/drills/trends")

@@ -96,8 +96,8 @@ The server re-scores on submit — the answer is **never** sent to the client.
 `webapp/drills.py:public_drill` redacts `answer`/`explanation`, leaving only
 `{slot, drill_type, key, prompt, numbers}` (+ `choices` when present).
 `webapp/drills.py:score_slot(wire, *, value, choice_index)` does the scoring; a
-missing answer scores `False`, so the leaderboard can't be gamed by reading the
-payload.
+missing *submitted* answer scores `False`, so the leaderboard can't be gamed by
+reading the payload.
 
 A bank item must expose the **same `answer` shape** (so `score_slot` scores it
 unchanged) **or** ship its own `score()` conforming to the `DrillProvider`

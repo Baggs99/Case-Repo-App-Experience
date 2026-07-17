@@ -3,9 +3,10 @@ Purpose: Server-side drill template bank + deterministic drill generator for
          the P4 habit layer — the single source the iOS FM engine mirrors.
 Inputs:  webapp/drill_templates.json (read once at import); generate_drill()
          takes a template dict + int seed; daily_drill() takes user_id + date.
+         B8 gauntlet surface: daily_set(on) / public_drill(wire) / score_slot(wire).
 Outputs: pure in-memory wire-drill dicts; no DB, no files, no clock reads
          inside generation (the endpoint passes UTC today as `on`).
-Run:     python -c "from webapp.drills import daily_drill; print(daily_drill(1))"
+Run:     python -c "from webapp.drills import daily_set; print(len(daily_set()))"
 """
 
 from __future__ import annotations

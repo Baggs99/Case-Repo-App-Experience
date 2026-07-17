@@ -76,6 +76,12 @@ class TestGauntletService(unittest.TestCase):
         with self.assertRaises(gauntlet.InvalidSubmission):
             gauntlet.submit(self.uid, [{"slot": 0, "value": 1}], on=self.ON)
 
+    def test_submit_answer_without_slot_raises_invalid(self):
+        from webapp import gauntlet
+        bad = [{"value": 1} for _ in range(6)]  # every answer omits `slot`
+        with self.assertRaises(gauntlet.InvalidSubmission):
+            gauntlet.submit(self.uid, bad, on=self.ON)
+
     def test_results_for_none_before_submit(self):
         from webapp import gauntlet
         self.assertIsNone(gauntlet.results_for(self.uid, self.KEY))
