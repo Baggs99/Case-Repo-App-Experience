@@ -165,5 +165,14 @@ class R2Storage(Storage):
                 **extras,
             )
 
+    def write(self, key: str, data: bytes, *, content_type: str) -> None:
+        validate_key(key)
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+
     def __repr__(self) -> str:
         return f"R2Storage(bucket={self.bucket!r}, endpoint={self.endpoint!r})"

@@ -5,6 +5,7 @@ Users — domain object and the SQL that touches the `users` table.
 from __future__ import annotations
 
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -24,11 +25,8 @@ from webapp.db import get_pool
 logger = logging.getLogger(__name__)
 
 
-# School domains: any address on these suffixes. Chicago Booth: one guest only.
-# Enforced here and via CHECK constraint on users.email (see db/schema.sql).
-ALLOWED_DOMAIN_SUFFIXES = ("@yale.edu", "@umich.edu")
-ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
-BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
+# Allowed domains now live in the `schools` registry (migration 023), enforced
+# server-side. To add a school, INSERT a schools row — no code change (OD-B5-2).
 
 
 @dataclass(frozen=True)
@@ -47,7 +45,7 @@ class User:
 # ── Domain errors ──────────────────────────────────────────────────────────────
 
 class InvalidEmailDomain(ValueError):
-    """Email isn't on an allowed school domain, isn't the lone Booth guest, or is malformed."""
+    """Email domain isn't in the schools registry, or is malformed."""
 
 
 class EmailAlreadyRegistered(ValueError):
@@ -73,32 +71,41 @@ def normalize_email(email: str) -> str:
     return (email or "").strip().lower()
 
 
-def validate_email(email: str) -> str:
-    """Return the normalized email iff it's on an allowed school domain or Booth guest.
+def domain_of(email: str) -> str:
+    """Return the lowercase domain part of a normalized email ('' if malformed)."""
+    e = normalize_email(email)
+    return e.split("@", 1)[1] if e.count("@") == 1 else ""
 
-    Conservative: single '@', suffix / allow-list checks. Verification email
-    is the actual proof of inbox control.
+
+def validate_email(email: str) -> str:
+    """Return the normalized email iff its domain is in the schools registry.
+
+    The registry IS the school allowlist (OD-B5-2): a domain is allowed exactly
+    when a schools row exists for it. Verification of inbox control happens via
+    the sign-up link / OTP code.
+
+    Raises InvalidEmailDomain for a malformed address or an unregistered domain.
     """
+    from webapp.repositories.schools import domain_is_registered  # avoid import cycle
+
     e = normalize_email(email)
     if "@" not in e or e.count("@") != 1:
         raise InvalidEmailDomain("Email address looks malformed.")
-    local = e.split("@")[0]
+    local, domain = e.split("@", 1)
     if not local:
         raise InvalidEmailDomain("Email address is missing the local part.")
-
-    if any(e.endswith(suffix) for suffix in ALLOWED_DOMAIN_SUFFIXES):
-        return e
-    if e == ALLOWED_BOOTH_EMAIL:
-        return e
-    if e.endswith(BOOTH_DOMAIN_SUFFIX):
+    if not domain_is_registered(domain):
         raise InvalidEmailDomain(
-            "Chicago Booth sign-up is limited to invited addresses on this site."
+            "Sign-up is restricted to registered school email addresses."
         )
-    domains = ", ".join(ALLOWED_DOMAIN_SUFFIXES)
-    raise InvalidEmailDomain(
-        f"Sign-up is restricted to {domains} addresses "
-        "and authorized Booth collaborators."
-    )
+    return e
+
+
+def school_id_for_email(email: str) -> Optional[int]:
+    """Return the school id for the email's domain, or None if unregistered."""
+    from webapp.repositories.schools import get_school_by_domain
+    school = get_school_by_domain(domain_of(email))
+    return school["id"] if school else None
 
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
@@ -117,7 +124,7 @@ def create_user(email: str, password: str) -> User:
     """Create a new user with a hashed password. Email must be allowed.
 
     Raises:
-      InvalidEmailDomain — domain / guest rules violated
+      InvalidEmailDomain — email domain not in the schools registry
       WeakPasswordError  — password too short / long
       EmailAlreadyRegistered — email taken
     """
@@ -144,6 +151,50 @@ def create_user(email: str, password: str) -> User:
 
     logger.info("Created user id=%d email=%s", row["id"], row["email"])
     return _row_to_user(row)
+
+
+def create_school_user(email: str, *, display_name: Optional[str] = None) -> User:
+    """Create a user for a registry-whitelisted email with NO usable password.
+
+    Used by OTP / OAuth / sign-up completion where the user proves control via a
+    code or provider, not a password. The password hash is a random unguessable
+    value so authenticate() can never match; the user can set a real password
+    later via the reset flow. school_id is stamped from the email's domain.
+
+    Raises InvalidEmailDomain if the domain isn't registered.
+    """
+    e = validate_email(email)
+    school_id = school_id_for_email(e)
+    unusable_hash = hash_password(secrets.token_urlsafe(32))
+
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO users (email, password_hash, display_name, school_id)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, email, email_verified_at, created_at, last_login_at;
+                    """,
+                    (e, unusable_hash, display_name, school_id),
+                )
+            except psycopg.errors.UniqueViolation as exc:
+                raise EmailAlreadyRegistered(
+                    "An account with that email already exists."
+                ) from exc
+            row = cur.fetchone()
+
+    logger.info("Created school user id=%d email=%s", row["id"], row["email"])
+    return _row_to_user(row)
+
+
+def get_or_create_school_user(email: str, *, display_name: Optional[str] = None) -> User:
+    """Return the existing user for `email`, or create a school user if the
+    domain is registered. Raises InvalidEmailDomain if new + unregistered."""
+    existing = get_user_by_email(email)
+    if existing is not None:
+        return existing
+    return create_school_user(email, display_name=display_name)
 
 
 def get_user_by_email(email: str) -> Optional[User]:
@@ -289,3 +340,54 @@ def mark_email_verified(user_id: int) -> None:
                 (user_id,),
             )
     logger.info("Marked user id=%d as email-verified", user_id)
+
+
+# ── OAuth (OIDC) linking ────────────────────────────────────────────────────────
+
+_OAUTH_SUB_COLUMNS = {"google": "google_sub", "linkedin": "linkedin_sub"}
+
+
+def _oauth_column(provider: str) -> str:
+    col = _OAUTH_SUB_COLUMNS.get(provider)
+    if col is None:
+        raise ValueError(f"unknown oauth provider: {provider!r}")
+    return col
+
+
+def get_user_by_oauth_sub(provider: str, sub: str) -> Optional[User]:
+    """Return the user linked to this provider `sub`, or None. The column name
+    comes from a fixed whitelist (never interpolated user input)."""
+    column = _oauth_column(provider)
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"SELECT id, email, email_verified_at, created_at, last_login_at "
+                f"FROM users WHERE {column} = %s;",
+                (sub,),
+            )
+            row = cur.fetchone()
+    return _row_to_user(row) if row else None
+
+
+def link_oauth_sub(user_id: int, provider: str, sub: str) -> None:
+    """Attach a provider `sub` to a user (idempotent). Column from whitelist."""
+    column = _oauth_column(provider)
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE users SET {column} = %s WHERE id = %s;",
+                (sub, user_id),
+            )
+
+
+def import_oauth_name(user_id: int, name: Optional[str]) -> None:
+    """Set display_name from the provider only if the user has none yet."""
+    if not name:
+        return
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET display_name = %s "
+                "WHERE id = %s AND display_name IS NULL;",
+                (name, user_id),
+            )

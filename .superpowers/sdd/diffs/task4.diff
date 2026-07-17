@@ -1,0 +1,167 @@
+=== log ===
+b5d8bfa Add profile repository (read/update, photo key)
+
+=== stat ===
+ tests/test_profile_repo.py     | 67 +++++++++++++++++++++++++++++++++++
+ webapp/repositories/profile.py | 79 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 146 insertions(+)
+
+=== diff -U10 ===
+diff --git a/tests/test_profile_repo.py b/tests/test_profile_repo.py
+new file mode 100644
+index 0000000..b20dfe7
+--- /dev/null
++++ b/tests/test_profile_repo.py
+@@ -0,0 +1,67 @@
++"""
++Purpose: profile repository read/update + photo key.
++Inputs:  seeded dev Postgres via tests.test_ws_integration (_DB_URL/_READY);
++         user a@yale.edu.
++Outputs: mutates a@yale.edu's profile fields; restores them in tearDown.
++Run:     .venv/bin/python -m pytest tests/test_profile_repo.py -q
++"""
++
++from __future__ import annotations
++
++import unittest
++
++import psycopg
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestProfileRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email = 'a@yale.edu';")
++                cls.uid = cur.fetchone()[0]
++
++    @classmethod
++    def tearDownClass(cls):
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "UPDATE users SET bio = NULL, linkedin_url = NULL, "
++                    "photo_key = NULL WHERE id = %s;", (cls.uid,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_get_profile_includes_school(self):
++        from webapp.repositories.profile import get_profile
++        p = get_profile(self.uid)
++        self.assertEqual(p["email"], "a@yale.edu")
++        self.assertIsNotNone(p["school"])
++        self.assertEqual(p["school"]["domain"], "yale.edu")
++
++    def test_update_only_sets_provided_fields(self):
++        from webapp.repositories.profile import update_profile, get_profile
++        before = get_profile(self.uid)["display_name"]
++        p = update_profile(self.uid, display_name=None, bio="Second-year MBA",
++                           linkedin_url="https://linkedin.com/in/alice")
++        self.assertEqual(p["bio"], "Second-year MBA")
++        self.assertEqual(p["linkedin_url"], "https://linkedin.com/in/alice")
++        self.assertEqual(p["display_name"], before)  # None left it unchanged
++
++    def test_set_photo_key(self):
++        from webapp.repositories.profile import set_photo_key, get_profile
++        set_photo_key(self.uid, f"avatars/{self.uid}.png")
++        self.assertEqual(get_profile(self.uid)["photo_key"], f"avatars/{self.uid}.png")
++
++    def test_get_profile_unknown_user_none(self):
++        from webapp.repositories.profile import get_profile
++        self.assertIsNone(get_profile(99999999))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/repositories/profile.py b/webapp/repositories/profile.py
+new file mode 100644
+index 0000000..4d99c73
+--- /dev/null
++++ b/webapp/repositories/profile.py
+@@ -0,0 +1,79 @@
++"""
++Purpose: Read/update the profile fields on users (display_name, bio,
++         linkedin_url, photo_key) plus the read-only school binding.
++Inputs:  users + schools tables; DATABASE_URL-backed pool.
++Outputs: UPDATEs users rows (never touches email/password/school_id here).
++Run:     imported by webapp/routes/profile.py.
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++from webapp.repositories.schools import get_school_by_id
++
++
++def get_profile(user_id: int) -> Optional[dict]:
++    """Return the profile dict for user_id, or None if the user doesn't exist."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                """
++                SELECT id, email, display_name, bio, linkedin_url,
++                       photo_key, school_id
++                FROM users WHERE id = %s;
++                """,
++                (user_id,),
++            )
++            row = cur.fetchone()
++    if row is None:
++        return None
++    school = get_school_by_id(row["school_id"]) if row["school_id"] else None
++    return {
++        "id": row["id"],
++        "email": row["email"],
++        "display_name": row["display_name"],
++        "bio": row["bio"],
++        "linkedin_url": row["linkedin_url"],
++        "photo_key": row["photo_key"],
++        "school": school,
++    }
++
++
++def update_profile(
++    user_id: int,
++    *,
++    display_name: Optional[str],
++    bio: Optional[str],
++    linkedin_url: Optional[str],
++) -> dict:
++    """Update only the fields that are not None (COALESCE keeps the rest).
++
++    Returns the fresh profile. Callers validate lengths before calling.
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                UPDATE users SET
++                    display_name = COALESCE(%s, display_name),
++                    bio          = COALESCE(%s, bio),
++                    linkedin_url = COALESCE(%s, linkedin_url)
++                WHERE id = %s;
++                """,
++                (display_name, bio, linkedin_url, user_id),
++            )
++    return get_profile(user_id)
++
++
++def set_photo_key(user_id: int, photo_key: str) -> None:
++    """Point the user's avatar at a storage key (avatars/{user_id}.{ext})."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE users SET photo_key = %s WHERE id = %s;",
++                (photo_key, user_id),
++            )

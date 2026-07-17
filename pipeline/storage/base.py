@@ -56,6 +56,15 @@ class Storage(ABC):
         ``Content-Disposition: attachment`` so browsers save the file.
         """
 
+    @abstractmethod
+    def write(self, key: str, data: bytes, *, content_type: str) -> None:
+        """Store `data` under `key`, replacing any existing object.
+
+        `content_type` is the MIME type (e.g. 'image/png') — cloud backends
+        persist it so served URLs carry the right Content-Type. Callers
+        validate size/type before calling; this method just persists bytes.
+        """
+
     def local_path(self, key: str) -> Optional[Path]:
         """If the storage backend has a real filesystem path for this key,
         return it. Otherwise return None.

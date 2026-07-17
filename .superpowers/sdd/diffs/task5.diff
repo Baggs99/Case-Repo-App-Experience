@@ -1,0 +1,309 @@
+=== log ===
+5df69bb Add notification settings repo and push choke-point category filter
+
+=== stat ===
+ tests/test_notification_settings.py          | 156 +++++++++++++++++++++++++++
+ webapp/push/events.py                        |  14 ++-
+ webapp/repositories/notification_settings.py |  70 ++++++++++++
+ 3 files changed, 237 insertions(+), 3 deletions(-)
+
+=== diff -U10 ===
+diff --git a/tests/test_notification_settings.py b/tests/test_notification_settings.py
+new file mode 100644
+index 0000000..6399ce8
+--- /dev/null
++++ b/tests/test_notification_settings.py
+@@ -0,0 +1,156 @@
++"""
++Purpose: notification_settings repo (defaults, upsert) + push choke point that
++         skips a category the user disabled.
++Inputs:  seeded dev Postgres via tests.test_ws_integration (_DB_URL/_READY);
++         user b@yale.edu. send_push + load_settings are monkeypatched.
++Outputs: writes b@yale.edu's notification_settings + a device token; cleans up.
++Run:     .venv/bin/python -m pytest tests/test_notification_settings.py -q
++"""
++
++from __future__ import annotations
++
++import unittest
++from dataclasses import dataclass
++from unittest.mock import patch
++
++import psycopg
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@dataclass
++class _EnabledSettings:
++    apns_key_path: str | None = "/tmp/fake.p8"
++    apns_key_id: str | None = "K"
++    apns_team_id: str | None = "T"
++    apns_bundle_id: str | None = "study.mycase"
++    apns_use_sandbox: bool = True
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestNotificationSettingsRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email = 'b@yale.edu';")
++                cls.uid = cur.fetchone()[0]
++
++    @classmethod
++    def tearDownClass(cls):
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM notification_settings WHERE user_id = %s;",
++                            (cls.uid,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _clean(self):
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM notification_settings WHERE user_id = %s;",
++                            (self.uid,))
++
++    def test_defaults_all_true_when_no_row(self):
++        from webapp.repositories.notification_settings import get_settings
++        self._clean()
++        s = get_settings(self.uid)
++        self.assertEqual(s, {"proposals": True, "session_reminders": True,
++                             "feedback": True, "free_now": True, "community": True})
++
++    def test_update_upserts_and_returns_full(self):
++        from webapp.repositories.notification_settings import update_settings, get_settings
++        self._clean()
++        s = update_settings(self.uid, community=False, free_now=False)
++        self.assertFalse(s["community"])
++        self.assertFalse(s["free_now"])
++        self.assertTrue(s["proposals"])
++        self.assertFalse(get_settings(self.uid)["community"])
++
++    def test_notifications_allowed(self):
++        from webapp.repositories.notification_settings import update_settings, notifications_allowed
++        self._clean()
++        update_settings(self.uid, community=False)
++        self.assertFalse(notifications_allowed(self.uid, "community"))
++        self.assertTrue(notifications_allowed(self.uid, "proposals"))
++        self.assertTrue(notifications_allowed(self.uid, "unknown_category"))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestPushChokePoint(unittest.IsolatedAsyncioTestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email = 'b@yale.edu';")
++                cls.uid = cur.fetchone()[0]
++
++    @classmethod
++    def tearDownClass(cls):
++        from webapp.repositories.device_tokens import delete_token
++        delete_token(cls.uid, "choke-token")
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM notification_settings WHERE user_id = %s;",
++                            (cls.uid,))
++        cls._ctx.__exit__(None, None, None)
++
++    async def _run(self, *, category, disable):
++        from webapp.push import events
++        from webapp.repositories.device_tokens import upsert_token
++        from webapp.repositories.notification_settings import update_settings
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM notification_settings WHERE user_id = %s;",
++                            (self.uid,))
++        upsert_token(self.uid, "choke-token", "ios")
++        if disable:
++            update_settings(self.uid, **{category: False})
++        sent = []
++
++        async def _fake_send(token, **kwargs):
++            sent.append(token)
++            return 200
++
++        with patch.object(events, "load_settings", return_value=_EnabledSettings()), \
++             patch.object(events, "send_push", _fake_send):
++            await events.push_to_user(self.uid, title="t", body="b", category=category)
++        return sent
++
++    async def test_disabled_category_not_sent(self):
++        sent = await self._run(category="community", disable=True)
++        self.assertEqual(sent, [])
++
++    async def test_enabled_category_sent(self):
++        sent = await self._run(category="community", disable=False)
++        self.assertEqual(sent, ["choke-token"])
++
++    async def test_no_category_always_sent(self):
++        from webapp.push import events
++        from webapp.repositories.device_tokens import upsert_token
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("UPDATE notification_settings SET community = FALSE "
++                            "WHERE user_id = %s;", (self.uid,))
++        upsert_token(self.uid, "choke-token", "ios")
++        sent = []
++
++        async def _fake_send(token, **kwargs):
++            sent.append(token)
++            return 200
++
++        with patch.object(events, "load_settings", return_value=_EnabledSettings()), \
++             patch.object(events, "send_push", _fake_send):
++            await events.push_to_user(self.uid, title="t", body="b")  # category=None
++        self.assertEqual(sent, ["choke-token"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/push/events.py b/webapp/push/events.py
+index b979776..f3a142d 100644
+--- a/webapp/push/events.py
++++ b/webapp/push/events.py
+@@ -1,13 +1,13 @@
+ """
+-Purpose: Fan out APNs pushes to a user's devices and schedule them fire-and-forget.
+-Inputs: user_id, title/body/data/interruption_level; APNS_* settings (webapp.settings.load_settings); device_tokens table.
++Purpose: Fan out APNs pushes to a user's devices and schedule them fire-and-forget; consult per-user notification_settings before sending a categorized push.
++Inputs: user_id, title/body/data/interruption_level/category; APNS_* settings (webapp.settings.load_settings); device_tokens + notification_settings tables.
+ Outputs: HTTPS pushes via webapp.push.apns.send_push; deletes dead (410) tokens.
+ Run: called from route handlers (via FastAPI BackgroundTasks) and webapp/routes/signal_ws.py (via notify()); no CLI entrypoint.
+ """
+ 
+ from __future__ import annotations
+ 
+ import asyncio
+ import logging
+ 
+ import httpx
+@@ -23,31 +23,39 @@ logger = logging.getLogger(__name__)
+ _background_tasks: set[asyncio.Task] = set()
+ 
+ 
+ def push_enabled(settings) -> bool:
+     """True iff all four APNs provider settings are present."""
+     return bool(settings.apns_key_path and settings.apns_key_id
+                 and settings.apns_team_id and settings.apns_bundle_id)
+ 
+ 
+ async def push_to_user(user_id: int, *, title: str, body: str, data: dict | None = None,
+-                       interruption_level: str | None = None) -> None:
++                       interruption_level: str | None = None,
++                       category: str | None = None) -> None:
+     """Push `title`/`body` to every device registered to user_id.
+ 
+     No-op when APNs isn't configured (normal in dev). Deletes a token on a
+     410 (dead token) response. Never raises — a push failure must not break
+     the caller.
+     """
+     try:
+         settings = load_settings()
+         if not push_enabled(settings):
+             return
++        # Choke point: honor the user's per-category notification settings.
++        # category=None (legacy callers) is never filtered. B6 passes
++        # category="community"; see notification_settings.CATEGORIES.
++        if category is not None:
++            from webapp.repositories.notification_settings import notifications_allowed
++            if not notifications_allowed(user_id, category):
++                return
+         client = httpx.AsyncClient(http2=True, timeout=10.0)
+         try:
+             for token in tokens_for_user(user_id):
+                 try:
+                     status = await send_push(
+                         token, title=title, body=body, data=data,
+                         interruption_level=interruption_level,
+                         settings=settings, client=client,
+                     )
+                 except Exception:
+diff --git a/webapp/repositories/notification_settings.py b/webapp/repositories/notification_settings.py
+new file mode 100644
+index 0000000..fcd3832
+--- /dev/null
++++ b/webapp/repositories/notification_settings.py
+@@ -0,0 +1,70 @@
++"""
++Purpose: Per-user notification category toggles + the fail-open predicate the
++         push fan-out consults. Missing row means all categories enabled.
++Inputs:  notification_settings table (migration 024); DATABASE_URL pool.
++Outputs: UPSERTs a user's notification_settings row.
++Run:     imported by webapp/push/events.py and webapp/routes/profile.py.
++"""
++
++from __future__ import annotations
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++CATEGORIES = ("proposals", "session_reminders", "feedback", "free_now", "community")
++_DEFAULTS = {c: True for c in CATEGORIES}
++
++
++def get_settings(user_id: int) -> dict:
++    """Return all five category flags. Defaults to all-True with no row."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT proposals, session_reminders, feedback, free_now, community "
++                "FROM notification_settings WHERE user_id = %s;",
++                (user_id,),
++            )
++            row = cur.fetchone()
++    if row is None:
++        return dict(_DEFAULTS)
++    return {c: bool(row[c]) for c in CATEGORIES}
++
++
++def update_settings(user_id: int, **flags: bool) -> dict:
++    """Upsert the given category flags for user_id. Unknown keys are ignored.
++
++    Returns the full settings dict after the update.
++    """
++    valid = {k: bool(v) for k, v in flags.items() if k in CATEGORIES}
++    if not valid:
++        return get_settings(user_id)
++
++    current = get_settings(user_id)
++    merged = {**current, **valid}
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                """
++                INSERT INTO notification_settings
++                    (user_id, proposals, session_reminders, feedback, free_now, community)
++                VALUES (%s, %s, %s, %s, %s, %s)
++                ON CONFLICT (user_id) DO UPDATE SET
++                    proposals = EXCLUDED.proposals,
++                    session_reminders = EXCLUDED.session_reminders,
++                    feedback = EXCLUDED.feedback,
++                    free_now = EXCLUDED.free_now,
++                    community = EXCLUDED.community;
++                """,
++                (user_id, merged["proposals"], merged["session_reminders"],
++                 merged["feedback"], merged["free_now"], merged["community"]),
++            )
++    return merged
++
++
++def notifications_allowed(user_id: int, category: str) -> bool:
++    """True iff `category` is enabled for the user. Unknown categories -> True
++    (fail-open: an uncategorized push is never silently dropped)."""
++    if category not in CATEGORIES:
++        return True
++    return get_settings(user_id)[category]
