@@ -1,0 +1,370 @@
+=== git log --oneline 8e11634..c2af3a9 ===
+c2af3a9 Add groups migration + repository (B6 Task 3)
+
+=== git diff --stat 8e11634..c2af3a9 ===
+ db/migrations/031_groups_and_community.sql |  37 ++++++
+ tests/test_b6_groups_repo.py               | 126 ++++++++++++++++++++
+ webapp/repositories/groups.py              | 179 +++++++++++++++++++++++++++++
+ 3 files changed, 342 insertions(+)
+
+=== git diff -U10 8e11634..c2af3a9 ===
+diff --git a/db/migrations/031_groups_and_community.sql b/db/migrations/031_groups_and_community.sql
+new file mode 100644
+index 0000000..c873518
+--- /dev/null
++++ b/db/migrations/031_groups_and_community.sql
+@@ -0,0 +1,37 @@
++-- 031: Community groups + memberships, school-leader role, and the
++-- schools.campus_city column the school-vs-school board renders. B6.
++
++CREATE TABLE IF NOT EXISTS groups (
++    id          SERIAL      PRIMARY KEY,
++    name        TEXT        NOT NULL,
++    school_id   INTEGER     REFERENCES schools(id),
++    invite_code TEXT,
++    created_by  INTEGER     NOT NULL REFERENCES users(id),
++    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
++);
++-- 6-char invite code (B1 short-code alphabet); partial unique like pairing_tokens.
++CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_invite_code
++    ON groups (invite_code) WHERE invite_code IS NOT NULL;
++
++CREATE TABLE IF NOT EXISTS group_members (
++    group_id  INTEGER     NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
++    user_id   INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++    role      TEXT        NOT NULL DEFAULT 'member'
++                          CHECK (role IN ('admin', 'member')),
++    joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++    PRIMARY KEY (group_id, user_id)
++);
++CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members (user_id);
++
++-- School-leader role: admin-assigned (seedable), no self-serve path yet.
++CREATE TABLE IF NOT EXISTS school_leaders (
++    school_id INTEGER NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
++    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++    PRIMARY KEY (school_id, user_id)
++);
++
++-- Campus city for the school-vs-school board (avg member percentile + city).
++ALTER TABLE schools ADD COLUMN IF NOT EXISTS campus_city TEXT;
++UPDATE schools SET campus_city = 'New Haven' WHERE domain = 'yale.edu'         AND campus_city IS NULL;
++UPDATE schools SET campus_city = 'Ann Arbor' WHERE domain = 'umich.edu'        AND campus_city IS NULL;
++UPDATE schools SET campus_city = 'Chicago'   WHERE domain = 'chicagobooth.edu' AND campus_city IS NULL;
+diff --git a/tests/test_b6_groups_repo.py b/tests/test_b6_groups_repo.py
+new file mode 100644
+index 0000000..641bc2f
+--- /dev/null
++++ b/tests/test_b6_groups_repo.py
+@@ -0,0 +1,126 @@
++"""B6 Task 3: groups repository — create/join/leave/transfer + membership
++queries. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient (bootstraps the db pool)")
++class TestGroupsRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Repo functions call webapp.db.get_pool(); enter a TestClient to init it.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++        cls.a, cls.b, cls.c = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        cls._gids = []
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def tearDown(self):
++        import psycopg
++        if self._gids:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM groups WHERE id = ANY(%s);", (self._gids,))
++            self._gids.clear()
++
++    def _make(self, name, creator):
++        from webapp.repositories import groups as repo
++        g = repo.create_group(name, creator)
++        self._gids.append(g["id"])
++        return g
++
++    def test_create_makes_admin_and_code(self):
++        from webapp.repositories import groups as repo
++        g = self._make("Cohort C-14", self.a)
++        self.assertEqual(g["role"], "admin")
++        self.assertEqual(len(g["invite_code"]), 6)
++        self.assertTrue(repo.is_admin(g["id"], self.a))
++        self.assertEqual(repo.member_role(g["id"], self.a), "admin")
++
++    def test_join_by_code(self):
++        from webapp.repositories import groups as repo
++        g = self._make("Cohort C-14", self.a)
++        joined = repo.join_by_code(g["invite_code"], self.b)
++        self.assertEqual(joined["id"], g["id"])
++        self.assertEqual(joined["role"], "member")
++        self.assertFalse(joined["already_member"])
++        self.assertTrue(repo.is_member(g["id"], self.b))
++        # idempotent
++        self.assertTrue(repo.join_by_code(g["invite_code"], self.b)["already_member"])
++
++    def test_join_unknown_code(self):
++        from webapp.repositories import groups as repo
++        self.assertIsNone(repo.join_by_code("ZZZZZZ", self.b))
++
++    def test_transfer_admin(self):
++        from webapp.repositories import groups as repo
++        g = self._make("Cohort C-14", self.a)
++        repo.join_by_code(g["invite_code"], self.b)
++        # transfer to self is a safe no-op — never orphans the group
++        self.assertTrue(repo.transfer_admin(g["id"], self.a, self.a))
++        self.assertTrue(repo.is_admin(g["id"], self.a))
++        self.assertTrue(repo.transfer_admin(g["id"], self.a, self.b))
++        self.assertTrue(repo.is_admin(g["id"], self.b))
++        self.assertEqual(repo.member_role(g["id"], self.a), "member")
++        # target not a member
++        self.assertFalse(repo.transfer_admin(g["id"], self.b, self.c))
++
++    def test_leave_rules(self):
++        from webapp.repositories import groups as repo
++        g = self._make("Cohort C-14", self.a)
++        repo.join_by_code(g["invite_code"], self.b)
++        # sole admin with a remaining member must transfer first
++        with self.assertRaises(PermissionError):
++            repo.leave_group(g["id"], self.a)
++        self.assertEqual(repo.leave_group(g["id"], self.b), "left")
++        # now a is the last member -> leaving deletes the group
++        self.assertEqual(repo.leave_group(g["id"], self.a), "deleted")
++        self.assertIsNone(repo.get_group(g["id"]))
++
++    def test_list_my_groups_and_members(self):
++        from webapp.repositories import groups as repo
++        g = self._make("Cohort C-14", self.a)
++        repo.join_by_code(g["invite_code"], self.b)
++        mine = repo.list_my_groups(self.a)
++        self.assertIn(g["id"], [x["id"] for x in mine])
++        members = repo.list_members(g["id"])
++        self.assertEqual({m["user_id"] for m in members}, {self.a, self.b})
++        self.assertEqual(sorted(repo.admin_ids(g["id"])), [self.a])
++
++    def test_school_leader_flag(self):
++        from webapp.repositories import groups as repo
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT school_id FROM users WHERE id = %s;", (self.a,))
++                sid = cur.fetchone()[0]
++        self.assertIsNotNone(sid, "seeded yale user must have a school_id")
++        self.assertFalse(repo.is_school_leader(self.a, sid))
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("INSERT INTO school_leaders (school_id, user_id) VALUES (%s,%s)"
++                            " ON CONFLICT DO NOTHING;", (sid, self.a))
++        try:
++            self.assertTrue(repo.is_school_leader(self.a, sid))
++        finally:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM school_leaders WHERE school_id=%s AND user_id=%s;",
++                                (sid, self.a))
+diff --git a/webapp/repositories/groups.py b/webapp/repositories/groups.py
+new file mode 100644
+index 0000000..2be737c
+--- /dev/null
++++ b/webapp/repositories/groups.py
+@@ -0,0 +1,179 @@
++"""
++Purpose: Community groups for B6 — create (creator=admin), join by invite code,
++         leave, transfer admin, and membership/role queries.
++Inputs:  group name, invite code, user ids; reads/writes groups + group_members
++         + school_leaders; reads users.school_id.
++Outputs: INSERT/UPDATE/DELETE on group tables; dict rows for the API layer.
++Run:     from webapp.repositories import groups; groups.create_group("C-14", uid)
++"""
++
++from __future__ import annotations
++
++import psycopg
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++from webapp.repositories.pairing_tokens import _gen_short_code
++
++_MEMBER = ("gm.user_id,"
++           " COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS display_name,"
++           " u.photo_key, gm.role")
++
++
++def create_group(name: str, creator_id: int) -> dict:
++    """Create a group, stamp the creator school_id, mint a unique invite code,
++    and make the creator the admin. Returns the group + role."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute("SELECT school_id FROM users WHERE id = %s;", (creator_id,))
++            row = cur.fetchone()
++            school_id = row["school_id"] if row else None
++            group_id = None
++            for _ in range(5):  # collision-retry, mirrors pairing_tokens.mint_token
++                code = _gen_short_code(6)
++                try:
++                    cur.execute(
++                        "INSERT INTO groups (name, school_id, invite_code, created_by)"
++                        " VALUES (%(n)s, %(s)s, %(c)s, %(u)s) RETURNING id;",
++                        {"n": name, "s": school_id, "c": code, "u": creator_id})
++                    group_id = cur.fetchone()["id"]
++                    break
++                except psycopg.errors.UniqueViolation:
++                    conn.rollback()
++            if group_id is None:
++                raise RuntimeError("could not mint a unique invite code")
++            cur.execute(
++                "INSERT INTO group_members (group_id, user_id, role)"
++                " VALUES (%s, %s, 'admin');", (group_id, creator_id))
++            return {"id": group_id, "name": name, "school_id": school_id,
++                    "invite_code": code, "role": "admin"}
++
++
++def join_by_code(invite_code: str, user_id: int) -> dict | None:
++    """Join the group with this code. None if the code is unknown."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT id, name, school_id, invite_code FROM groups"
++                " WHERE invite_code = %s;", (invite_code,))
++            g = cur.fetchone()
++            if g is None:
++                return None
++            cur.execute(
++                "INSERT INTO group_members (group_id, user_id, role)"
++                " VALUES (%s, %s, 'member') ON CONFLICT (group_id, user_id) DO NOTHING;",
++                (g["id"], user_id))
++            already = cur.rowcount == 0
++            # Read the role on THIS cursor — a fresh pooled connection could not
++            # see the uncommitted INSERT (READ COMMITTED) and would return None.
++            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s;",
++                        (g["id"], user_id))
++            role = cur.fetchone()["role"]
++            return {"id": g["id"], "name": g["name"], "school_id": g["school_id"],
++                    "invite_code": g["invite_code"], "role": role,
++                    "already_member": already}
++
++
++def leave_group(group_id: int, user_id: int) -> str:
++    """Leave a group. Returns 'deleted' when the last member leaves (group row
++    removed), else 'left'. Raises PermissionError when a sole admin tries to
++    leave while other members remain (must transfer_admin first)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s;",
++                        (group_id, user_id))
++            me = cur.fetchone()
++            if me is None:
++                return "left"  # not a member; idempotent
++            cur.execute("SELECT COUNT(*) AS n FROM group_members WHERE group_id=%s;",
++                        (group_id,))
++            total = cur.fetchone()["n"]
++            if total == 1:
++                cur.execute("DELETE FROM groups WHERE id=%s;", (group_id,))  # cascades members
++                return "deleted"
++            if me["role"] == "admin":
++                cur.execute("SELECT COUNT(*) AS n FROM group_members"
++                            " WHERE group_id=%s AND role='admin';", (group_id,))
++                if cur.fetchone()["n"] == 1:
++                    raise PermissionError("transfer admin before leaving")
++            cur.execute("DELETE FROM group_members WHERE group_id=%s AND user_id=%s;",
++                        (group_id, user_id))
++            return "left"
++
++
++def transfer_admin(group_id: int, from_user_id: int, to_user_id: int) -> bool:
++    """Demote from_user to member and promote to_user to admin. Caller checks
++    from_user is an admin. False when to_user is not a member. Transferring to
++    self is a no-op (keeps the caller admin) — never leaves the group adminless."""
++    if from_user_id == to_user_id:
++        return True
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("UPDATE group_members SET role='admin'"
++                        " WHERE group_id=%s AND user_id=%s;", (group_id, to_user_id))
++            if cur.rowcount == 0:
++                return False
++            cur.execute("UPDATE group_members SET role='member'"
++                        " WHERE group_id=%s AND user_id=%s;", (group_id, from_user_id))
++            return True
++
++
++def list_my_groups(user_id: int) -> list[dict]:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT g.id, g.name, g.school_id, g.invite_code, gm.role"
++                " FROM group_members gm JOIN groups g ON g.id = gm.group_id"
++                " WHERE gm.user_id = %s ORDER BY g.created_at DESC;", (user_id,))
++            return cur.fetchall()
++
++
++def get_group(group_id: int) -> dict | None:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT id, name, school_id, invite_code, created_by, created_at"
++                " FROM groups WHERE id = %s;", (group_id,))
++            return cur.fetchone()
++
++
++def list_members(group_id: int) -> list[dict]:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"SELECT {_MEMBER} FROM group_members gm JOIN users u ON u.id = gm.user_id"
++                f" WHERE gm.group_id = %s ORDER BY gm.role, display_name;", (group_id,))
++            return cur.fetchall()
++
++
++def member_role(group_id: int, user_id: int) -> str | None:
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s;",
++                        (group_id, user_id))
++            row = cur.fetchone()
++            return row[0] if row else None
++
++
++def is_member(group_id: int, user_id: int) -> bool:
++    return member_role(group_id, user_id) is not None
++
++
++def is_admin(group_id: int, user_id: int) -> bool:
++    return member_role(group_id, user_id) == "admin"
++
++
++def admin_ids(group_id: int) -> list[int]:
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT user_id FROM group_members"
++                        " WHERE group_id=%s AND role='admin';", (group_id,))
++            return [r[0] for r in cur.fetchall()]
++
++
++def is_school_leader(user_id: int, school_id: int) -> bool:
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT 1 FROM school_leaders WHERE user_id=%s AND school_id=%s;",
++                        (user_id, school_id))
++            return cur.fetchone() is not None

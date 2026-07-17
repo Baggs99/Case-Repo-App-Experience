@@ -52,9 +52,12 @@ from webapp.routes import admin as admin_routes
 from webapp.routes import api_v1 as api_v1_routes
 from webapp.routes import auth as auth_routes
 from webapp.routes import auth_oauth as auth_oauth_routes
+from webapp.routes import connections as connections_routes
 from webapp.routes import files as files_routes
 from webapp.routes import guest as guest_routes
 from webapp.routes import exhibits as exhibits_routes
+from webapp.routes import groups as groups_routes
+from webapp.routes import leaderboards as leaderboards_routes
 from webapp.routes import onboarding as onboarding_routes
 from webapp.routes import pages as pages_routes
 from webapp.routes import practice as practice_routes
@@ -156,6 +159,9 @@ def create_app() -> FastAPI:
     app.include_router(profile_routes.router)
     app.include_router(onboarding_routes.router)
     app.include_router(auth_oauth_routes.router)
+    app.include_router(connections_routes.router)
+    app.include_router(groups_routes.router)
+    app.include_router(leaderboards_routes.router)
 
     return app
 
