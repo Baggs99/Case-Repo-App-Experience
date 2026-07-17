@@ -9,10 +9,13 @@ Updated: 2026-07-17 · Branch: fe/f4-library · Worktree: /Users/thomaskgould/de
 - Finish line: iOS ≥ 313 + new VM tests; backend stays 655 (iOS-only phase).
 
 ## Now
-Plan written → plan review → task loop.
+Plan APPROVED (2 review rounds) → executing Task 1 (networking).
 
 ## Done
-- (pending)
+- Bootstrap: DB created + seeded; baselines backend 655 / iOS 313 / xcodegen idempotent.
+- Plan + plan-review r1 (4 Important + 9 Minor, all resolved) + r2 (blocking stale-deletion strike
+  + detail-meta nit, both fixed) → reviewer stated "Fix #1 and it's an APPROVE" → APPROVED.
+  Plan: docs/superpowers/plans/2026-07-17-fe-f4-plan.md.
 
 ## Blocked / decisions needed
 - (none yet)
