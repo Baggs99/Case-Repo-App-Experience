@@ -34,10 +34,11 @@ BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
 @dataclass(frozen=True)
 class User:
     id: int
-    email: str
+    email: Optional[str]
     email_verified_at: Optional[datetime]
     created_at: datetime
     last_login_at: Optional[datetime]
+    is_guest: bool = False
 
     @property
     def is_verified(self) -> bool:
@@ -110,6 +111,7 @@ def _row_to_user(row: dict) -> User:
         email_verified_at=row["email_verified_at"],
         created_at=row["created_at"],
         last_login_at=row["last_login_at"],
+        is_guest=row.get("is_guest", False),
     )
 
 
@@ -152,7 +154,7 @@ def get_user_by_email(email: str) -> Optional[User]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, email, email_verified_at, created_at, last_login_at
+                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
                 FROM users WHERE email = %s;
                 """,
                 (e,),
@@ -166,7 +168,7 @@ def get_user_by_id(user_id: int) -> Optional[User]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, email, email_verified_at, created_at, last_login_at
+                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
                 FROM users WHERE id = %s;
                 """,
                 (user_id,),
@@ -188,7 +190,7 @@ def authenticate(email: str, password: str) -> Optional[User]:
             cur.execute(
                 """
                 SELECT id, email, email_verified_at, created_at,
-                       last_login_at, password_hash
+                       last_login_at, is_guest, password_hash
                 FROM users WHERE email = %s;
                 """,
                 (e,),
