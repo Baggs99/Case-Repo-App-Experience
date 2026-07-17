@@ -181,3 +181,98 @@ class TestRecapGateEndpoints(unittest.TestCase):
         r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
         self.assertEqual(r.status_code, 409, r.text)
         self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
+
+
+@unittest.skipUnless(_READY, "requires seeded dev Postgres")
+@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+class TestRecapEndpoints(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+        import psycopg
+        cls._ctx = TestClient(app)
+        cls.alice = cls._ctx.__enter__()   # interviewer
+        cls.bob = TestClient(app)          # candidate
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
+                        (["a@yale.edu", "b@yale.edu"],))
+            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
+        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
+            s = create_session(uid, user_agent="b3", ip_address=None)
+            c.cookies.set(SESSION_COOKIE_NAME, s.id)
+        cls.sid, cls.case_id = _seed_finalized_session(cls.aid, cls.bid, "B3 Recap Ep")
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        _purge_session(cls.sid)
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
+        cls._ctx.__exit__(None, None, None)
+
+    def test_recaps_list_shows_open_recap(self):
+        # Seed a fresh open recap: unittest runs methods alphabetically, so
+        # test_close_requires_rating_and_clears closes cls.sid before this test.
+        # Own recap keeps the assertion order-independent (sibling-test pattern).
+        sid_r, cid_r = _seed_finalized_session(self.aid, self.bid, "B3 Recap Ep List")
+        self.addCleanup(self._drop, sid_r, cid_r)
+        r = self.bob.get("/api/v1/recaps")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn(sid_r, [x["session_id"] for x in r.json()["recaps"]])
+
+    def test_close_requires_rating_and_clears(self):
+        # missing rating → 422
+        r = self.bob.post(f"/api/practice/{self.sid}/recap/close", json={})
+        self.assertEqual(r.status_code, 422, r.text)
+        # valid rating → cleared, gone from list
+        r = self.bob.post(f"/api/practice/{self.sid}/recap/close",
+                          json={"case_rating": 4, "feedback_thumbs": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn(self.sid,
+                         [x["session_id"] for x in self.bob.get("/api/v1/recaps").json()["recaps"]])
+
+    def test_interviewer_cannot_close_candidate_recap(self):
+        sid2, cid2 = _seed_finalized_session(self.aid, self.bid, "B3 Recap Ep 2")
+        self.addCleanup(self._drop, sid2, cid2)
+        r = self.alice.post(f"/api/practice/{sid2}/recap/close", json={"case_rating": 3})
+        self.assertEqual(r.status_code, 403, r.text)
+
+    def test_viewed_stamps(self):
+        sid3, cid3 = _seed_finalized_session(self.aid, self.bid, "B3 Recap Ep 3")
+        self.addCleanup(self._drop, sid3, cid3)
+        r = self.bob.post(f"/api/practice/{sid3}/recap/viewed")
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_gate_clears_then_entry_succeeds(self):
+        # Fresh open recap gates Bob; close it, then a candidate entry works.
+        gsid, gcid = _seed_finalized_session(self.aid, self.bid, "B3 Recap Gate Clear")
+        self.addCleanup(self._drop, gsid, gcid)
+        # Burn gcid for Bob too: the gate MUST win over is_burned — a dict-detail
+        # {blocked_by_recap} (not the burned string 409) proves the gate is
+        # checked before create_practice's is_burned check.
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("INSERT INTO burned (user_id, case_id, session_id)"
+                        " VALUES (%s,%s,%s) ON CONFLICT DO NOTHING;",
+                        (self.bid, gcid, gsid))
+        blocked = self.bob.post("/api/practice", json={
+            "interviewer_id": self.aid, "candidate_id": self.bid, "case_id": gcid})
+        self.assertEqual(blocked.status_code, 409)
+        self.assertEqual(blocked.json()["detail"]["blocked_by_recap"], gsid)
+        self.bob.post(f"/api/practice/{gsid}/recap/close", json={"case_rating": 4})
+        # Now a case-less open link claimed by Bob creates a negotiating session.
+        tok = self.alice.post("/api/proposals", json={
+            "case_id": None, "from_role": "interviewer"}).json()["claim_token"]
+        r = self.bob.post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNotNone(r.json()["session_id"])
+        self.addCleanup(self._drop, r.json()["session_id"], None)
+
+    def _drop(self, sid, cid):
+        import psycopg
+        _purge_session(sid)
+        if cid:
+            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))

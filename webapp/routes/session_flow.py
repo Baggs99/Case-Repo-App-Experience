@@ -12,13 +12,15 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from webapp.auth.dependencies import require_auth_api
 from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.repositories import dashboard as dashboard_repo
+from webapp.repositories import feedback as feedback_repo
 from webapp.repositories import negotiations as nego_repo
 from webapp.repositories import practice_sessions as sessions_repo
 from webapp.repositories.cases import get_case_by_id
@@ -140,3 +142,50 @@ def accept_case(session_id: int, body: AcceptCaseBody, background: BackgroundTas
     nego_repo.mark_accepted(session_id, body.case_id)
     background.add_task(hub.broadcast_session_update, session_id)
     return result
+
+
+# --- Recap gate close-out ------------------------------------------------
+
+
+class RecapCloseBody(BaseModel):
+    case_rating: int = Field(ge=1, le=5)
+    feedback_thumbs: Optional[bool] = None
+
+
+@router.get("/api/v1/recaps")
+def list_recaps(user: User = Depends(require_auth_api)):
+    """Unread finalized recaps where the caller was candidate, oldest-first."""
+    return {"recaps": feedback_repo.list_unread_recaps(user.id)}
+
+
+def _candidate_or_403(session_id: int, user_id: int) -> dict:
+    session, role = _session_or_404(session_id, user_id)
+    if role != "candidate":
+        raise HTTPException(status_code=403, detail="Only the candidate can do this")
+    return session
+
+
+@router.post("/api/practice/{session_id}/recap/viewed", dependencies=_MUTATING)
+def recap_viewed(session_id: int,
+                 user: User = Depends(require_session_participant)):
+    session = _candidate_or_403(session_id, user.id)
+    if session["state"] != "finalized":
+        raise HTTPException(status_code=409, detail="Feedback is not finalized yet")
+    feedback_repo.mark_recap_viewed(session_id)
+    return {"viewed": True}
+
+
+@router.post("/api/practice/{session_id}/recap/close", dependencies=_MUTATING)
+def recap_close(session_id: int, body: RecapCloseBody,
+                user: User = Depends(require_session_participant)):
+    """Close-out: required 1-5 case_rating clears the gate; feedback_thumbs is
+    recorded only when the interviewer was a real (non-guest) user."""
+    session = _candidate_or_403(session_id, user.id)
+    record_thumbs = not session.get("interviewer_is_guest", False)
+    try:
+        feedback_repo.close_recap(
+            session_id, case_rating=body.case_rating,
+            feedback_thumbs=body.feedback_thumbs, record_thumbs=record_thumbs)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    return {"closed": True, "gate_cleared": feedback_repo.candidate_gate(user.id) is None}
