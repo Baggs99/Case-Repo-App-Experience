@@ -4,8 +4,9 @@ Purpose: Push a "starting soon" alert to both participants of a practice
 Inputs: practice_sessions rows (state='scheduled', scheduled_at, starting_soon_pushed_at).
 Outputs: APNs pushes via webapp.push.events.push_to_user; sets
   practice_sessions.starting_soon_pushed_at so a session is only pushed once.
-Run: starting_soon_loop() is spawned as a background task from webapp.main's
-  lifespan (when push is enabled); no CLI entrypoint.
+Run: notify_starting_soon() now runs each pass of the consolidated background
+  loop in webapp/maintenance.py:maintenance_loop (spawned from webapp.main's
+  lifespan); no CLI entrypoint.
 """
 
 from __future__ import annotations
