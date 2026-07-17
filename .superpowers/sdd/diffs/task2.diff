@@ -1,0 +1,150 @@
+=== log ===
+f5c0e15 Add write() to storage layer for avatar uploads
+
+=== stat ===
+ pipeline/storage/base.py    |  9 +++++++++
+ pipeline/storage/cloud.py   |  9 +++++++++
+ pipeline/storage/local.py   |  6 ++++++
+ tests/test_storage_write.py | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 66 insertions(+)
+
+=== diff -U10 ===
+diff --git a/pipeline/storage/base.py b/pipeline/storage/base.py
+index cfa3618..210afbd 100644
+--- a/pipeline/storage/base.py
++++ b/pipeline/storage/base.py
+@@ -49,20 +49,29 @@ class Storage(ABC):
+ 
+         For local storage this is a relative path served by the web app.
+         For cloud storage this is a signed URL that expires in `expires_in`
+         seconds (defaults to 1 hour). Never returns a permanent public URL —
+         we always want fine-grained access control.
+ 
+         When ``attachment_filename`` is set, cloud backends should hint
+         ``Content-Disposition: attachment`` so browsers save the file.
+         """
+ 
++    @abstractmethod
++    def write(self, key: str, data: bytes, *, content_type: str) -> None:
++        """Store `data` under `key`, replacing any existing object.
++
++        `content_type` is the MIME type (e.g. 'image/png') — cloud backends
++        persist it so served URLs carry the right Content-Type. Callers
++        validate size/type before calling; this method just persists bytes.
++        """
++
+     def local_path(self, key: str) -> Optional[Path]:
+         """If the storage backend has a real filesystem path for this key,
+         return it. Otherwise return None.
+ 
+         Used by the web app's PDF route: filesystem paths can be served
+         with FastAPI's FileResponse (which uses the OS sendfile syscall),
+         which is dramatically faster than streaming through Python.
+         Cloud backends return None and the route falls back to redirecting
+         to a signed URL.
+         """
+diff --git a/pipeline/storage/cloud.py b/pipeline/storage/cloud.py
+index e28de42..efe4a12 100644
+--- a/pipeline/storage/cloud.py
++++ b/pipeline/storage/cloud.py
+@@ -158,12 +158,21 @@ class R2Storage(Storage):
+ 
+         with src.open("rb") as f:
+             self.client.put_object(
+                 Bucket=self.bucket,
+                 Key=key,
+                 Body=f,
+                 ContentType=content_type,
+                 **extras,
+             )
+ 
++    def write(self, key: str, data: bytes, *, content_type: str) -> None:
++        validate_key(key)
++        self.client.put_object(
++            Bucket=self.bucket,
++            Key=key,
++            Body=data,
++            ContentType=content_type,
++        )
++
+     def __repr__(self) -> str:
+         return f"R2Storage(bucket={self.bucket!r}, endpoint={self.endpoint!r})"
+diff --git a/pipeline/storage/local.py b/pipeline/storage/local.py
+index 829127b..4b95161 100644
+--- a/pipeline/storage/local.py
++++ b/pipeline/storage/local.py
+@@ -31,20 +31,26 @@ class LocalStorage(Storage):
+ 
+     def exists(self, key: str) -> bool:
+         return self._full_path(key).is_file()
+ 
+     def open(self, key: str) -> BinaryIO:
+         return self._full_path(key).open("rb")
+ 
+     def size(self, key: str) -> int:
+         return self._full_path(key).stat().st_size
+ 
++    def write(self, key: str, data: bytes, *, content_type: str) -> None:
++        _ = content_type  # local disk stores no MIME metadata; route sets it
++        path = self._full_path(key)  # validates key (rejects '..', absolute, backslash)
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_bytes(data)
++
+     def url(
+         self,
+         key: str,
+         expires_in: Optional[int] = None,
+         *,
+         attachment_filename: Optional[str] = None,
+     ) -> str:
+         _ = attachment_filename  # routing layer sets Content-Disposition for local files
+         validate_key(key)
+         # Quote each path segment individually — joining first would
+diff --git a/tests/test_storage_write.py b/tests/test_storage_write.py
+new file mode 100644
+index 0000000..a583b8b
+--- /dev/null
++++ b/tests/test_storage_write.py
+@@ -0,0 +1,42 @@
++"""
++Purpose: LocalStorage.write persists bytes under a key and rejects unsafe keys.
++Inputs:  a temp dir as the storage base.
++Outputs: writes only inside the temp dir (auto-cleaned).
++Run:     .venv/bin/python -m pytest tests/test_storage_write.py -q
++"""
++
++from __future__ import annotations
++
++import tempfile
++import unittest
++from pathlib import Path
++
++from pipeline.storage.local import LocalStorage
++
++
++class TestLocalStorageWrite(unittest.TestCase):
++    def setUp(self):
++        self._tmp = tempfile.TemporaryDirectory()
++        self.base = Path(self._tmp.name)
++        self.storage = LocalStorage(self.base)
++
++    def tearDown(self):
++        self._tmp.cleanup()
++
++    def test_write_persists_bytes_and_creates_dirs(self):
++        self.storage.write("avatars/42.png", b"\x89PNG-bytes", content_type="image/png")
++        self.assertTrue(self.storage.exists("avatars/42.png"))
++        self.assertEqual((self.base / "avatars" / "42.png").read_bytes(), b"\x89PNG-bytes")
++
++    def test_write_rejects_traversal_key(self):
++        with self.assertRaises(ValueError):
++            self.storage.write("../escape.png", b"x", content_type="image/png")
++
++    def test_write_overwrites(self):
++        self.storage.write("avatars/7.png", b"old", content_type="image/png")
++        self.storage.write("avatars/7.png", b"new", content_type="image/png")
++        self.assertEqual((self.base / "avatars" / "7.png").read_bytes(), b"new")
++
++
++if __name__ == "__main__":
++    unittest.main()
