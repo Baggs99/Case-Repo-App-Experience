@@ -26,6 +26,23 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | OD-B7-1 | Readiness-signal definition | Stand-in OK (threshold default); MUST ship seams doc: what it computes + code access points for future data-driven versions. |
 | OD-B8-1 | Gauntlet now vs after drills bank | Seams only + bank-integration contract doc ("super easy" plug-in for the eventual per-user question DB call). |
 
+## Design deltas applied 2026-07-17 (source: docs/design/myCase - Design Decisions.md §0)
+
+Briefs for B3/B6/B7/B8 amended BEFORE their dispatch: forum nixed (B6/B7),
+percentiles-never-headcounts (B6/B8), recap close-out = required 1–5 rating
++ case aggregates + done_for_you flags (B3), post-deadline flow ends in
+plan reweighting (B7). Wave-1 phases (B1/B4/B5) unaffected — verified
+against §0 before amending.
+
+## Front-end track (STAGED — dispatch after backend integration is green)
+
+Plan: docs/superpowers/plans/2026-07-17-frontend-execution.md.
+Waves FW1–FW7 (F0 foundation → F1 shell → F2/F4 → F7/F8 → F3/F5 → F6 →
+F9/F10), max 2 parallel (sim load). Leads/reviewers Opus, implementers
+Sonnet except JUDGMENT-marked tasks. Design canon imported to docs/design/
+(Mobile canvas truncated in the stale 1-series tail — see README there).
+Thomas demo checkpoints: after FW2, FW5, FW7.
+
 ## Merge log
 
 (none yet)

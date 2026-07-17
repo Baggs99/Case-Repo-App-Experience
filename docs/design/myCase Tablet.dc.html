@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&amp;family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&amp;display=swap">
+<style>
+body{margin:0;--green:#1B9A5F;--gblur:20px;--gbg:linear-gradient(135deg,rgba(255,255,255,.66),rgba(255,255,255,.4));background:#E7EBF1;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased}
+body.solid{--gbg:#FFFFFF;--gblur:0px}
+a{color:#2E56C0;text-decoration:none}a:hover{color:var(--green)}
+input::placeholder{color:#A9B4C4}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes drawpath{to{stroke-dashoffset:0}}
+@keyframes blinkdot{0%,100%{opacity:1}50%{opacity:.2}}
+</style>
+</helmet>
+
+<section style="padding:56px 64px 40px;display:flex;flex-direction:column;gap:30px">
+  <div style="border-top:2px solid #0D1C31;padding-top:14px;max-width:1194px;display:flex;flex-direction:column;gap:6px">
+    <span style="font-weight:600;font-size:11px;letter-spacing:.18em;color:var(--green)">TABLET · TURN 02 — THE OTHER FOUR TABS</span>
+    <span style="font-family:'Source Serif 4',serif;font-style:italic;font-size:15px;color:#515A66;max-width:760px">Same content decisions as the phone, relaid for width. <a href="#2a">2a</a> Home splits hero from diagnosis; <a href="#2b">2b</a> Drills puts the scoped boards beside the gauntlet (chips work); <a href="#2c">2c</a> Library goes master–detail — tap a row, the case opens beside it; <a href="#2d">2d</a> Community keeps the group page permanently open.</span>
+  </div>
+
+  <div style="display:flex;gap:64px;align-items:flex-start;flex-wrap:wrap">
+
+    <!-- ══════════ 2a — HOME ══════════ -->
+    <div id="2a" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="background:#0D1C31;color:#F3F5F8;font-weight:800;font-size:13px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex:none">2a</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#0D1C31">Home — set on the left, diagnosis on the right</div>
+          <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.5;color:#515A66;max-width:420px">Still drill-forward: the gauntlet and tonight's session lead; the coach's read and the stepped timeline get their own column.</div>
+        </div>
+      </div>
+      <div style="width:1194px;border-radius:44px;background:#000;padding:16px;box-shadow:0 40px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.12)">
+        <div data-screen-label="2a Home tablet" style="height:802px;border-radius:28px;overflow:hidden;position:relative;background:#EFF2F6;font-family:'Archivo',sans-serif;display:flex;flex-direction:column">
+          <div style="position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(27,154,95,.1),transparent 68%);top:-120px;left:-160px;pointer-events:none"></div>
+          <svg width="640" height="533" sc-camel-view-box="0 0 48 40" aria-hidden="true" style="position:absolute;top:160px;right:-260px;opacity:.5;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
+          <div style="position:absolute;top:0;left:0;right:0;z-index:20;pointer-events:none">
+            <x-import component-from-global-scope="IOSStatusBar" from="./ios-frame.jsx" hint-size="100%,54px"></x-import>
+          </div>
+          <div style="padding:58px 28px 0;display:flex;justify-content:space-between;align-items:center;position:relative;z-index:5">
+            <div style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9)">
+              <svg width="17" height="14" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt4" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt4)" stroke-width="5"></path></svg>
+              <span style="font-size:13.5px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
+            </div>
+            <div style="text-align:center">
+              <div style="font-weight:600;font-size:9px;letter-spacing:.16em;color:#515A66;margin-bottom:2px">THURSDAY, JULY 17</div>
+              <h1 style="margin:0;font-weight:800;font-size:24px;letter-spacing:-0.03em;color:#0D1C31">Morning, Amara.</h1>
+            </div>
+            <div style="display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer">
+              <span style="width:30px;height:30px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px">AO</span>
+            </div>
+          </div>
+          <div style="flex:1;overflow:auto;padding:22px 28px 110px;scrollbar-width:none;position:relative">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 36px;align-items:start">
+              <div>
+                <div style="border-radius:30px;padding:22px 22px 18px;margin-bottom:14px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.7);box-shadow:0 14px 34px rgba(13,28,49,.1),inset 0 1.5px 0 rgba(255,255,255,.9)">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">TODAY'S SET — CLOSES 23:59</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.12em;color:var(--green)">DAY 13</span>
+                  </div>
+                  <div style="font-weight:700;font-size:20px;letter-spacing:-0.02em;color:#0D1C31;margin-bottom:4px">Three drills, seven minutes.</div>
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13.5px;line-height:1.45;color:#515A66;margin-bottom:16px">Yesterday cleared 66th. Hold the line.</div>
+                  <div style="display:flex;gap:3px;margin-bottom:18px">
+                    <span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:rgba(13,28,49,.12)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:var(--green)"></span><span style="flex:1;height:6px;border-radius:3px;background:rgba(13,28,49,.25)"></span>
+                  </div>
+                  <button style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;height:50px;cursor:pointer;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">Begin today's set</button>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:13px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.13em;color:#515A66">COHORT C-14 · 6TH OF 10</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.1em;color:#515A66">4 BEHIND №5</span>
+                  </div>
+                </div>
+                <div style="border-radius:24px;padding:15px 20px;background:rgba(13,28,49,.94);display:flex;align-items:center;gap:14px;box-shadow:0 10px 26px rgba(13,28,49,.2)">
+                  <span style="width:7px;height:7px;border-radius:50%;background:#2FC07E;flex:none"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:9px;letter-spacing:.14em;color:#7C8CA8;margin-bottom:2px">LAST NIGHT — LOGGED TO HISTORY</div>
+                    <div style="font-weight:700;font-size:13.5px;color:#E9EEF5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">7.2 avg vs M. Lindqvist · recap rated 5/5</div>
+                  </div>
+                  <span style="font-weight:600;font-size:11.5px;color:#E9EEF5;text-decoration:underline;text-underline-offset:3px;cursor:pointer;flex:none">Re-read</span>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;margin-top:16px;padding:12px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">UPCOMING</span>
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#515A66">ON YOUR CALENDAR</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:10px 0">
+                    <span style="width:7px;height:7px;border-radius:50%;border:1.5px solid #515A66;box-sizing:border-box;flex:none"></span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:600;font-size:13px;color:#0D1C31">vs T. Becker · Dental roll-up M&amp;A</div>
+                      <div style="font-size:11px;color:#515A66">Today 18:00 · candidate · quant-heavy on purpose</div>
+                    </div>
+                    <span style="font-weight:600;font-size:10px;letter-spacing:.08em;color:var(--green);flex:none;font-variant-numeric:tabular-nums">T-9H</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div style="border-top:1px solid #C9D2DF;padding:12px 2px 18px">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">DIAGNOSTIC — LAST 2 MONTHS</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.1em;color:#515A66">15 CASES</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:16px">
+                    <div style="display:grid;grid-template-columns:110px 1fr 28px;gap:10px;align-items:center">
+                      <span style="font-weight:600;font-size:11.5px;color:#0D1C31">Structure</span>
+                      <span style="height:2px;background:rgba(13,28,49,.1);display:block"><span style="display:block;height:2px;width:82%;background:#0D1C31"></span></span>
+                      <span style="font-weight:600;font-size:11px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">8.2</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:110px 1fr 28px;gap:10px;align-items:center">
+                      <span style="font-weight:600;font-size:11.5px;color:#0D1C31">Communication</span>
+                      <span style="height:2px;background:rgba(13,28,49,.1);display:block"><span style="display:block;height:2px;width:75%;background:#0D1C31"></span></span>
+                      <span style="font-weight:600;font-size:11px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">7.5</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:110px 1fr 28px;gap:10px;align-items:center">
+                      <span style="font-weight:600;font-size:11.5px;color:#0D1C31">Quant</span>
+                      <span style="height:2px;background:rgba(13,28,49,.1);display:block"><span style="display:block;height:2px;width:66%;background:#0D1C31"></span></span>
+                      <span style="font-weight:600;font-size:11px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">6.6</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:110px 1fr 28px;gap:10px;align-items:center">
+                      <span style="font-weight:600;font-size:11.5px;color:#0D1C31">Market sizing <span style="font-size:8.5px;letter-spacing:.12em;color:var(--green)">FOCUS</span></span>
+                      <span style="height:2px;background:rgba(13,28,49,.1);display:block"><span style="display:block;height:2px;width:53%;background:#0D1C31"></span></span>
+                      <span style="font-weight:600;font-size:11px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">5.3</span>
+                    </div>
+                  </div>
+                  <div style="border-top:1px solid #C9D2DF;padding-top:13px">
+                    <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;color:#515A66;margin-bottom:8px">Next case for the gap:</div>
+                    <div style="font-weight:700;font-size:15.5px;letter-spacing:-0.015em;color:#0D1C31;margin-bottom:2px">{{ recTitleH }}</div>
+                    <div style="font-size:11.5px;color:#515A66;margin-bottom:10px">{{ recMetaH }}</div>
+                    <div style="display:flex;gap:18px;align-items:baseline">
+                      <span style="font-weight:600;font-size:12.5px;color:#0D1C31;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Get cased on this</span>
+                      <button sc-camel-on-click="{{ swapH }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Swap</button>
+                    </div>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:12px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">TIMELINE — FIRM DEADLINES</span>
+                    <span style="font-weight:600;font-size:11px;color:#515A66;text-decoration:underline;text-underline-offset:3px;cursor:pointer">Add a firm</span>
+                  </div>
+                  <div style="position:relative;padding-top:6px">
+                    <span style="position:absolute;left:0;top:0;font-weight:600;font-size:8.5px;letter-spacing:.14em;color:var(--green)">TODAY</span>
+                    <svg width="100%" height="64" sc-camel-view-box="0 0 320 64" sc-camel-preserve-aspect-ratio="none" aria-hidden="true" style="display:block">
+                      <path d="M2 58 H96 V42 H192 V24 H276 V8 H318" fill="none" stroke="#0D1C31" stroke-width="2" sc-camel-vector-effect="non-scaling-stroke"></path>
+                      <circle cx="4" cy="58" r="4" style="fill:var(--green)"></circle>
+                    </svg>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding-top:8px">
+                    <div>
+                      <div style="font-weight:600;font-size:9px;letter-spacing:.1em;color:#515A66;margin-bottom:2px">MCKINSEY · SEP 12</div>
+                      <div style="display:flex;align-items:baseline;gap:7px"><span style="font-weight:700;font-size:14px;color:#0D1C31;font-variant-numeric:tabular-nums">57d</span><span style="font-weight:600;font-size:8px;letter-spacing:.1em;color:var(--green)">ON PACE</span></div>
+                    </div>
+                    <div>
+                      <div style="font-weight:600;font-size:9px;letter-spacing:.1em;color:#515A66;margin-bottom:2px">BCG · SEP 30</div>
+                      <div style="display:flex;align-items:baseline;gap:7px"><span style="font-weight:700;font-size:14px;color:#0D1C31;font-variant-numeric:tabular-nums">75d</span><span style="font-weight:600;font-size:8px;letter-spacing:.1em;color:#515A66">PUSH QUANT</span></div>
+                    </div>
+                    <div>
+                      <div style="font-weight:600;font-size:9px;letter-spacing:.1em;color:#515A66;margin-bottom:2px">BAIN · OCT 08</div>
+                      <div style="display:flex;align-items:baseline;gap:7px"><span style="font-weight:700;font-size:14px;color:#0D1C31;font-variant-numeric:tabular-nums">83d</span><span style="font-weight:600;font-size:8px;letter-spacing:.1em;color:#515A66">EARLY</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:40;width:560px;height:64px;border-radius:999px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 10px 26px rgba(13,28,49,.14),inset 0 1.5px 0 rgba(255,255,255,.9);display:flex;align-items:center">
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:800;font-size:9px;letter-spacing:.12em;color:#0D1C31">HOME</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">LIBRARY</span></button>
+            <div style="flex:1;display:flex;justify-content:center">
+              <span style="width:56px;height:56px;border-radius:50%;background:#0D1C31;display:flex;align-items:center;justify-content:center;transform:translateY(-13px);box-shadow:0 8px 20px rgba(13,28,49,.3),inset 0 1px 0 rgba(255,255,255,.22);cursor:pointer">
+                <svg width="23" height="19" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt5" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#E9EEF5"></stop><stop offset="1" stop-color="#2FC07E"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt5)" stroke-width="5"></path></svg>
+              </span>
+            </div>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">COMMUNITY</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">DRILLS</span></button>
+          </div>
+          <div style="position:absolute;bottom:0;left:0;right:0;z-index:60;height:26px;display:flex;justify-content:center;align-items:flex-end;padding-bottom:7px;pointer-events:none">
+            <span style="width:139px;height:5px;border-radius:100px;background:rgba(0,0,0,.25)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ 2b — DRILLS ══════════ -->
+    <div id="2b" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="background:#0D1C31;color:#F3F5F8;font-weight:800;font-size:13px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex:none">2b</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#0D1C31">Drills — gauntlet beside the boards</div>
+          <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.5;color:#515A66;max-width:420px">The run itself stays a phone habit; the tablet is for reading your standing. All four scopes work — percentiles, never head-counts.</div>
+        </div>
+      </div>
+      <div style="width:1194px;border-radius:44px;background:#000;padding:16px;box-shadow:0 40px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.12)">
+        <div data-screen-label="2b Drills tablet" style="height:802px;border-radius:28px;overflow:hidden;position:relative;background:#EFF2F6;font-family:'Archivo',sans-serif;display:flex;flex-direction:column">
+          <div style="position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(27,154,95,.1),transparent 68%);top:200px;left:-180px;pointer-events:none"></div>
+          <svg width="640" height="533" sc-camel-view-box="0 0 48 40" aria-hidden="true" style="position:absolute;top:220px;right:-260px;opacity:.5;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
+          <div style="position:absolute;top:0;left:0;right:0;z-index:20;pointer-events:none">
+            <x-import component-from-global-scope="IOSStatusBar" from="./ios-frame.jsx" hint-size="100%,54px"></x-import>
+          </div>
+          <div style="padding:58px 28px 0;display:flex;justify-content:space-between;align-items:center;position:relative;z-index:5">
+            <div style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9)">
+              <svg width="17" height="14" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt6" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt6)" stroke-width="5"></path></svg>
+              <span style="font-size:13.5px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
+            </div>
+            <h1 style="margin:0;font-weight:800;font-size:26px;letter-spacing:-0.03em;color:#0D1C31">Drills</h1>
+            <div style="display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer">
+              <span style="width:30px;height:30px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px">AO</span>
+            </div>
+          </div>
+          <div style="flex:1;overflow:auto;padding:22px 28px 110px;scrollbar-width:none;position:relative">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 36px;align-items:start">
+              <div>
+                <div style="border-radius:30px;padding:22px 22px 18px;margin-bottom:16px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.7);box-shadow:0 14px 34px rgba(13,28,49,.1),inset 0 1.5px 0 rgba(255,255,255,.9)">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">TODAY'S GAUNTLET — SAME SIX FOR EVERYONE</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.12em;color:var(--green)">DAY 13</span>
+                  </div>
+                  <div style="font-weight:700;font-size:20px;letter-spacing:-0.02em;color:#0D1C31;margin-bottom:12px">Six types, five minutes.</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px 16px;margin-bottom:16px">
+                    <span style="font-weight:600;font-size:11.5px;color:#0D1C31;border-bottom:1px solid #C9D2DF;padding:5px 0">Mental math</span>
+                    <span style="font-weight:600;font-size:11.5px;color:#0D1C31;border-bottom:1px solid #C9D2DF;padding:5px 0">Market sizing</span>
+                    <span style="font-weight:600;font-size:11.5px;color:#0D1C31;border-bottom:1px solid #C9D2DF;padding:5px 0">Structures</span>
+                    <span style="font-weight:600;font-size:11.5px;color:#0D1C31;border-bottom:1px solid #C9D2DF;padding:5px 0">Chart reads</span>
+                    <span style="font-weight:600;font-size:11.5px;color:#0D1C31;padding:5px 0">Synthesis</span>
+                    <span style="font-weight:600;font-size:11.5px;color:#0D1C31;padding:5px 0">Estimates</span>
+                  </div>
+                  <button style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;height:50px;cursor:pointer;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">Begin the gauntlet</button>
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:13px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.13em;color:#515A66">RESETS 06:00 · STREAK SAFE UNTIL 23:59</span>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:13px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">TREND — DAILY PERCENTILE, 4 WEEKS</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.1em;color:#515A66">MOSTLY UP</span>
+                  </div>
+                  <div style="display:flex;align-items:flex-end;gap:5px;height:72px">
+                    <span style="flex:1;height:38%;background:rgba(13,28,49,.18)"></span><span style="flex:1;height:46%;background:rgba(13,28,49,.18)"></span><span style="flex:1;height:41%;background:rgba(13,28,49,.18)"></span><span style="flex:1;height:52%;background:rgba(13,28,49,.18)"></span><span style="flex:1;height:49%;background:rgba(13,28,49,.28)"></span><span style="flex:1;height:56%;background:rgba(13,28,49,.28)"></span><span style="flex:1;height:60%;background:rgba(13,28,49,.28)"></span><span style="flex:1;height:54%;background:rgba(13,28,49,.28)"></span><span style="flex:1;height:58%;background:rgba(13,28,49,.4)"></span><span style="flex:1;height:64%;background:rgba(13,28,49,.4)"></span><span style="flex:1;height:61%;background:rgba(13,28,49,.4)"></span><span style="flex:1;height:66%;background:rgba(13,28,49,.4)"></span><span style="flex:1;height:63%;background:#0D1C31"></span><span style="flex:1;height:68%;background:#0D1C31"></span><span style="flex:1;height:72%;background:#0D1C31"></span><span style="flex:1;height:66%;background:var(--green)"></span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;padding-top:7px">
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#A9B4C4">W26</span>
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#A9B4C4">W27</span>
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#A9B4C4">W28</span>
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#515A66">W29 — 66TH</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div style="border-top:1px solid #C9D2DF;padding:13px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">{{ dScopeHead }}</span>
+                    <span style="font-weight:600;font-size:9px;letter-spacing:.1em;color:#515A66">{{ dScopeNote }}</span>
+                  </div>
+                  <div style="display:flex;gap:16px;border-bottom:1px solid #C9D2DF;padding-bottom:9px">
+                    <sc-for list="{{ dScopeChips }}" as="c" hint-placeholder-count="4">
+                      <button sc-camel-on-click="{{ pickDScope }}" data-i="{{ c.i }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:10.5px;letter-spacing:.1em;color:{{ c.fg }};text-decoration:{{ c.deco }};text-underline-offset:4px;cursor:pointer">{{ c.label }}</button>
+                    </sc-for>
+                  </div>
+                  <sc-for list="{{ dBoardRows }}" as="r" hint-placeholder-count="4">
+                    <sc-if value="{{ r.isDiv }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+                        <span style="flex:1;height:1px;background:#C9D2DF"></span>
+                        <span style="font-weight:600;font-size:8px;letter-spacing:.15em;color:#515A66">{{ r.label }}</span>
+                        <span style="flex:1;height:1px;background:#C9D2DF"></span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{ r.isGap }}" hint-placeholder-val="{{ false }}">
+                      <div style="text-align:center;padding:3px 0;font-weight:600;font-size:11px;letter-spacing:.3em;color:#A9B4C4">···</div>
+                    </sc-if>
+                    <sc-if value="{{ r.isRow }}" hint-placeholder-val="{{ true }}">
+                      <div style="display:grid;grid-template-columns:52px 1fr 52px 40px;gap:8px;align-items:baseline;padding:12px 6px;border-bottom:1px solid #DDE3EB;background:{{ r.bg }}">
+                        <span style="font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums;color:{{ r.rankColor }}">{{ r.rank }}</span>
+                        <span style="font-size:13px;color:#0D1C31;font-weight:{{ r.nw }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }} <span style="font-weight:400;font-size:10.5px;color:#515A66">· {{ r.sub }}</span></span>
+                        <span style="font-weight:700;font-size:13px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right">{{ r.pts }}</span>
+                        <span style="font-weight:600;font-size:10.5px;text-align:right;color:{{ r.deltaColor }};font-variant-numeric:tabular-nums">{{ r.delta }}</span>
+                      </div>
+                    </sc-if>
+                  </sc-for>
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:12px;color:#515A66;padding:10px 0 0">{{ dScopeFoot }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:40;width:560px;height:64px;border-radius:999px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 10px 26px rgba(13,28,49,.14),inset 0 1.5px 0 rgba(255,255,255,.9);display:flex;align-items:center">
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">HOME</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">LIBRARY</span></button>
+            <div style="flex:1;display:flex;justify-content:center">
+              <span style="width:56px;height:56px;border-radius:50%;background:#0D1C31;display:flex;align-items:center;justify-content:center;transform:translateY(-13px);box-shadow:0 8px 20px rgba(13,28,49,.3),inset 0 1px 0 rgba(255,255,255,.22);cursor:pointer">
+                <svg width="23" height="19" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt7" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#E9EEF5"></stop><stop offset="1" stop-color="#2FC07E"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt7)" stroke-width="5"></path></svg>
+              </span>
+            </div>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">COMMUNITY</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:800;font-size:9px;letter-spacing:.12em;color:#0D1C31">DRILLS</span></button>
+          </div>
+          <div style="position:absolute;bottom:0;left:0;right:0;z-index:60;height:26px;display:flex;justify-content:center;align-items:flex-end;padding-bottom:7px;pointer-events:none">
+            <span style="width:139px;height:5px;border-radius:100px;background:rgba(0,0,0,.25)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ 2c — LIBRARY, MASTER-DETAIL ══════════ -->
+    <div id="2c" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="background:var(--green);color:#F3F5F8;font-weight:800;font-size:13px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex:none">2c</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#0D1C31">Library — master–detail</div>
+          <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.5;color:#515A66;max-width:420px">Filters and rows on the left; whichever case you tap opens on the right. Retired cases keep their grey and their divider.</div>
+        </div>
+      </div>
+      <div style="width:1194px;border-radius:44px;background:#000;padding:16px;box-shadow:0 40px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.12)">
+        <div data-screen-label="2c Library tablet" style="height:802px;border-radius:28px;overflow:hidden;position:relative;background:#EFF2F6;font-family:'Archivo',sans-serif;display:flex;flex-direction:column">
+          <div style="position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(46,86,192,.07),transparent 68%);top:-100px;right:-160px;pointer-events:none"></div>
+          <div style="position:absolute;top:0;left:0;right:0;z-index:20;pointer-events:none">
+            <x-import component-from-global-scope="IOSStatusBar" from="./ios-frame.jsx" hint-size="100%,54px"></x-import>
+          </div>
+          <div style="padding:58px 28px 0;display:flex;justify-content:space-between;align-items:center;position:relative;z-index:5">
+            <div style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9)">
+              <svg width="17" height="14" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt8" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt8)" stroke-width="5"></path></svg>
+              <span style="font-size:13.5px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
+            </div>
+            <h1 style="margin:0;font-weight:800;font-size:26px;letter-spacing:-0.03em;color:#0D1C31">Library</h1>
+            <div style="display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer">
+              <span style="width:30px;height:30px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px">AO</span>
+            </div>
+          </div>
+          <div style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 470px;gap:0;padding:18px 28px 96px;position:relative">
+            <div style="display:flex;flex-direction:column;min-height:0;padding-right:28px;border-right:1px solid #C9D2DF">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;padding-bottom:10px">
+                <sc-for list="{{ libTypeChips }}" as="c" hint-placeholder-count="5">
+                  <button sc-camel-on-click="{{ pickLibType }}" data-i="{{ c.i }}" style="height:34px;padding:0 14px;border-radius:999px;background:{{ c.bg }};color:{{ c.fg }};border:{{ c.brd }};font-family:'Archivo',sans-serif;font-weight:600;font-size:11.5px;cursor:pointer">{{ c.label }}</button>
+                </sc-for>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #C9D2DF;padding:2px 0 9px">
+                <span style="font-weight:600;font-size:9.5px;letter-spacing:.14em;color:#515A66">{{ libCount }}</span>
+                <div style="display:flex;gap:14px">
+                  <sc-for list="{{ libDoneChips }}" as="c" hint-placeholder-count="3">
+                    <button sc-camel-on-click="{{ pickLibDone }}" data-i="{{ c.i }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:11px;color:{{ c.fg }};text-decoration:{{ c.deco }};text-underline-offset:3px;cursor:pointer">{{ c.label }}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="flex:1;overflow:auto;min-height:0;scrollbar-width:none;padding-top:2px">
+                <sc-for list="{{ libRows }}" as="r" hint-placeholder-count="6">
+                  <sc-if value="{{ r.isDiv }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;padding:14px 0 4px">
+                      <span style="font-weight:600;font-size:8px;letter-spacing:.15em;color:#A9B4C4">{{ r.label }}</span>
+                      <span style="flex:1;height:1px;background:#DDE3EB"></span>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ r.isRow }}" hint-placeholder-val="{{ true }}">
+                    <button sc-camel-on-click="{{ openLib }}" data-id="{{ r.id }}" style="display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:baseline;width:100%;text-align:left;background:{{ r.rowBg }};border:none;border-bottom:1px solid {{ r.line }};padding:13px 6px;cursor:pointer;font-family:'Archivo',sans-serif;transition:background-color .16s ease" style-hover="background:rgba(255,255,255,.5)">
+                      <span style="font-weight:400;font-size:22px;line-height:.9;color:{{ r.nColor }}">{{ r.n }}</span>
+                      <span style="display:block;min-width:0">
+                        <span style="display:block;font-weight:600;font-size:8.5px;letter-spacing:.13em;color:{{ r.kColor }};margin-bottom:3px">{{ r.kick }}</span>
+                        <span style="display:block;font-weight:700;font-size:14px;letter-spacing:-0.01em;line-height:1.2;color:{{ r.tColor }};margin-bottom:2px">{{ r.title }}</span>
+                        <span style="display:block;font-size:11px;color:{{ r.mColor }}">{{ r.meta }}</span>
+                      </span>
+                      <span style="font-weight:600;font-size:9px;letter-spacing:.11em;color:{{ r.tagColor }};white-space:nowrap">{{ r.tag }}</span>
+                    </button>
+                  </sc-if>
+                </sc-for>
+              </div>
+            </div>
+            <div style="overflow:auto;min-height:0;scrollbar-width:none;padding-left:28px">
+              <div style="font-weight:600;font-size:9px;letter-spacing:.13em;color:{{ libDTagColor }};margin-bottom:10px">{{ libDTag }}</div>
+              <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:8px">{{ libDKick }}</div>
+              <h2 style="margin:0 0 6px;font-weight:800;font-size:22px;letter-spacing:-0.03em;line-height:1.1;color:#0D1C31">{{ libDTitle }}</h2>
+              <div style="font-size:12px;color:#515A66;margin-bottom:14px">{{ libDMeta }}</div>
+              <div style="display:flex;align-items:baseline;gap:10px;border-top:1px solid #C9D2DF;padding:11px 0">
+                <span style="font-weight:800;font-size:24px;color:#0D1C31;font-variant-numeric:tabular-nums;line-height:1">{{ libDRating }}</span>
+                <span style="font-weight:600;font-size:9.5px;letter-spacing:.12em;color:#515A66">AVG RATING · {{ libDRuns }} SESSIONS</span>
+              </div>
+              <div style="border-top:1px solid #C9D2DF;padding:11px 0 13px">
+                <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:7px">YOUR HISTORY WITH IT</div>
+                <sc-if value="{{ libDHasHist }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline">
+                    <span style="font-weight:600;font-size:13px;color:#0D1C31">{{ libDHist }}</span>
+                    <span style="font-weight:600;font-size:11px;color:#515A66;font-variant-numeric:tabular-nums">{{ libDHistScore }}</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ libDNoHist }}" hint-placeholder-val="{{ true }}">
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;color:#515A66">You haven't run this one.</div>
+                </sc-if>
+              </div>
+              <div style="border-top:1px solid #C9D2DF;padding:11px 0 15px">
+                <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:9px">THE CASE PACK</div>
+                <div style="display:flex;align-items:center;gap:14px;border:1px solid #C9D2DF;background:#FFFFFF;padding:13px 15px">
+                  <div style="flex:none;width:36px;height:46px;border:1px solid #C9D2DF;background:repeating-linear-gradient(0deg,#F3F5F8 0 6px,#FFFFFF 6px 12px)"></div>
+                  <div style="flex:1">
+                    <div style="font-weight:600;font-size:12.5px;color:#0D1C31">{{ libDPdf }}</div>
+                    <div style="font-size:11px;color:#515A66;margin-top:1px">Prompt script, exhibits, answer key</div>
+                  </div>
+                  <span style="font-weight:600;font-size:12px;color:#0D1C31;text-decoration:underline;text-underline-offset:3px;cursor:pointer;flex:none">Preview</span>
+                </div>
+              </div>
+              <button sc-camel-on-click="{{ libGetCased }}" style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13px;height:48px;cursor:pointer;margin-bottom:8px;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">{{ libDCta }}</button>
+              <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:11.5px;color:#515A66;text-align:center">{{ libDNote }}</div>
+            </div>
+          </div>
+          <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:40;width:560px;height:64px;border-radius:999px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 10px 26px rgba(13,28,49,.14),inset 0 1.5px 0 rgba(255,255,255,.9);display:flex;align-items:center">
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">HOME</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:800;font-size:9px;letter-spacing:.12em;color:#0D1C31">LIBRARY</span></button>
+            <div style="flex:1;display:flex;justify-content:center">
+              <span style="width:56px;height:56px;border-radius:50%;background:#0D1C31;display:flex;align-items:center;justify-content:center;transform:translateY(-13px);box-shadow:0 8px 20px rgba(13,28,49,.3),inset 0 1px 0 rgba(255,255,255,.22);cursor:pointer">
+                <svg width="23" height="19" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt9" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#E9EEF5"></stop><stop offset="1" stop-color="#2FC07E"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt9)" stroke-width="5"></path></svg>
+              </span>
+            </div>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">COMMUNITY</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">DRILLS</span></button>
+          </div>
+          <div style="position:absolute;bottom:0;left:0;right:0;z-index:60;height:26px;display:flex;justify-content:center;align-items:flex-end;padding-bottom:7px;pointer-events:none">
+            <span style="width:139px;height:5px;border-radius:100px;background:rgba(0,0,0,.25)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ 2d — COMMUNITY ══════════ -->
+    <div id="2d" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="background:#0D1C31;color:#F3F5F8;font-weight:800;font-size:13px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex:none">2d</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#0D1C31">Community — group page always open</div>
+          <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.5;color:#515A66;max-width:420px">School standing and your people on the left; C-14 lives permanently on the right. No chat, no forum, no head-counts.</div>
+        </div>
+      </div>
+      <div style="width:1194px;border-radius:44px;background:#000;padding:16px;box-shadow:0 40px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.12)">
+        <div data-screen-label="2d Community tablet" style="height:802px;border-radius:28px;overflow:hidden;position:relative;background:#EFF2F6;font-family:'Archivo',sans-serif;display:flex;flex-direction:column">
+          <div style="position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(46,86,192,.07),transparent 68%);top:120px;right:-180px;pointer-events:none"></div>
+          <div style="position:absolute;top:0;left:0;right:0;z-index:20;pointer-events:none">
+            <x-import component-from-global-scope="IOSStatusBar" from="./ios-frame.jsx" hint-size="100%,54px"></x-import>
+          </div>
+          <div style="padding:58px 28px 0;display:flex;justify-content:space-between;align-items:center;position:relative;z-index:5">
+            <div style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9)">
+              <svg width="17" height="14" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt10" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt10)" stroke-width="5"></path></svg>
+              <span style="font-size:13.5px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
+            </div>
+            <h1 style="margin:0;font-weight:800;font-size:26px;letter-spacing:-0.03em;color:#0D1C31">Community</h1>
+            <div style="display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer">
+              <span style="width:30px;height:30px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px">AO</span>
+            </div>
+          </div>
+          <div style="flex:1;overflow:auto;padding:22px 28px 110px;scrollbar-width:none;position:relative">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 36px;align-items:start">
+              <div>
+                <div style="border-radius:30px;padding:20px 22px 17px;margin-bottom:16px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.7);box-shadow:0 14px 34px rgba(13,28,49,.1),inset 0 1.5px 0 rgba(255,255,255,.9)">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">THE WHARTON SCHOOL — VERIFIED</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.12em;color:var(--green)">№2 THIS WEEK</span>
+                  </div>
+                  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px">
+                    <span style="font-weight:800;font-size:38px;letter-spacing:-0.03em;color:#0D1C31;font-variant-numeric:tabular-nums;line-height:1">69.8</span>
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.12em;color:#515A66">AVG MEMBER PERCENTILE</span>
+                  </div>
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:12.5px;color:#515A66;margin-bottom:12px">1.6 behind INSEAD. Your gauntlet counts.</div>
+                  <span style="font-weight:600;font-size:12px;color:#0D1C31;text-decoration:underline;text-underline-offset:4px;cursor:pointer">School board — in Drills</span>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:12px 2px 6px">
+                  <div style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66;margin-bottom:2px">CONNECTIONS — FEEDS "PING A FRIEND"</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid #C9D2DF;padding:11px 0">
+                    <div style="display:flex;align-items:center;gap:11px;min-width:0">
+                      <span style="width:32px;height:32px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;flex:none">SP</span>
+                      <div style="min-width:0">
+                        <div style="font-weight:600;font-size:13px;color:#0D1C31">S. Park <span style="font-weight:400;font-size:11px;color:#515A66">· Wharton</span></div>
+                        <div style="font-size:11px;color:#515A66">Cased together 3× · interviewed you last night</div>
+                      </div>
+                    </div>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-weight:600;font-size:8.5px;letter-spacing:.12em;color:var(--green);flex:none"><span style="width:5px;height:5px;border-radius:50%;background:var(--green)"></span>FREE NOW</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid #C9D2DF;padding:11px 0">
+                    <div style="display:flex;align-items:center;gap:11px;min-width:0">
+                      <span style="width:32px;height:32px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;flex:none">TB</span>
+                      <div style="min-width:0">
+                        <div style="font-weight:600;font-size:13px;color:#0D1C31">T. Becker <span style="font-weight:400;font-size:11px;color:#515A66">· Wharton</span></div>
+                        <div style="font-size:11px;color:#515A66">Cased together 3× · today 18:00 confirmed</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0">
+                    <div style="display:flex;align-items:center;gap:11px;min-width:0">
+                      <span style="width:32px;height:32px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:10px;flex:none">ML</span>
+                      <div style="min-width:0">
+                        <div style="font-weight:600;font-size:13px;color:#0D1C31">M. Lindqvist <span style="font-weight:400;font-size:11px;color:#515A66">· LBS</span></div>
+                        <div style="font-size:11px;color:#515A66">Cased together 1× · swap invite pending</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:12px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">YOUR GROUPS</span>
+                    <span style="font-weight:600;font-size:11px;color:#515A66;text-decoration:underline;text-underline-offset:3px;cursor:pointer">Find a group</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0">
+                    <div style="min-width:0">
+                      <div style="font-weight:700;font-size:14px;letter-spacing:-0.01em;color:#0D1C31">Consulting Club — Cohort C-14</div>
+                      <div style="font-size:11px;color:#515A66;margin-top:2px">Led by R. Vance · open on the right →</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div style="border-left:1px solid #C9D2DF;padding-left:36px">
+                <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:8px">GROUP — THE WHARTON SCHOOL</div>
+                <h2 style="margin:0 0 4px;font-weight:800;font-size:22px;letter-spacing:-0.03em;color:#0D1C31">Consulting Club — Cohort C-14</h2>
+                <div style="font-size:12px;color:#515A66;margin-bottom:14px">Led by R. Vance · daily gauntlet · Tuesdays live</div>
+                <div style="border-top:1px solid #C9D2DF;padding:11px 0 4px">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">WEEK 29 — POINTS</span>
+                    <span style="font-weight:600;font-size:9px;letter-spacing:.1em;color:#515A66">TOP FIVE ADVANCE</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:30px 1fr 52px 46px;gap:8px;align-items:baseline;padding:10px 4px;border-bottom:1px solid #DDE3EB">
+                    <span style="font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums;color:#A9B4C4">01</span>
+                    <span style="font-size:13px;color:#0D1C31;font-weight:500">R. Vance <span style="font-weight:400;font-size:10.5px;color:#515A66">· leads</span></span>
+                    <span style="font-weight:700;font-size:13px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right">412</span>
+                    <span style="font-weight:600;font-size:9px;text-align:right;letter-spacing:.08em;color:#515A66">15-DAY</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:30px 1fr 52px 46px;gap:8px;align-items:baseline;padding:10px 4px;border-bottom:1px solid #DDE3EB">
+                    <span style="font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums;color:#A9B4C4">05</span>
+                    <span style="font-size:13px;color:#0D1C31;font-weight:500">Y. Tanaka <span style="font-weight:400;font-size:10.5px;color:#515A66">· Sloan exchange</span></span>
+                    <span style="font-weight:700;font-size:13px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right">339</span>
+                    <span style="font-weight:600;font-size:9px;text-align:right;letter-spacing:.08em;color:#515A66">10-DAY</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:30px 1fr 52px 46px;gap:8px;align-items:baseline;padding:10px 4px;border-bottom:1px solid #DDE3EB;background:rgba(255,255,255,.55)">
+                    <span style="font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums;color:#0D1C31">06</span>
+                    <span style="font-size:13px;color:#0D1C31;font-weight:700">You <span style="font-weight:400;font-size:10.5px;color:#515A66">· 4 behind №5</span></span>
+                    <span style="font-weight:700;font-size:13px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right">335</span>
+                    <span style="font-weight:600;font-size:9px;text-align:right;letter-spacing:.08em;color:var(--green)">13-DAY</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:30px 1fr 52px 46px;gap:8px;align-items:baseline;padding:10px 4px">
+                    <span style="font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums;color:#A9B4C4">07</span>
+                    <span style="font-size:13px;color:#0D1C31;font-weight:500">K. Novak <span style="font-weight:400;font-size:10.5px;color:#515A66">· Booth exchange</span></span>
+                    <span style="font-weight:700;font-size:13px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right">302</span>
+                    <span style="font-weight:600;font-size:9px;text-align:right;letter-spacing:.08em;color:#515A66">4-DAY</span>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:11px 0 13px;margin-top:8px">
+                  <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:7px">LIVE THIS WEEK</div>
+                  <div style="font-size:13px;color:#0D1C31;line-height:1.6">Tue — group casing night, pairs drawn at 19:00.<br>Thu — R. Vance runs a written-case clinic.</div>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding-top:11px">
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:12px;color:#515A66">Member progress — cases done, feedback, drill cadence — is visible to R. Vance only. Leadership transfers, never taken.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:40;width:560px;height:64px;border-radius:999px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 10px 26px rgba(13,28,49,.14),inset 0 1.5px 0 rgba(255,255,255,.9);display:flex;align-items:center">
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">HOME</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">LIBRARY</span></button>
+            <div style="flex:1;display:flex;justify-content:center">
+              <span style="width:56px;height:56px;border-radius:50%;background:#0D1C31;display:flex;align-items:center;justify-content:center;transform:translateY(-13px);box-shadow:0 8px 20px rgba(13,28,49,.3),inset 0 1px 0 rgba(255,255,255,.22);cursor:pointer">
+                <svg width="23" height="19" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt11" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#E9EEF5"></stop><stop offset="1" stop-color="#2FC07E"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt11)" stroke-width="5"></path></svg>
+              </span>
+            </div>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:800;font-size:9px;letter-spacing:.12em;color:#0D1C31">COMMUNITY</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">DRILLS</span></button>
+          </div>
+          <div style="position:absolute;bottom:0;left:0;right:0;z-index:60;height:26px;display:flex;justify-content:center;align-items:flex-end;padding-bottom:7px;pointer-events:none">
+            <span style="width:139px;height:5px;border-radius:100px;background:rgba(0,0,0,.25)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section style="padding:26px 64px 80px;display:flex;flex-direction:column;gap:30px">
+  <div style="border-top:2px solid #0D1C31;padding-top:14px;max-width:1194px;display:flex;flex-direction:column;gap:6px">
+    <span style="font-weight:600;font-size:11px;letter-spacing:.18em;color:var(--green)">TABLET · TURN 01 — CONSOLE HERO + THE CASE TRAY</span>
+    <span style="font-family:'Source Serif 4',serif;font-style:italic;font-size:15px;color:#515A66;max-width:760px">Landscape iPad, same five tabs. <a href="#1a">1a</a> is the hero surface: the full interviewer console — seven stages with read-alouds, exhibit releases, per-stage scoring on the left; candidate feed, segment timer and the live rubric on the right. PDF fallback never leaves the corner. <a href="#1b">1b</a> is Case, where the big verb tray finally belongs. Tap the clocks to run them.</span>
+  </div>
+
+  <div style="display:flex;gap:64px;align-items:flex-start;flex-wrap:wrap">
+
+    <!-- ══════════ 1a — INTERVIEWER CONSOLE ══════════ -->
+    <div id="1a" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="background:var(--green);color:#F3F5F8;font-weight:800;font-size:13px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex:none">1a</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#0D1C31">Interviewer console — the tablet's reason to exist</div>
+          <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.5;color:#515A66;max-width:420px">Script left, judgment right. Walk the stages, release exhibits when asked, score with evidence — the rubric assembles itself in the rail. Guests get exactly this, minus the record.</div>
+        </div>
+      </div>
+      <div style="width:1194px;border-radius:44px;background:#000;padding:16px;box-shadow:0 40px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.12)">
+        <div data-screen-label="1a Console tablet" style="height:802px;border-radius:28px;overflow:hidden;position:relative;background:#F3F5F8;font-family:'Archivo',sans-serif;display:flex;flex-direction:column">
+          <div style="position:absolute;top:0;left:0;right:0;z-index:20;pointer-events:none">
+            <x-import component-from-global-scope="IOSStatusBar" from="./ios-frame.jsx" hint-size="100%,54px"></x-import>
+          </div>
+          <div style="padding:56px 24px 0;display:flex;align-items:center;gap:16px;flex:none">
+            <svg width="22" height="18" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt1" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt1)" stroke-width="5"></path></svg>
+            <span style="font-size:15px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
+            <span style="width:1px;height:28px;background:#C9D2DF"></span>
+            <div style="min-width:0">
+              <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">CASE 07 · MARKET ENTRY · FINAL-ROUND STYLE</div>
+              <div style="font-weight:700;font-size:15px;letter-spacing:-0.01em;color:#0D1C31">Low-cost carrier enters the Nordic market</div>
+            </div>
+            <div style="margin-left:auto;text-align:right">
+              <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">CANDIDATE</div>
+              <div style="font-weight:600;font-size:13px;color:#0D1C31">Amara Osei · Wharton MBA</div>
+            </div>
+            <button sc-camel-on-click="{{ tmToggle }}" style="display:inline-flex;align-items:center;gap:9px;height:44px;padding:0 17px;border-radius:999px;background:rgba(255,255,255,.6);backdrop-filter:blur(14px) saturate(1.6);-webkit-backdrop-filter:blur(14px) saturate(1.6);border:1px solid rgba(255,255,255,.78);box-shadow:0 2px 8px rgba(13,28,49,.07),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer;font-family:'Archivo',sans-serif;flex:none">
+              <sc-if value="{{ tmOn }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);animation:blinkdot 1.1s ease infinite"></span></sc-if>
+              <sc-if value="{{ tmOff }}" hint-placeholder-val="{{ true }}"><span style="width:6px;height:6px;border-radius:50%;background:#A9B4C4"></span></sc-if>
+              <span style="font-weight:800;font-size:17px;color:#0D1C31;font-variant-numeric:tabular-nums">{{ tmText }}</span>
+              <span style="font-weight:600;font-size:9px;letter-spacing:.08em;color:{{ tmRemainColor }};font-variant-numeric:tabular-nums">{{ tmRemain }}</span>
+            </button>
+            <button style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13px;height:44px;padding:0 20px;cursor:pointer;flex:none;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">Finalize &amp; send</button>
+          </div>
+          <div style="height:2px;background:#C9D2DF;margin-top:12px;flex:none"><div style="height:2px;background:var(--green);width:{{ tmPct }};transition:width .9s linear"></div></div>
+
+          <div style="flex:1;display:grid;grid-template-columns:1fr 380px;min-height:0">
+            <div style="display:flex;flex-direction:column;min-height:0;padding:14px 24px 16px;position:relative">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid #C9D2DF;padding-bottom:11px;flex:none">
+                <sc-for list="{{ stChips }}" as="c" hint-placeholder-count="7">
+                  <button sc-camel-on-click="{{ stPick }}" data-i="{{ c.i }}" style="height:34px;padding:0 14px;border-radius:999px;background:{{ c.bg }};color:{{ c.fg }};border:{{ c.brd }};font-family:'Archivo',sans-serif;font-weight:600;font-size:10.5px;letter-spacing:.08em;cursor:pointer;display:inline-flex;align-items:center;gap:6px"><span style="font-variant-numeric:tabular-nums;opacity:.7">{{ c.n }}</span>{{ c.label }}</button>
+                </sc-for>
+              </div>
+              <div style="flex:1;overflow:auto;min-height:0;padding:16px 2px 0;scrollbar-width:none">
+                <div style="font-weight:600;font-size:10px;letter-spacing:.15em;color:var(--green);margin-bottom:12px">STAGE {{ stNum }} OF 07 — READ ALOUD</div>
+                <div style="font-family:'Source Serif 4',serif;font-size:19px;line-height:1.55;color:#0D1C31;max-width:620px;margin-bottom:16px">{{ stRead }}</div>
+                <sc-if value="{{ stHasExs }}" hint-placeholder-val="{{ false }}">
+                  <div style="max-width:620px;margin-bottom:14px;display:flex;flex-direction:column;gap:8px">
+                    <sc-for list="{{ stExs }}" as="x" hint-placeholder-count="2">
+                      <div style="display:flex;align-items:center;gap:16px;border:1px solid #C9D2DF;background:#FFFFFF;padding:11px 16px">
+                        <div style="flex:1;min-width:0">
+                          <div style="font-weight:600;font-size:9px;letter-spacing:.14em;color:#515A66;margin-bottom:2px">EXHIBIT {{ x.n }}</div>
+                          <div style="font-weight:600;font-size:13.5px;color:#0D1C31">{{ x.name }}</div>
+                        </div>
+                        <sc-if value="{{ x.off }}" hint-placeholder-val="{{ true }}"><button sc-camel-on-click="{{ exRelease }}" data-e="{{ x.id }}" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;height:38px;padding:0 16px;cursor:pointer;flex:none;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">Release to candidate</button></sc-if>
+                        <sc-if value="{{ x.on }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-weight:600;font-size:10px;letter-spacing:.1em;color:var(--green);flex:none;font-variant-numeric:tabular-nums">SENT · {{ x.at }}</span>
+                          <button sc-camel-on-click="{{ exRecall }}" data-e="{{ x.id }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;color:#515A66;text-decoration:underline;text-underline-offset:3px;cursor:pointer;flex:none">Recall</button>
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <div style="border-top:1px solid #C9D2DF;padding-top:12px;max-width:620px;margin-bottom:18px">
+                  <div style="font-weight:600;font-size:10px;letter-spacing:.15em;color:#515A66;margin-bottom:8px">GUIDANCE — NOT READ ALOUD</div>
+                  <sc-for list="{{ stGuide }}" as="gl" hint-placeholder-count="3">
+                    <div style="display:grid;grid-template-columns:18px 1fr;gap:8px;padding:4px 0"><span style="color:#A9B4C4">—</span><span style="font-size:13.5px;line-height:1.55;color:#0D1C31">{{ gl }}</span></div>
+                  </sc-for>
+                </div>
+                <div style="border-top:2px solid #0D1C31;padding-top:11px;max-width:620px;margin-bottom:8px">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                    <span style="font-weight:600;font-size:10px;letter-spacing:.15em;color:var(--green)">SCORE THIS STAGE — 1 TO 10</span>
+                    <span style="font-size:11px;color:#A9B4C4">Collects into the rubric rail →</span>
+                  </div>
+                  <sc-for list="{{ stDims }}" as="r" hint-placeholder-count="2">
+                    <div style="border-bottom:1px solid #C9D2DF;padding:10px 0 12px">
+                      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+                        <span style="font-weight:600;font-size:13.5px;color:#0D1C31">{{ r.name }}</span>
+                        <span style="font-size:11.5px;color:#515A66;font-variant-numeric:tabular-nums">{{ r.scoreText }}</span>
+                      </div>
+                      <div style="font-size:11.5px;color:#515A66;margin:2px 0 9px">{{ r.desc }}</div>
+                      <div style="display:flex;gap:4px;margin-bottom:9px">
+                        <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="10">
+                          <button sc-camel-on-click="{{ scSet }}" data-d="{{ c.d }}" data-v="{{ c.v }}" style="width:24px;height:24px;padding:0;background:{{ c.bg }};border:1px solid {{ c.bd }};cursor:pointer;font-family:'Archivo',sans-serif;font-weight:600;font-size:10px;color:{{ c.fg }};font-variant-numeric:tabular-nums;transition:transform .16s ease" style-hover="transform:translateY(-1px)">{{ c.v }}</button>
+                        </sc-for>
+                      </div>
+                      <input placeholder="Evidence — quotes, moments, misses" value="{{ r.note }}" data-d="{{ r.id }}" sc-camel-on-change="{{ scNote }}" style="width:100%;background:none;border:none;outline:none;border-bottom:1px solid #C9D2DF;font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;color:#0D1C31;padding:3px 0 5px">
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display:flex;gap:18px;align-items:center;border-top:1px solid #C9D2DF;padding-top:12px;flex:none">
+                <button sc-camel-on-click="{{ stPrev }}" style="background:none;border:none;font-family:'Archivo',sans-serif;font-weight:600;font-size:13px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Previous</button>
+                <button sc-camel-on-click="{{ pdfToggle }}" style="display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px) saturate(1.6);-webkit-backdrop-filter:blur(12px) saturate(1.6);border:1px solid rgba(255,255,255,.78);box-shadow:0 2px 8px rgba(13,28,49,.07),inset 0 1px 0 rgba(255,255,255,.9);font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;color:#0D1C31;text-decoration:underline;text-underline-offset:3px;cursor:pointer">Display PDF — always here</button>
+                <button sc-camel-on-click="{{ stNext }}" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13px;height:44px;padding:0 20px;cursor:pointer;margin-left:auto;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">{{ stNextLabel }}</button>
+              </div>
+
+              <sc-if value="{{ pdfOn }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute;inset:0;z-index:15;background:#E7EBF1;display:flex;flex-direction:column;padding:14px 24px 14px;animation:rise .32s cubic-bezier(0.22,1,0.36,1) both">
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;flex:none">
+                    <div>
+                      <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:2px">CASE PACK — INTERVIEWER COPY · 8 PAGES</div>
+                      <div style="font-weight:700;font-size:14px;letter-spacing:-0.01em;color:#0D1C31">The script keeps scoring; this is the paper.</div>
+                    </div>
+                    <button sc-camel-on-click="{{ pdfToggle }}" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;height:42px;padding:0 18px;cursor:pointer;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">‹ Back to script</button>
+                  </div>
+                  <div style="flex:1;min-height:0;overflow:auto;scrollbar-width:none;display:flex;justify-content:center;padding:4px 0 10px">
+                    <div style="width:566px;flex:none;align-self:flex-start;background:#FFFFFF;border:1px solid #C9D2DF;box-shadow:0 18px 40px rgba(13,28,49,.14);padding:40px 46px 44px">
+                      <sc-if value="{{ pdfP1 }}" hint-placeholder-val="{{ true }}">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #0D1C31;padding-bottom:10px;margin-bottom:16px">
+                          <span style="font-weight:600;font-size:9px;letter-spacing:.16em;color:#515A66">CASE 07 · MARKET ENTRY · KELLOGG CONSULTING CLUB 2019</span>
+                          <span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#A9B4C4">D4 · ~40 MIN</span>
+                        </div>
+                        <div style="font-weight:800;font-size:22px;letter-spacing:-0.025em;line-height:1.1;color:#0D1C31;margin-bottom:16px">Low-cost carrier enters the Nordic market</div>
+                        <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:6px">BACKGROUND</div>
+                        <p style="margin:0 0 14px;font-family:'Source Serif 4',serif;font-size:13.5px;line-height:1.65;color:#0D1C31">Skanwing is a Copenhagen-based low-cost carrier operating 42 narrow-body aircraft on intra-European routes, with €1.1B in annual revenue and unit costs among the lowest in the region. Management is weighing entry into the Nordic domestic market — Norway, Sweden and Finland — where incumbent full-service carriers hold roughly 80% of seats.</p>
+                        <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:6px">THE ASK</div>
+                        <p style="margin:0 0 16px;font-family:'Source Serif 4',serif;font-size:13.5px;line-height:1.65;color:#0D1C31">The CEO has asked: should Skanwing enter the Nordic domestic market, and if so, how? The board's bar is €120M of incremental revenue within three years, profitable by year two.</p>
+                        <div style="border-top:1px solid #C9D2DF;padding-top:12px">
+                          <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:8px">TIMING PLAN — HOLD THE LAST TWO MINUTES</div>
+                          <div style="display:grid;grid-template-columns:1fr auto;gap:5px 20px">
+                            <span style="font-weight:600;font-size:12px;color:#0D1C31">Behavioral</span><span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">0–5 min</span>
+                            <span style="font-weight:600;font-size:12px;color:#0D1C31">Opening &amp; clarify</span><span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">5–12 min</span>
+                            <span style="font-weight:600;font-size:12px;color:#0D1C31">Framework</span><span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">12–20 min</span>
+                            <span style="font-weight:600;font-size:12px;color:#0D1C31">Quant</span><span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">20–32 min</span>
+                            <span style="font-weight:600;font-size:12px;color:#0D1C31">Brainstorm</span><span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">32–40 min</span>
+                            <span style="font-weight:600;font-size:12px;color:#0D1C31">Close</span><span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums;text-align:right">40–44 min</span>
+                          </div>
+                        </div>
+                      </sc-if>
+                      <sc-if value="{{ pdfP2 }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #0D1C31;padding-bottom:10px;margin-bottom:16px">
+                          <span style="font-weight:600;font-size:9px;letter-spacing:.16em;color:#515A66">CASE 07 · EXHIBIT 01</span>
+                          <sc-if value="{{ pdfE1Off }}" hint-placeholder-val="{{ true }}"><button sc-camel-on-click="{{ exRelease }}" data-e="e1" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:11px;height:32px;padding:0 14px;cursor:pointer">Release to candidate</button></sc-if>
+                          <sc-if value="{{ pdfE1On }}" hint-placeholder-val="{{ false }}"><span style="font-weight:600;font-size:9.5px;letter-spacing:.1em;color:var(--green);font-variant-numeric:tabular-nums">SENT · {{ pdfE1At }}</span></sc-if>
+                        </div>
+                        <div style="font-weight:800;font-size:19px;letter-spacing:-0.02em;color:#0D1C31;margin-bottom:18px">Nordic domestic market — volumes &amp; average fares</div>
+                        <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px 26px;align-items:baseline;margin-bottom:18px">
+                          <span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#A9B4C4">COUNTRY</span><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#A9B4C4;text-align:right">PAX / YR</span><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#A9B4C4;text-align:right">AVG ONE-WAY FARE</span>
+                          <span style="font-weight:600;font-size:13.5px;color:#0D1C31;border-top:1px solid #C9D2DF;padding-top:10px">Norway</span><span style="font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:1px solid #C9D2DF;padding-top:10px">6.1M</span><span style="font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:1px solid #C9D2DF;padding-top:10px">€92</span>
+                          <span style="font-weight:600;font-size:13.5px;color:#0D1C31;border-top:1px solid #C9D2DF;padding-top:10px">Sweden</span><span style="font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:1px solid #C9D2DF;padding-top:10px">5.2M</span><span style="font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:1px solid #C9D2DF;padding-top:10px">€97</span>
+                          <span style="font-weight:600;font-size:13.5px;color:#0D1C31;border-top:1px solid #C9D2DF;padding-top:10px">Finland</span><span style="font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:1px solid #C9D2DF;padding-top:10px">2.7M</span><span style="font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:1px solid #C9D2DF;padding-top:10px">€99</span>
+                          <span style="font-weight:700;font-size:13.5px;color:#0D1C31;border-top:2px solid #0D1C31;padding-top:10px">Total / weighted avg</span><span style="font-weight:700;font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:2px solid #0D1C31;padding-top:10px">14.0M</span><span style="font-weight:700;font-size:13.5px;color:#0D1C31;font-variant-numeric:tabular-nums;text-align:right;border-top:2px solid #0D1C31;padding-top:10px">€95</span>
+                        </div>
+                        <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:11.5px;color:#515A66">Domestic O&amp;D traffic only; charter and transfer excluded. Source: national CAAs, 2018.</div>
+                      </sc-if>
+                      <sc-if value="{{ pdfP3 }}" hint-placeholder-val="{{ false }}">
+                        <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #0D1C31;padding-bottom:10px;margin-bottom:16px">
+                          <span style="font-weight:600;font-size:9px;letter-spacing:.16em;color:#515A66">CASE 07 · ANSWER KEY</span>
+                          <span style="font-weight:600;font-size:9px;letter-spacing:.14em;color:var(--green)">INTERVIEWER ONLY</span>
+                        </div>
+                        <div style="font-weight:800;font-size:19px;letter-spacing:-0.02em;color:#0D1C31;margin-bottom:16px">Quant chain &amp; expected so-what</div>
+                        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px">
+                          <div style="display:grid;grid-template-columns:18px 1fr;gap:8px"><span style="color:#A9B4C4">—</span><span style="font-size:13.5px;line-height:1.6;color:#0D1C31;font-variant-numeric:tabular-nums">Volume: 14M pax × 8% share = <strong>1.12M pax</strong> by year three.</span></div>
+                          <div style="display:grid;grid-template-columns:18px 1fr;gap:8px"><span style="color:#A9B4C4">—</span><span style="font-size:13.5px;line-height:1.6;color:#0D1C31;font-variant-numeric:tabular-nums">Fare: €95 × (1 − 15%) = <strong>€80.75</strong> average one-way.</span></div>
+                          <div style="display:grid;grid-template-columns:18px 1fr;gap:8px"><span style="color:#A9B4C4">—</span><span style="font-size:13.5px;line-height:1.6;color:#0D1C31;font-variant-numeric:tabular-nums">Revenue: 1.12M × €80.75 ≈ <strong>€90M</strong> — €30M short of the €120M bar.</span></div>
+                          <div style="display:grid;grid-template-columns:18px 1fr;gap:8px"><span style="color:#A9B4C4">—</span><span style="font-size:13.5px;line-height:1.6;color:#0D1C31">So-what: ticket revenue alone fails the goal → brainstorm must close the gap (ancillaries ~€12–15 per pax, cargo, trunk frequency, partnerships).</span></div>
+                        </div>
+                        <div style="border-top:1px solid #C9D2DF;padding-top:12px">
+                          <div style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66;margin-bottom:6px">GRADING NOTES</div>
+                          <p style="margin:0;font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.6;color:#0D1C31">Let one arithmetic slip pass; flag the second. A candidate who reaches the €30M gap unprompted and names two closing levers is at an 8 or above on judgment.</p>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:16px;border-top:1px solid #C9D2DF;padding-top:11px;flex:none">
+                    <button sc-camel-on-click="{{ pdfPrev }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:{{ pdfPrevColor }};text-decoration:underline;text-underline-offset:4px;cursor:pointer">‹ Previous page</button>
+                    <span style="flex:1;text-align:center;font-weight:600;font-size:10px;letter-spacing:.14em;color:#515A66;font-variant-numeric:tabular-nums">{{ pdfPageText }}</span>
+                    <button sc-camel-on-click="{{ pdfNext }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:{{ pdfNextColor }};text-decoration:underline;text-underline-offset:4px;cursor:pointer">Next page ›</button>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+
+            <div style="border-left:1px solid #C9D2DF;display:flex;flex-direction:column;min-height:0">
+              <div style="position:relative;height:224px;flex:none;background:#0D1C31;background-image:repeating-linear-gradient(135deg,rgba(233,238,245,.045) 0 9px,transparent 9px 18px)">
+                <span style="position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:9px;letter-spacing:.14em;color:#E9EEF5;background:rgba(8,18,34,.55);padding:5px 9px;border-radius:999px"><span style="width:6px;height:6px;border-radius:50%;background:#2FC07E;animation:blinkdot 1.1s ease infinite"></span>LIVE</span>
+                <span style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-weight:600;font-size:9px;letter-spacing:.2em;color:rgba(233,238,245,.32);white-space:nowrap">CANDIDATE FEED</span>
+                <span style="position:absolute;bottom:9px;left:10px;font-weight:600;font-size:11px;color:#E9EEF5;background:rgba(8,18,34,.55);padding:4px 8px;border-radius:999px">Amara Osei</span>
+                <div style="position:absolute;right:10px;bottom:10px;width:118px;height:66px;border-radius:12px;overflow:hidden;border:1px solid rgba(233,238,245,.16);background:#081222;background-image:repeating-linear-gradient(135deg,rgba(233,238,245,.06) 0 6px,transparent 6px 12px)">
+                  <span style="position:absolute;bottom:5px;left:7px;font-weight:600;font-size:9px;color:#E9EEF5;background:rgba(8,18,34,.55);padding:2px 6px;border-radius:6px">You</span>
+                </div>
+              </div>
+              <div style="padding:13px 18px 11px;border-bottom:1px solid #C9D2DF;flex:none">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                  <span style="font-weight:600;font-size:10px;letter-spacing:.15em;color:#515A66">SEGMENT TIMER</span>
+                  <sc-if value="{{ sgOn }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:9.5px;letter-spacing:.12em;color:var(--green)"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);animation:blinkdot 1.1s ease infinite"></span>RUNNING</span></sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px">
+                  <span style="font-weight:800;font-size:34px;letter-spacing:-0.02em;line-height:1;color:#0D1C31;font-variant-numeric:tabular-nums">{{ sgText }}</span>
+                  <button sc-camel-on-click="{{ sgToggle }}" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;height:38px;padding:0 15px;cursor:pointer;margin-left:auto;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">{{ sgBtn }}</button>
+                  <button sc-camel-on-click="{{ sgStop }}" style="background:none;border:none;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Stop · log</button>
+                </div>
+              </div>
+              <div style="padding:10px 18px 8px;border-bottom:1px solid #C9D2DF;flex:none">
+                <div style="font-weight:600;font-size:10px;letter-spacing:.15em;color:#515A66;margin-bottom:3px">SEGMENTS LOGGED</div>
+                <sc-if value="{{ sgHasLaps }}" hint-placeholder-val="{{ false }}">
+                  <div style="max-height:84px;overflow:auto;scrollbar-width:none">
+                    <sc-for list="{{ sgLaps }}" as="l" hint-placeholder-count="2">
+                      <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #DDE3EB;padding:5px 0">
+                        <span style="font-weight:600;font-size:12px;color:#0D1C31">{{ l.label }}</span>
+                        <span style="font-size:12px;color:#515A66;font-variant-numeric:tabular-nums">{{ l.time }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ sgNoLaps }}" hint-placeholder-val="{{ true }}">
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:12px;color:#A9B4C4;padding:3px 0 5px">Nothing logged yet — stop the clock to keep a segment.</div>
+                </sc-if>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;padding:11px 18px 4px;flex:none">
+                <span style="font-weight:600;font-size:10px;letter-spacing:.15em;color:#515A66">RUBRIC — LIVE</span>
+                <span style="font-weight:600;font-size:11px;letter-spacing:.08em;color:var(--green);font-variant-numeric:tabular-nums">{{ scAvg }}</span>
+              </div>
+              <div style="flex:1;overflow:auto;min-height:0;padding:2px 18px 14px;scrollbar-width:none">
+                <sc-for list="{{ rubric }}" as="r" hint-placeholder-count="6">
+                  <div style="border-bottom:1px solid #DDE3EB;padding:8px 0 9px">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                      <span style="font-weight:600;font-size:12.5px;color:{{ r.nameColor }}">{{ r.name }}</span>
+                      <span style="font-size:11px;color:#515A66;font-variant-numeric:tabular-nums">{{ r.scoreText }}</span>
+                    </div>
+                    <div style="display:flex;gap:3px">
+                      <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="10">
+                        <button sc-camel-on-click="{{ scSet }}" data-d="{{ c.d }}" data-v="{{ c.v }}" style="width:16px;height:16px;padding:0;background:{{ c.bg }};border:1px solid {{ c.bd }};cursor:pointer;transition:transform .16s ease" style-hover="transform:translateY(-1px)"></button>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+          <div style="position:absolute;bottom:0;left:0;right:0;z-index:30;height:26px;display:flex;justify-content:center;align-items:flex-end;padding-bottom:7px;pointer-events:none">
+            <span style="width:139px;height:5px;border-radius:100px;background:rgba(0,0,0,.25)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ 1b — CASE TAB, TABLET ══════════ -->
+    <div id="1b" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="background:#0D1C31;color:#F3F5F8;font-weight:800;font-size:13px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex:none">1b</span>
+        <div>
+          <div style="font-weight:700;font-size:15px;color:#0D1C31">Case on tablet — the tray comes home</div>
+          <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13px;line-height:1.5;color:#515A66;max-width:420px">The big Get-cased tray (with the live-now board inline) leads; the spine splits two-up beneath it. Same glass tab bar, centered. Accept T. Becker and watch Upcoming take it.</div>
+        </div>
+      </div>
+      <div style="width:1194px;border-radius:44px;background:#000;padding:16px;box-shadow:0 40px 80px rgba(0,0,0,.18),0 0 0 1px rgba(0,0,0,.12)">
+        <div data-screen-label="1b Case tablet" style="height:802px;border-radius:28px;overflow:hidden;position:relative;background:#EFF2F6;font-family:'Archivo',sans-serif;display:flex;flex-direction:column">
+          <div style="position:absolute;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(27,154,95,.1),transparent 68%);top:-140px;left:-180px;pointer-events:none"></div>
+          <div style="position:absolute;width:480px;height:480px;border-radius:50%;background:radial-gradient(circle,rgba(46,86,192,.08),transparent 68%);bottom:-160px;right:-140px;pointer-events:none"></div>
+          <svg width="640" height="533" sc-camel-view-box="0 0 48 40" aria-hidden="true" style="position:absolute;top:120px;right:-260px;opacity:.5;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
+          <div style="position:absolute;top:0;left:0;right:0;z-index:20;pointer-events:none">
+            <x-import component-from-global-scope="IOSStatusBar" from="./ios-frame.jsx" hint-size="100%,54px"></x-import>
+          </div>
+
+          <div style="padding:58px 28px 0;display:flex;justify-content:space-between;align-items:center;position:relative;z-index:5">
+            <div style="display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 16px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9)">
+              <svg width="17" height="14" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt2" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt2)" stroke-width="5"></path></svg>
+              <span style="font-size:13.5px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
+            </div>
+            <h1 style="margin:0;font-weight:800;font-size:26px;letter-spacing:-0.03em;color:#0D1C31">Case</h1>
+            <div style="display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:999px;background:rgba(255,255,255,.55);backdrop-filter:blur(16px) saturate(1.7);-webkit-backdrop-filter:blur(16px) saturate(1.7);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.06),inset 0 1px 0 rgba(255,255,255,.9);cursor:pointer">
+              <span style="width:30px;height:30px;border-radius:50%;background:#0D1C31;color:#F3F5F8;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px">AO</span>
+            </div>
+          </div>
+
+          <div style="margin:14px 28px 0;position:relative;z-index:5;border-radius:32px;padding:18px 20px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 14px 34px rgba(13,28,49,.12),inset 0 1.5px 0 rgba(255,255,255,.9);display:flex;align-items:center;gap:18px">
+            <div style="display:flex;flex-direction:column;gap:8px;flex:none;width:300px">
+              <button style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:14.5px;height:54px;cursor:pointer;transition:transform .16s ease,opacity .16s ease" style-hover="transform:translateY(-1px);opacity:.92">Get cased now</button>
+              <div style="display:flex;gap:8px">
+                <button style="flex:1;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;color:#0D1C31;height:42px;cursor:pointer;background:rgba(255,255,255,.55);backdrop-filter:blur(12px) saturate(1.6);-webkit-backdrop-filter:blur(12px) saturate(1.6);border:1px solid rgba(255,255,255,.78);box-shadow:0 2px 8px rgba(13,28,49,.07),inset 0 1px 0 rgba(255,255,255,.9)">Case someone</button>
+                <button style="flex:1;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;color:#0D1C31;height:42px;cursor:pointer;background:rgba(255,255,255,.55);backdrop-filter:blur(12px) saturate(1.6);-webkit-backdrop-filter:blur(12px) saturate(1.6);border:1px solid rgba(255,255,255,.78);box-shadow:0 2px 8px rgba(13,28,49,.07),inset 0 1px 0 rgba(255,255,255,.9)">Schedule later</button>
+              </div>
+            </div>
+            <span style="width:1px;align-self:stretch;background:rgba(13,28,49,.12);flex:none"></span>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">LIVE NOW — FREE TO CASE YOU</span>
+                <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#A9B4C4">PINGS EXPIRE IN 2 H</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(13,28,49,.1)">
+                <span style="font-weight:600;font-size:13px;color:#0D1C31">S. Park <span style="font-weight:400;font-size:11px;color:#515A66">· Wharton · 45 min free</span></span>
+                <button sc-camel-on-click="{{ pingT }}" data-n="S. Park" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:11px;height:32px;padding:0 14px;cursor:pointer">Ping</button>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0">
+                <span style="font-weight:600;font-size:13px;color:#0D1C31">J. Okafor <span style="font-weight:400;font-size:11px;color:#515A66">· INSEAD · 20 min free</span></span>
+                <button sc-camel-on-click="{{ pingT }}" data-n="J. Okafor" style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:11px;height:32px;padding:0 14px;cursor:pointer">Ping</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:1;overflow:auto;padding:18px 28px 110px;scrollbar-width:none;position:relative">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 36px;align-items:start">
+              <div>
+                <div style="border-radius:26px;padding:16px 19px;margin-bottom:16px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.7);box-shadow:0 10px 26px rgba(13,28,49,.09),inset 0 1.5px 0 rgba(255,255,255,.9)">
+                  <div style="font-weight:600;font-size:9px;letter-spacing:.15em;color:var(--green);margin-bottom:6px">UNREAD RECAP — CLEARS BEFORE YOUR NEXT CASE</div>
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:13.5px;line-height:1.45;color:#0D1C31;margin-bottom:4px">"Structure held. The quant went soft in the middle — drill it before Thursday."</div>
+                  <div style="font-size:11px;color:#515A66;margin-bottom:11px">Ski resort profitability · T. Becker · 4.1/5</div>
+                  <button style="background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:12px;height:38px;padding:0 17px;cursor:pointer">Read the recap</button>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:12px 2px 16px">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">NEXT UP FOR YOU</span>
+                    <button sc-camel-on-click="{{ swapT }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:11px;color:#515A66;text-decoration:underline;text-underline-offset:3px;cursor:pointer">Swap</button>
+                  </div>
+                  <div style="font-weight:700;font-size:15.5px;letter-spacing:-0.015em;color:#0D1C31;margin-bottom:3px">{{ recTitleT }}</div>
+                  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:12.5px;line-height:1.45;color:#515A66;margin-bottom:3px">{{ recWhyT }}</div>
+                  <div style="font-size:11px;color:#515A66;margin-bottom:10px">{{ recMetaT }}</div>
+                  <div style="display:flex;gap:18px;align-items:baseline">
+                    <span style="font-weight:600;font-size:12.5px;color:#0D1C31;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Get cased on this</span>
+                    <span style="font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Preview PDF</span>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #C9D2DF;padding:12px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">UPCOMING</span>
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#515A66">ON YOUR CALENDAR</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #C9D2DF">
+                    <span style="width:7px;height:7px;border-radius:50%;background:var(--green);animation:blinkdot 1.1s ease infinite;flex:none"></span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-weight:600;font-size:13px;color:#0D1C31">vs M. Lindqvist · Nordic carrier entry</div>
+                      <div style="font-size:11px;color:#515A66">Tonight 19:00 · candidate · lobby opens 18:50</div>
+                    </div>
+                    <span style="font-weight:600;font-size:10px;letter-spacing:.08em;color:#515A66;flex:none;font-variant-numeric:tabular-nums">T-6H</span>
+                  </div>
+                  <sc-if value="{{ tAccepted }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #C9D2DF;animation:rise .42s cubic-bezier(0.22,1,0.36,1) both">
+                      <span style="width:7px;height:7px;border-radius:50%;border:1.5px solid #515A66;box-sizing:border-box;flex:none"></span>
+                      <div style="flex:1;min-width:0">
+                        <div style="font-weight:600;font-size:13px;color:#0D1C31">vs T. Becker · Dental roll-up M&amp;A</div>
+                        <div style="font-size:11px;color:#515A66">Thu 18:00 · candidate · added to calendar</div>
+                      </div>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+              <div>
+                <div style="padding:2px 2px 0">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+                    <span style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66">PENDING — {{ pendCountT }}</span>
+                    <span style="font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#515A66">ONE COUNTER ROUND · NO CHAT</span>
+                  </div>
+                  <sc-if value="{{ tPending }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;padding:11px 0;border-bottom:1px solid #C9D2DF;align-items:center">
+                      <div style="min-width:0">
+                        <div style="font-weight:600;font-size:13px;color:#0D1C31">T. Becker offers to interview you</div>
+                        <div style="font-size:11px;color:#515A66">Dental roll-up M&amp;A · Thu 18:00 · expires at start</div>
+                      </div>
+                      <div style="display:flex;gap:12px;align-items:baseline">
+                        <button sc-camel-on-click="{{ acceptT }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:#0D1C31;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Accept</button>
+                        <button sc-camel-on-click="{{ counterT }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">New time</button>
+                        <button sc-camel-on-click="{{ declineT }}" style="background:none;border:none;padding:0;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Decline</button>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <div style="display:grid;grid-template-columns:1fr auto;gap:10px;padding:11px 0;border-bottom:1px solid #C9D2DF;align-items:center">
+                    <div style="min-width:0">
+                      <div style="font-weight:600;font-size:13px;color:#0D1C31">S. Park asks you to interview</div>
+                      <div style="font-size:11px;color:#515A66">Their pick · Tonight 21:30 · never gated</div>
+                    </div>
+                    <div style="display:flex;gap:12px;align-items:baseline">
+                      <span style="font-weight:600;font-size:12.5px;color:#0D1C31;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Accept</span>
+                      <span style="font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer">Decline</span>
+                    </div>
+                  </div>
+                </div>
+                <div style="padding:14px 2px 0">
+                  <div style="font-weight:600;font-size:9.5px;letter-spacing:.16em;color:#515A66;margin-bottom:2px">HISTORY</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #C9D2DF">
+                    <div style="min-width:0">
+                      <div style="font-weight:600;font-size:12.5px;color:#0D1C31;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Ski resort: revenue up, profit down</div>
+                      <div style="font-size:11px;color:#515A66">T. Becker · Jul 12 · 34 min</div>
+                    </div>
+                    <span style="flex:none;font-weight:600;font-size:8.5px;letter-spacing:.12em;color:#515A66">RECAP WAITING</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #C9D2DF">
+                    <div style="min-width:0">
+                      <div style="font-weight:600;font-size:12.5px;color:#0D1C31;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">US grocer weighs a move into meal kits</div>
+                      <div style="font-size:11px;color:#515A66">S. Park · Jul 08 · 31 min</div>
+                    </div>
+                    <span style="flex:none;font-weight:600;font-size:11px;color:#0D1C31;font-variant-numeric:tabular-nums">4.5</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0">
+                    <div style="min-width:0">
+                      <div style="font-weight:600;font-size:12.5px;color:#0D1C31;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Regional bank merger: the synergies</div>
+                      <div style="font-size:11px;color:#515A66">Guest interviewer · Jun 30 · 42 min</div>
+                    </div>
+                    <span style="flex:none;font-weight:600;font-size:11px;color:#0D1C31;font-variant-numeric:tabular-nums">3.8</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:40;width:560px;height:64px;border-radius:999px;background:var(--gbg);backdrop-filter:blur(var(--gblur)) saturate(1.7);-webkit-backdrop-filter:blur(var(--gblur)) saturate(1.7);border:1px solid rgba(255,255,255,.72);box-shadow:0 10px 26px rgba(13,28,49,.14),inset 0 1.5px 0 rgba(255,255,255,.9);display:flex;align-items:center">
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">HOME</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">LIBRARY</span></button>
+            <div style="flex:1;display:flex;justify-content:center">
+              <span style="width:56px;height:56px;border-radius:50%;background:#0D1C31;display:flex;align-items:center;justify-content:center;transform:translateY(-13px);box-shadow:0 0 0 2px var(--green),0 8px 20px rgba(13,28,49,.3),inset 0 1px 0 rgba(255,255,255,.22);cursor:pointer">
+                <svg width="23" height="19" sc-camel-view-box="0 0 48 40" aria-hidden="true"><defs><linearGradient id="gt3" sc-camel-gradient-units="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#E9EEF5"></stop><stop offset="1" stop-color="#2FC07E"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#gt3)" stroke-width="5"></path></svg>
+              </span>
+            </div>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">COMMUNITY</span></button>
+            <button style="flex:1;background:none;border:none;cursor:pointer;font-family:'Archivo',sans-serif;padding:0"><span style="font-weight:600;font-size:9px;letter-spacing:.12em;color:#515A66">DRILLS</span></button>
+          </div>
+
+          <sc-if value="{{ hasToastT }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:50%;transform:translateX(-50%);bottom:94px;z-index:70;background:rgba(13,28,49,.94);color:#F3F5F8;font-weight:600;font-size:12px;padding:11px 18px;border-radius:999px;white-space:nowrap;box-shadow:0 10px 26px rgba(13,28,49,.3);animation:rise .25s cubic-bezier(0.22,1,0.36,1) both">{{ toastT }}</div>
+          </sc-if>
+          <div style="position:absolute;bottom:0;left:0;right:0;z-index:60;height:26px;display:flex;justify-content:center;align-items:flex-end;padding-bottom:7px;pointer-events:none">
+            <span style="width:139px;height:5px;border-radius:100px;background:rgba(0,0,0,.25)"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;: {&quot;editor&quot;: &quot;color&quot;, &quot;default&quot;: &quot;#1B9A5F&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;options&quot;: [&quot;#1B9A5F&quot;, &quot;#0F8A72&quot;, &quot;#2E56C0&quot;], &quot;section&quot;: &quot;Brand&quot;}, &quot;glassBlur&quot;: {&quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 20, &quot;min&quot;: 6, &quot;max&quot;: 32, &quot;step&quot;: 1, &quot;unit&quot;: &quot;px&quot;, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Liquid glass&quot;}, &quot;reduceTransparency&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Liquid glass&quot;}}">
+class Component extends DCLogic {
+  state = {
+    tmOn: false, tmSecs: 754, sgOn: false, sgSecs: 0, sgLaps: [],
+    stage: 1, rel: {}, scores: {}, notes: {}, pdfOn: false, pdfPage: 0,
+    recT: 0, tProp: 'pending', sentT: false, toastT: '',
+    recH: 0, dScope: 0, libType: 0, libDone: 0, libSel: 'ev'
+  };
+
+  CASES = [
+    { id: 'ev', n: '08', kick: 'MARKET SIZING · STERN 2024', type: 'sizing', title: 'EV charging — size the German market', meta: 'D3 · ~25 min', done: false, rec: true, rating: '4.6', runs: 128, pdf: 'Case PDF — 6 pages' },
+    { id: 'nordic', n: '07', kick: 'MARKET ENTRY · KELLOGG 2019', type: 'entry', title: 'Low-cost carrier enters the Nordic market', meta: 'D4 · ~40 min', done: true, hist: 'Jul 16 · M. Lindqvist', histScore: '7.2 avg', rating: '4.7', runs: 214, pdf: 'Case PDF — 8 pages' },
+    { id: 'ski', n: '06', kick: 'PROFITABILITY · BOOTH 2022', type: 'profit', title: 'Ski resort: revenue up, profit down', meta: 'D3 · ~35 min', done: true, hist: 'Jul 12 · T. Becker', histScore: '4.1/5 given', rating: '4.4', runs: 187, pdf: 'Case PDF — 7 pages' },
+    { id: 'grocer', n: '05', kick: 'MARKET ENTRY · KELLOGG 2019', type: 'entry', title: 'US grocer weighs a move into meal kits', meta: 'D2 · ~30 min', done: true, hist: 'Jul 08 · S. Park', histScore: '4.5/5 given', rating: '4.2', runs: 156, pdf: 'Case PDF — 5 pages' },
+    { id: 'dental', n: '04', kick: 'M&A · WHARTON 2023', type: 'ma', title: 'Private equity eyes a dental roll-up', meta: 'D4 · ~40 min', done: false, sched: 'Today 18:00 · T. Becker', rating: '4.5', runs: 98, pdf: 'Case PDF — 8 pages' },
+    { id: 'bank', n: '03', kick: 'M&A · INSEAD 2021', type: 'ma', title: 'Regional bank merger: the synergies', meta: 'D3 · ~40 min', done: true, hist: 'Jun 30 · guest', histScore: '3.8/5 given', rating: '4.1', runs: 143, pdf: 'Case PDF — 6 pages' },
+    { id: 'lounge', n: '02', kick: 'MARKET SIZING · LBS 2023', type: 'sizing', title: 'Airport lounges — size the European market', meta: 'D2 · ~20 min', done: false, rating: '4.3', runs: 112, pdf: 'Case PDF — 4 pages' },
+    { id: 'freight', n: '01', kick: 'PROFITABILITY · BOOTH 2020', type: 'profit', title: 'Freight carrier: fuel costs eat the margin', meta: 'D3 · ~35 min', done: false, rating: '4.0', runs: 132, pdf: 'Case PDF — 6 pages' }
+  ];
+  LIBTYPES = [['All', null], ['Market entry', 'entry'], ['Profitability', 'profit'], ['M&A', 'ma'], ['Sizing', 'sizing']];
+  LIBDONE = ['Everything', 'Not done', 'Done'];
+
+  CAP = 45 * 60;
+
+  STAGES = [
+    { n: '01', name: 'BEHAVIORAL', dims: ['fit', 'star'], read: 'Before the case, two questions about you. First — tell me about a time you led a team through real disagreement about direction. Second — a piece of hard feedback you received, and what you changed because of it.', guide: ['Two questions, two to three minutes each; redirect gently at four.', 'Listen for STAR shape — ideally a result with a number in it.'] },
+    { n: '02', name: 'OPENING', dims: ['summary', 'comm'], read: 'Our client is Skanwing, a Copenhagen-based low-cost carrier with 42 aircraft and €1.1B in annual revenue. Management is weighing entry into the Nordic domestic market — Norway, Sweden and Finland. The CEO has asked: should Skanwing enter, and if so, how?', guide: ['Read once at speaking pace; repeat figures once if asked.', 'Let the candidate take notes in silence.', 'Start the segment timer when they begin structuring.'] },
+    { n: '03', name: 'CLARIFY', dims: ['questions'], read: 'You may answer, if asked: the goal is €120M of incremental revenue within three years, profitable by year two. Scope is domestic routes only. Acquisitions have not been ruled out.', guide: ['Only reveal a fact when asked directly.', "If they ask nothing, prompt once: 'What would you want to know?'"] },
+    { n: '04', name: 'FRAMEWORK', dims: ['structure'], read: 'How would you structure your approach to this decision?', guide: ['Strong answers cover market attractiveness, competitive response, unit economics, entry mode.', 'Allow 90 seconds of silence before probing.', "Probe once: 'Which branch would you start with, and why?'"] },
+    { n: '05', name: 'QUANT', dims: ['quant', 'judgment'], exs: [{ id: 'e1', n: '01', name: 'Nordic market — volumes & average fares' }, { id: 'e2', n: '02', name: 'Competitor unit costs per seat-km' }], read: 'The Nordic domestic market carries 14 million passengers per year at an average one-way fare of €95. Assume Skanwing captures 8% by year three, pricing 15% below market.', guide: ['Answer key: 14M × 8% = 1.12M pax; fare €80.75; ≈ €90M — short of the €120M goal.', 'Push for the so-what against the €120M target.', 'Release exhibits only when the data is requested.'] },
+    { n: '06', name: 'BRAINSTORM', dims: ['creativity'], exs: [{ id: 'e3', n: '03', name: 'Ancillary revenue benchmarks — European LCCs' }], read: 'Ticket revenue alone falls short of the goal. What levers could close the gap?', guide: ['Expect: ancillaries, cargo, trunk-route frequency, partnerships, base costs.', 'Push past the third idea — breadth first, then depth on one.'] },
+    { n: '07', name: 'CLOSE', dims: ['synthesis', 'leading', 'time'], read: 'The CEO joins in two minutes. What do you recommend?', guide: ['Answer-first, one number, two risks, one next step.', 'No new analysis — synthesis only.', 'Stop the interview clock when they finish.'] }
+  ];
+
+  DIMS = {
+    fit: { name: 'Fit', desc: 'Motivation and self-awareness — would you staff them' },
+    star: { name: 'STAR', desc: 'Situation, task, action, result — led with the result' },
+    summary: { name: 'Summary', desc: 'Accurate, brief recaps at transitions' },
+    comm: { name: 'Communication', desc: 'Top-down, concise, composed' },
+    questions: { name: 'Questions', desc: 'Clarifying questions that earn new facts' },
+    structure: { name: 'Structure', desc: 'MECE, hypothesis-led, tailored to the case' },
+    quant: { name: 'Quant accuracy', desc: 'Setup, arithmetic, sanity checks' },
+    judgment: { name: 'Business judgment', desc: 'So-whats, practical insight' },
+    creativity: { name: 'Creativity', desc: 'Breadth and originality of ideas' },
+    synthesis: { name: 'Synthesis', desc: 'Answer-first close with next steps' },
+    leading: { name: 'Leading required', desc: 'Steering needed — 10 means none' },
+    time: { name: 'Time management', desc: 'Paced the case within the caps' }
+  };
+
+  componentDidMount() { this.syncProps(); this.ensureTick(); }
+  componentDidUpdate() { this.syncProps(); }
+  componentDidHotReload() { this.ensureTick(); }
+  componentWillUnmount() { clearInterval(this._iv); clearTimeout(this._tt); }
+
+  ensureTick() {
+    clearInterval(this._iv);
+    this._iv = setInterval(() => {
+      const s = this.state;
+      if (!s.tmOn && !s.sgOn) return;
+      const n = {};
+      if (s.tmOn) n.tmSecs = s.tmSecs + 1;
+      if (s.sgOn) n.sgSecs = s.sgSecs + 1;
+      this.setState(n);
+    }, 1000);
+  }
+
+  syncProps() {
+    const a = this.props.accent;
+    if (a && a !== '#1B9A5F') document.body.style.setProperty('--green', a);
+    else document.body.style.removeProperty('--green');
+    const b = this.props.glassBlur;
+    if (b != null && b !== 20) document.body.style.setProperty('--gblur', b + 'px');
+    else document.body.style.removeProperty('--gblur');
+    document.body.classList.toggle('solid', !!this.props.reduceTransparency);
+  }
+
+  fmt(t) { return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); }
+  toastTf(msg) { clearTimeout(this._tt); this.setState({ toastT: msg }); this._tt = setTimeout(() => this.setState({ toastT: '' }), 2400); }
+
+  tmToggle = () => { this.ensureTick(); this.setState(s => ({ tmOn: !s.tmOn })); };
+  sgToggle = () => { this.ensureTick(); this.setState(s => ({ sgOn: !s.sgOn })); };
+  sgStop = () => this.setState(s => {
+    if (s.sgSecs === 0) return { sgOn: false };
+    return { sgOn: false, sgSecs: 0, sgLaps: [...s.sgLaps, { label: 'Segment ' + String(s.sgLaps.length + 1).padStart(2, '0'), secs: s.sgSecs }] };
+  });
+  stPick = (e) => this.setState({ stage: +e.currentTarget.dataset.i });
+  stPrev = () => this.setState(s => ({ stage: Math.max(0, s.stage - 1) }));
+  stNext = () => this.setState(s => ({ stage: Math.min(this.STAGES.length - 1, s.stage + 1) }));
+  exRelease = (e) => { const id = e.currentTarget.dataset.e; this.setState(s => ({ rel: { ...s.rel, [id]: this.fmt(s.tmSecs) } })); };
+  exRecall = (e) => { const id = e.currentTarget.dataset.e; this.setState(s => { const rel = { ...s.rel }; delete rel[id]; return { rel }; }); };
+  scSet = (e) => { const d = e.currentTarget.dataset.d, v = +e.currentTarget.dataset.v; this.setState(s => ({ scores: { ...s.scores, [d]: s.scores[d] === v ? null : v } })); };
+  scNote = (e) => { const d = e.currentTarget.dataset.d, v = e.currentTarget.value; this.setState(s => ({ notes: { ...s.notes, [d]: v } })); };
+  pdfToggle = () => this.setState(s => ({ pdfOn: !s.pdfOn }));
+  pdfPrev = () => this.setState(s => ({ pdfPage: Math.max(0, s.pdfPage - 1) }));
+  pdfNext = () => this.setState(s => ({ pdfPage: Math.min(2, s.pdfPage + 1) }));
+
+  RECS = [
+    { t: 'EV charging — size the German market', why: 'Market sizing is your widest gap — 5.1 average over six cases.', m: 'Market sizing · D3 · ~25 min · Stern 2024' },
+    { t: 'Ski resort: revenue up, profit down', why: 'Re-run profitability and land the close inside two minutes.', m: 'Profitability · D3 · ~35 min · Booth 2022' },
+    { t: 'US grocer weighs a move into meal kits', why: 'Structure under time pressure — your last two openings ran long.', m: 'Market entry · D2 · ~30 min · Kellogg 2019' }
+  ];
+  swapT = () => this.setState(s => ({ recT: (s.recT + 1) % 3 }));
+  acceptT = () => { this.setState({ tProp: 'accepted' }); this.toastTf('Accepted — on your calendar, reminder at T-60 s'); };
+  declineT = () => { this.setState({ tProp: 'declined' }); this.toastTf('Declined'); };
+  counterT = () => this.toastTf('Counter sent — one round, then it expires');
+  pingT = (e) => this.toastTf('Pinged ' + e.currentTarget.dataset.n + ' — expires in 2 h');
+  swapH = () => this.setState(s => ({ recH: (s.recH + 1) % 3 }));
+  pickDScope = (e) => this.setState({ dScope: +e.currentTarget.dataset.i });
+  pickLibType = (e) => this.setState({ libType: +e.currentTarget.dataset.i });
+  pickLibDone = (e) => this.setState({ libDone: +e.currentTarget.dataset.i });
+  openLib = (e) => this.setState({ libSel: e.currentTarget.dataset.id });
+  libGetCased = () => this.toastTf('Case tab opened — request pre-filled');
+
+  libFiltered(s) {
+    const t = this.LIBTYPES[s.libType][1];
+    return this.CASES.filter(c => !(t && c.type !== t) && !(s.libDone === 1 && c.done) && !(s.libDone === 2 && !c.done));
+  }
+
+  libRow(c, grey, sel) {
+    return {
+      isRow: true, id: c.id, n: c.n, kick: c.kick, title: c.title,
+      meta: c.meta + (c.hist ? ' · ' + c.hist : '') + (c.sched ? ' · ' + c.sched : ''),
+      tag: grey ? '' : (c.rec ? 'FOR YOU' : (c.sched ? 'SCHEDULED' : '')),
+      tagColor: c.rec ? 'var(--green)' : '#A9B4C4',
+      nColor: grey ? '#D3DAE3' : '#A9B4C4', tColor: grey ? '#A9B4C4' : '#0D1C31',
+      kColor: grey ? '#B9C2CF' : '#515A66', mColor: grey ? '#B9C2CF' : '#515A66',
+      line: grey ? '#DDE3EB' : '#C9D2DF',
+      rowBg: sel ? 'rgba(255,255,255,.55)' : 'none'
+    };
+  }
+
+  boards(s) {
+    const R = (rank, name, sub, pts, d, dc) => ({ isRow: true, rank, name, sub, pts, delta: d || '—', deltaColor: dc || '#A9B4C4', bg: 'none', nw: 500, rankColor: '#A9B4C4' });
+    const Y = (rank, pts, d) => ({ isRow: true, rank, name: 'You', sub: 'Wharton', pts, delta: d, deltaColor: 'var(--green)', bg: 'rgba(255,255,255,.55)', nw: 700, rankColor: '#0D1C31' });
+    if (s.dScope === 0) return { head: 'COHORT C-14 — WEEK 29', note: '4 BEHIND №5', foot: 'Drill percentiles are public. Session grades stay private.', rows: [R('05', 'Y. Tanaka', 'Sloan', '339'), { isDiv: true, label: 'TOP FIVE ADVANCE' }, Y('06', '335', '+2'), R('07', 'K. Novak', 'Booth', '302', '−2', '#515A66')] };
+    if (s.dScope === 1) return { head: 'THE WHARTON SCHOOL — WEEK 29', note: 'BY WEEKLY PERCENTILE', foot: 'Standing among verified Wharton members, by percentile. Head-counts stay private.', rows: [R('91ST', 'D. Chen', 'Cohort C-09', '348', '+2', '#515A66'), Y('88TH', '335', '+1'), R('84TH', 'R. Patel', 'Cohort C-14', '326', '−1', '#515A66')] };
+    if (s.dScope === 2) return { head: 'ALL PLAYERS — TODAY', note: 'BY PERCENTILE', foot: 'Everyone who ran today\'s gauntlet, placed by percentile — never a head-count.', rows: [R('99TH', 'J. Wu', 'CBS', '512'), { isGap: true }, R('67TH', 'M. Duarte', 'IESE', '336', '+4', '#515A66'), Y('66TH', '335', '+9'), R('66TH', 'A. Beck', 'Kellogg', '334', '−12', '#515A66')] };
+    return { head: 'SCHOOL VS SCHOOL — WEEK 29', note: 'AVG MEMBER PERCENTILE', foot: 'The average of member percentiles — never a head-count. Carry your school.', rows: [R('01', 'INSEAD', 'Fontainebleau', '71.4'), { isRow: true, rank: '02', name: 'Wharton', sub: 'Philadelphia · yours', pts: '69.8', delta: '+1', deltaColor: 'var(--green)', bg: 'rgba(255,255,255,.55)', nw: 700, rankColor: '#0D1C31' }, R('03', 'LBS', 'London', '68.9', '−1', '#515A66'), R('04', 'HBS', 'Boston', '67.2')] };
+  }
+
+  cells(dim, size) {
+    const sc = this.state.scores[dim];
+    return Array.from({ length: 10 }, (_, i) => ({
+      d: dim, v: i + 1,
+      bg: sc && i + 1 <= sc ? 'var(--green)' : '#FFFFFF',
+      fg: sc && i + 1 <= sc ? '#F3F5F8' : '#515A66',
+      bd: sc && i + 1 <= sc ? 'var(--green)' : '#C9D2DF'
+    }));
+  }
+
+  renderVals() {
+    const s = this.state;
+    const st = this.STAGES[s.stage];
+    const scored = Object.values(s.scores).filter(v => v);
+    const avg = scored.length ? (scored.reduce((a, b) => a + b, 0) / scored.length).toFixed(1) : '—';
+    const remain = this.CAP - s.tmSecs;
+    return {
+      tmOn: s.tmOn, tmOff: !s.tmOn, tmText: this.fmt(s.tmSecs), tmToggle: this.tmToggle,
+      tmRemain: remain > 0 ? this.fmt(remain) + ' LEFT' : 'OVER CAP',
+      tmRemainColor: remain < 300 ? 'var(--green)' : '#A9B4C4',
+      tmPct: Math.min(100, (s.tmSecs / this.CAP) * 100) + '%',
+      sgOn: s.sgOn, sgText: this.fmt(s.sgSecs), sgBtn: s.sgOn ? 'Pause' : 'Start',
+      sgToggle: this.sgToggle, sgStop: this.sgStop,
+      sgLaps: s.sgLaps.map(l => ({ label: l.label, time: this.fmt(l.secs) })),
+      sgHasLaps: s.sgLaps.length > 0, sgNoLaps: s.sgLaps.length === 0,
+      stChips: this.STAGES.map((x, i) => ({
+        i, n: x.n, label: x.name,
+        bg: i === s.stage ? '#0D1C31' : 'rgba(255,255,255,.55)',
+        fg: i === s.stage ? '#F3F5F8' : '#515A66',
+        brd: i === s.stage ? '1px solid #0D1C31' : '1px solid rgba(255,255,255,.75)'
+      })),
+      stNum: st.n, stRead: st.read, stGuide: st.guide,
+      stHasExs: !!st.exs,
+      stExs: (st.exs || []).map(x => ({ ...x, off: !s.rel[x.id], on: !!s.rel[x.id], at: s.rel[x.id] || '' })),
+      stDims: st.dims.map(d => ({
+        id: d, name: this.DIMS[d].name, desc: this.DIMS[d].desc,
+        scoreText: s.scores[d] ? s.scores[d] + ' / 10' : '— / 10',
+        note: s.notes[d] || '', cells: this.cells(d)
+      })),
+      stPick: this.stPick, stPrev: this.stPrev, stNext: this.stNext,
+      stNextLabel: s.stage === this.STAGES.length - 1 ? 'Finalize & send' : 'Next stage',
+      exRelease: this.exRelease, exRecall: this.exRecall,
+      pdfOn: s.pdfOn, pdfToggle: this.pdfToggle, pdfPrev: this.pdfPrev, pdfNext: this.pdfNext,
+      pdfP1: s.pdfPage === 0, pdfP2: s.pdfPage === 1, pdfP3: s.pdfPage === 2,
+      pdfPageText: 'PAGE 0' + (s.pdfPage + 1) + ' OF 08' + (s.pdfPage === 2 ? ' — 04–08 IN THE FULL PACK' : ''),
+      pdfPrevColor: s.pdfPage === 0 ? '#C9D2DF' : '#0D1C31',
+      pdfNextColor: s.pdfPage === 2 ? '#C9D2DF' : '#0D1C31',
+      pdfE1Off: !s.rel.e1, pdfE1On: !!s.rel.e1, pdfE1At: s.rel.e1 || '',
+      scSet: this.scSet, scNote: this.scNote, scAvg: avg === '—' ? 'NO SCORES YET' : avg + ' AVG',
+      rubric: Object.keys(this.DIMS).map(d => ({
+        id: d, name: this.DIMS[d].name,
+        nameColor: st.dims.includes(d) ? '#0D1C31' : '#515A66',
+        scoreText: s.scores[d] ? s.scores[d] + '/10' : '—',
+        cells: this.cells(d)
+      })),
+      recTitleT: this.RECS[s.recT].t, recWhyT: this.RECS[s.recT].why, recMetaT: this.RECS[s.recT].m,
+      swapT: this.swapT,
+      tPending: s.tProp === 'pending', tAccepted: s.tProp === 'accepted',
+      pendCountT: ((s.tProp === 'pending' ? 1 : 0) + 1) + ' WAITING',
+      acceptT: this.acceptT, declineT: this.declineT, counterT: this.counterT, pingT: this.pingT,
+      toastT: s.toastT, hasToastT: !!s.toastT,
+      recTitleH: this.RECS[s.recH].t, recMetaH: this.RECS[s.recH].m, swapH: this.swapH,
+      ...(() => {
+        const b = this.boards(s);
+        return { dScopeHead: b.head, dScopeNote: b.note, dScopeFoot: b.foot, dBoardRows: b.rows };
+      })(),
+      dScopeChips: ['C-14', 'WHARTON', 'GLOBAL', 'SCHOOLS'].map((label, i) => ({
+        label, i,
+        fg: i === s.dScope ? '#0D1C31' : '#A9B4C4',
+        deco: i === s.dScope ? 'underline' : 'none'
+      })),
+      pickDScope: this.pickDScope,
+      libTypeChips: this.LIBTYPES.map(([label], i) => ({
+        label, i,
+        bg: i === s.libType ? '#0D1C31' : 'rgba(255,255,255,.55)',
+        fg: i === s.libType ? '#F3F5F8' : '#0D1C31',
+        brd: i === s.libType ? '1px solid #0D1C31' : '1px solid rgba(255,255,255,.75)'
+      })),
+      libDoneChips: this.LIBDONE.map((label, i) => ({
+        label, i,
+        fg: i === s.libDone ? '#0D1C31' : '#A9B4C4',
+        deco: i === s.libDone ? 'underline' : 'none'
+      })),
+      ...(() => {
+        const list = this.libFiltered(s);
+        const act = list.filter(c => !c.done), dn = list.filter(c => c.done);
+        const rows = act.map(c => this.libRow(c, false, c.id === s.libSel));
+        if (act.length && dn.length) rows.push({ isDiv: true, label: 'DONE — YOURS TO INTERVIEW WITH' });
+        rows.push(...dn.map(c => this.libRow(c, true, c.id === s.libSel)));
+        return { libRows: rows, libCount: act.length + ' OPEN · ' + dn.length + ' DONE' };
+      })(),
+      pickLibType: this.pickLibType, pickLibDone: this.pickLibDone, openLib: this.openLib, libGetCased: this.libGetCased,
+      ...(() => {
+        const c = this.CASES.find(x => x.id === s.libSel) || this.CASES[0];
+        return {
+          libDKick: c.kick, libDTitle: c.title, libDMeta: c.meta + ' · rated by ' + c.runs + ' candidates',
+          libDRating: c.rating, libDRuns: c.runs, libDPdf: c.pdf,
+          libDTag: c.rec ? 'RECOMMENDED FOR YOU' : (c.done ? 'DONE — RETIRED FOR YOU' : 'OPEN FOR YOU'), libDTagColor: c.rec ? 'var(--green)' : '#A9B4C4',
+          libDHasHist: !!c.hist, libDNoHist: !c.hist, libDHist: c.hist || '', libDHistScore: c.histScore || '',
+          libDCta: c.done ? 'Case someone with this' : 'Get cased on this',
+          libDNote: c.done ? 'Done cases join your interviewer deck — you know the answer key now.' : 'Opens the Case tab with this case pre-filled.'
+        };
+      })()
+    };
+  }
+}
+</script>
+</body>
+</html>

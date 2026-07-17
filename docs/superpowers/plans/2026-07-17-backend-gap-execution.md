@@ -408,12 +408,21 @@ Migration 027: `user_firms (user_id, firm_id, added_at, status TEXT CHECK
 IN ('tracking','interviewed','offer','rejected','admitted') DEFAULT
 'tracking', result_recorded_at NULL)`.
 
+DESIGN DELTA (2026-07-17, "myCase — Design Decisions" §0.1 + §2-7b): the
+post-deadline flow ends in **plan reweighting**, never a forum handoff
+(there is no forum). Prompt outcomes: Offer → record card; No offer →
+reweight response (`{focus_dimension, suggested_drill_type, extra_cases:
+[case_id…]}` derived from the diagnostic + the recommendation engine —
+document the derivation as a seam in the readiness doc); Waiting → re-ask
+in a week (`snooze_until`); Didn't interview → firm drops off the line.
+`admitted` remains a recorded status (data only — nothing gates on it).
+
 Deliver: new router `webapp/routes/timeline.py` —
 `GET/POST/DELETE /api/v1/timeline/firms` (track/untrack),
 `GET /api/v1/timeline` (tracked firms + next deadline + readiness signal +
 post-deadline prompt state), `POST /api/v1/timeline/firms/{id}/result`
-(the interviewed?→result? flow; `admitted` status is what B6's forum
-gates on). Extend `GET /api/v1/dashboard` with `diagnostic` block:
+(the interviewed?→result?→reweight flow above). Extend
+`GET /api/v1/dashboard` with `diagnostic` block:
 cases done last 60 days, per-dimension strengths (top 2) / weaknesses
 (bottom 2), trend (mean grade last 5 vs previous 5), plus `timeline`
 summary (next deadline across tracked firms). Nightly-ish deadline-passed
@@ -431,7 +440,12 @@ Migration 028: `practice_sessions` state CHECK gains `'negotiating'` (before
 round INT, state pending|accepted|declined, created_at)`; `practice_sessions.
 swapped_from_session_id INTEGER NULL REFERENCES practice_sessions`.
 Migration 029: feedback gains `viewed_at TIMESTAMPTZ NULL`, `closed_at
-TIMESTAMPTZ NULL`, `case_helpful BOOL NULL`, `feedback_thumbs BOOL NULL`.
+TIMESTAMPTZ NULL`, `case_rating SMALLINT NULL CHECK (case_rating BETWEEN 1
+AND 5)`, `feedback_thumbs BOOL NULL`.
+DESIGN DELTA (2026-07-17, "myCase — Design Decisions" §0.5, overrides spec
+§6.4/A2): recap close-out requires a **1–5 case rating** (same scale as
+debrief), NOT a helpful-Yes/No. `feedback_thumbs` stays optional
+("Worth it"=true / "Thin"=false), authenticated interviewers only.
 
 Deliver:
 - **Negotiation**: sessions created without a case (B1's null-case paths)
@@ -453,12 +467,17 @@ Deliver:
   → new session, roles reversed, same mode, state `negotiating`,
   `swapped_from_session_id` set; recap gate checked on the NEW candidate
   at accept time.
-- **Recap gate** (spec §6.4, A2): `GET /api/v1/recaps` (unread finalized
-  feedback as candidate, oldest first); `POST /api/practice/{id}/recap/viewed`
-  (stamps viewed_at); `POST /api/practice/{id}/recap/close {case_helpful:
-  bool, feedback_thumbs: bool|null}` — case_helpful REQUIRED, writes the
-  case vote through the existing case_votes repo, thumbs only recorded if
-  the interviewer wasn't a guest, stamps closed_at. Gate helper
+- **Recap gate** (spec §6.4, A2 + design delta §0.5): `GET /api/v1/recaps`
+  (unread finalized feedback as candidate, oldest first);
+  `POST /api/practice/{id}/recap/viewed` (stamps viewed_at);
+  `POST /api/practice/{id}/recap/close {case_rating: int 1–5,
+  feedback_thumbs: bool|null}` — case_rating REQUIRED (1–5, same scale as
+  debrief; debrief close-out IS this endpoint), thumbs only recorded if
+  the interviewer wasn't a guest, stamps closed_at. Expose per-case
+  aggregates (avg rating to one decimal + run count, e.g. "4.1 · 12 runs")
+  on case list/detail payloads, plus `done_for_you: bool` (burned as
+  candidate) and open/done counts — the Library "retired cases" delta
+  (§0.4) renders from these. Leave legacy case_votes untouched. Gate helper
   `candidate_gate(user_id) -> Optional[session_id]` in the feedback repo:
   oldest finalized-undelivered… precisely: feedback finalized AND
   closed_at IS NULL → blocked. Enforce (409 with `{blocked_by_recap:
@@ -475,16 +494,23 @@ Produces: gate 409 contract + recap endpoints (UX), negotiation state
 machine (UX), swap linkage.
 
 ### B6 — Community (roadmap §B6; spec §4-Community) — branch `bgap/b6-community`
-Consumes: B5 (schools, profile fields, notification choke point), B7
-(`user_firms.status='admitted'`).
-Migrations 030–033 (suggested split): 030 `connections (user_id, friend_id,
-state pending|accepted, requested_at, responded_at, PK(user_id,friend_id))`;
-031 `groups (id, name, school_id NULL, created_by, created_at)` +
-`group_members (group_id, user_id, role TEXT CHECK IN ('admin','member'),
-joined_at, PK(group_id,user_id))`; 032 forum: `forum_threads (id, firm_id
-NULL, office TEXT NULL, title, created_by, created_at)` + `forum_posts (id,
-thread_id, author_id, body_md ≤5000, created_at)`; 033 leaderboard indexes
-as needed.
+Consumes: B5 (schools, profile fields, notification choke point).
+DESIGN DELTAS (2026-07-17, "myCase — Design Decisions" §0.1–0.2, override
+the spec and the roadmap):
+- **The admitted forum is NIXED. No forum anywhere.** Do not build
+  forum_threads/forum_posts or a forum router. Community = school standing
+  + groups + connections only.
+- **No population counts, ever.** No leaderboard payload may carry a total
+  member/player count or "of N" data. Standings are expressed as
+  percentiles (e.g. 91st). Literal ranks + points are allowed ONLY inside
+  a joined group (small cohorts of people who know each other).
+  School-vs-school = average member percentile + campus city.
+Migrations 030–033 (032 now unused — leave the number vacant): 030
+`connections (user_id, friend_id, state pending|accepted, requested_at,
+responded_at, PK(user_id,friend_id))`; 031 `groups (id, name, school_id
+NULL, created_by, created_at)` + `group_members (group_id, user_id, role
+TEXT CHECK IN ('admin','member'), joined_at, PK(group_id,user_id))`;
+033 leaderboard indexes as needed.
 
 Deliver (router per domain: `connections.py`, `groups.py`, `forum.py`,
 `leaderboards.py`):
@@ -498,17 +524,17 @@ Deliver (router per domain: `connections.py`, `groups.py`, `forum.py`,
   (per member: cases done, mean grade, drill attempts last 30 d,
   streak) — admin only, 403 members; group leaderboard (sessions
   finalized + drill volume, last 30 d).
-- School surfaces: school leaderboard (same metrics, school_id scope);
-  school-leader role = `school_leaders (school_id, user_id)` seedable
-  (admin-assigned; no self-serve path yet), gated per-group rollup view.
-- Admitted forum: thread create restricted to users with any
-  `user_firms.status='admitted'` (read + reply open to all authed);
-  threads filterable by firm/office; NO chat/DM anywhere. Community
-  pushes (connection request, group invite) through B5's settings choke
-  point under `community`.
+- School surfaces: school standing (percentile-based per the delta above;
+  school-vs-school = avg member percentile + campus city); school-leader
+  role = `school_leaders (school_id, user_id)` seedable (admin-assigned;
+  no self-serve path yet), gated per-group rollup view. NO chat/DM/forum
+  anywhere. Community pushes (connection request, group invite) through
+  B5's settings choke point under `community`.
 
-Produces: `connections` (UX picker), group/school leaderboard queries
-(B8 reuses the scoping CTEs — put them in `webapp/repositories/leaderboards.py`).
+Produces: `connections` (UX picker; connection rows may carry status
+decorations like free-now — join against availability), group/school
+leaderboard queries honoring the no-headcount rule (B8 reuses the scoping
+CTEs — put them in `webapp/repositories/leaderboards.py`).
 
 ### B8 — Drills aggregation (roadmap §B8; spec §4-Drills) — branch `bgap/b8-drills-agg`
 Consumes: B6 leaderboard scoping. OWNER DECISION — RESOLVED 2026-07-17
@@ -526,14 +552,21 @@ Migration 034: `drill_attempts` gains `score REAL NULL`, `duration_ms INT
 NULL`, `set_key TEXT NULL` (e.g. `2026-07-17` for gauntlet membership).
 Migration 035: indexes for rank queries.
 
+DESIGN DELTA (2026-07-17, "myCase — Design Decisions" §0.2): results and
+boards are percentile-first and must NEVER expose population counts
+("of N"). Literal rank + points appear ONLY in the joined-group scope;
+school and global scopes are percentiles; school-vs-school = avg member
+percentile + campus city.
+
 Deliver: `GET /api/v1/drills/gauntlet` (today's global set) +
 `POST /api/v1/drills/gauntlet/attempts` (scored, one submission per user
 per day — 409 on repeat); results payload: score, daily percentile
-(among today's submitters), group rank + school rank (B6 scopes, null if
-unaffiliated), vs-peers delta; `GET /api/v1/drills/trends` (daily scores
-last 60 d + per-type accuracy); keep the existing per-user daily drill
-endpoints untouched (iOS P4 consumes them). Percentile = SQL
-`percent_rank()` — no new deps.
+(among today's submitters, no counts), group rank + points (joined-group
+scope only; null if unaffiliated), school percentile, vs-peers delta;
+`GET /api/v1/drills/boards?scope=group|school|global|schools` honoring the
+delta; `GET /api/v1/drills/trends` (daily scores last 60 d + per-type
+accuracy); keep the existing per-user daily drill endpoints untouched
+(iOS P4 consumes them). Percentile = SQL `percent_rank()` — no new deps.
 
 ## 7. Merge protocol (orchestrator only)
 
