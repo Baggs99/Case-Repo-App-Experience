@@ -35,3 +35,8 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
 - Task 8: complete (commits 0b21950..ce7c3d7, review clean SPEC+CODE PASS). readiness-signal-seams.md — all 24 file:symbol citations resolve, factually accurate. No new tests (doc).
 
 ## Full suite (post all tasks)
+- Full suite: 452 passed (418 baseline + 34 new), 0 failed. Migrations 026/027 re-apply idempotent (12/12 stable).
+
+## Final whole-branch review (edce22c..HEAD)
+- Verdict: FIXES REQUIRED → I-1 (test time-bomb line 196: next_deadline.slug asserted via real clock → TypeError after 2026-09-12). FIXED test-only (None-guard, reviewer-prescribed verbatim). Suite re-run 452 green.
+- M-1..M-6 acknowledged non-blockers → carried to report known-issues. Spec/security/IDOR/cross-task/migration-idempotency all CLEAN.
