@@ -22,3 +22,5 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
 
 (executing task-by-task)
 - Task 2: complete (commits 682acec..afdd389, review clean SPEC+CODE PASS). Migration 027 + user_firms repo (9 fns). Pool-init scaffolding added to test. Suite 422→430.
+- Task 3: complete (commits 8d9b35e..a734e38, review clean SPEC+CODE PASS). webapp/readiness.py swap-point + reweight. C1 fixture fix held (quant strictly weakest). Suite 430→434.
+  - Minor for final triage: reweight_payload calls dimension_averages twice (once via readiness_signal, once inside recommendations) — low-freq path, plan-verbatim.
