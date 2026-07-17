@@ -66,6 +66,13 @@ def main() -> None:
                     " VALUES (%s, %s, NOW(), %s) ON CONFLICT (email) DO NOTHING;",
                     (email, pw_hash, name),
                 )
+            # Migration 023's backfill only covers users that predate it; on a
+            # fresh DB (schema -> migrations -> seed) the binding happens here.
+            cur.execute(
+                "UPDATE users u SET school_id = s.id FROM schools s"
+                " WHERE u.school_id IS NULL"
+                "   AND lower(split_part(u.email, '@', 2)) = s.domain;"
+            )
             cur.execute(
                 "INSERT INTO cases (case_title, normalized_title, source_school,"
                 " source_year, industry, case_type, difficulty, difficulty_score,"

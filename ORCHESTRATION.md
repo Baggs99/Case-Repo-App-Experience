@@ -10,7 +10,7 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 |---|---|---|---|---|---|
 | B1 scheduling | bgap/b1-scheduling | ~/dev/bgap-b1 | MERGED e315b68 | 350d069 | 402 phase / 418 integration |
 | B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | MERGED c0f26ca | 27a2e2a | 376 pass (phase + integration) |
-| B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | DISPATCHED w1 | — | — |
+| B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | MERGED 7b119ec | 0e978d5 | 420 phase / 478 integration |
 | B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | DISPATCHED w2 | — | — |
 | B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | DISPATCHED w2 | — | — |
 | B3 sessionflow | bgap/b3-sessionflow | — | WAITING w3 (needs B1,B2,B4) | — | — |
@@ -61,6 +61,17 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   + null session; case-less pair claim 409s — B3 builds negotiating from
   these. B1 deferred items ride to B2 (claim_token null hygiene) and B3.
 
+- 2026-07-17 B5 → feature/backend-gap @ 7b119ec (phase head 0e978d5).
+  Integration first ran 475/3: migration-023 school backfill only covers
+  pre-existing users; fresh-DB flow seeds after migrations → seeded users
+  had NULL school_id. Fixed forward in seed_caseroom_dev.py (registry-aware
+  school binding) → 478 passed (360+16+42+60). WAVE 1 COMPLETE.
+
 ## Escalations queued for Thomas
 
-(none yet)
+- B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
+  developer apps (redirect URIs + env vars listed there); set
+  WEBAPP_SESSION_SECRET in prod .env. Non-blocking: OAuth 503s cleanly
+  until then; all flows mocked in tests.
+- B5 DEFERRED (tracked, unscheduled): OTP/signup rate-limiting,
+  login_otp_codes reaping, orphaned-avatar cleanup, stale Booth template copy.
