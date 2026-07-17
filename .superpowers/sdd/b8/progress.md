@@ -9,7 +9,7 @@ Run suite: DATABASE_URL=postgresql://localhost/caserepo_bgap_b8 $PY -m pytest te
 - Baseline suite: **585 passed, 0 failed** (evidence: pytest tail "585 passed, 630 warnings in 8.69s"). Finish line = 585 + N new.
 
 ## Now
-- Executing tasks. Plan APPROVED (fresh Opus review: 0 Critical / 0 Important, 6 Minor).
+- All 7 tasks complete + reviewed clean. FULL SUITE: 620 passed, 0 failed (baseline 585 + 35 new: 2+8+6+3+5+9+2). Shared-date hermeticity concern proven non-issue. Whole-branch diff at .superpowers/sdd/b8/diffs/whole-branch.diff (merge-base 8da1114..HEAD). Next: final whole-branch review → one fix batch → clean → report.
 
 ## Plan review
 - Verdict APPROVE. Applied M2 (flaky -1 sentinel → regenerate provably-wrong answers), M3 (score_slot tolerance_factor sorted() guard), M4 (group comment: most-recently-created not "first joined"). Not changed (documented): M1 school_percentile==global (matches B6 my_school_standing.your_percentile — owner nod deferred), M5 cold-start lone submitter reads 0th percentile (percent_rank convention, matches B6), M6 private _TYPES import (mirrors internal use).
