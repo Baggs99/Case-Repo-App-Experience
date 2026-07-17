@@ -12,9 +12,9 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | MERGED c0f26ca | 27a2e2a | 376 pass (phase + integration) |
 | B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | MERGED 7b119ec | 0e978d5 | 420 phase / 478 integration |
 | B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | DISPATCHED w2 | — | — |
-| B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | DISPATCHED w2 | — | — |
+| B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | MERGED | c1df02c | 452 phase / 512 integration |
 | B3 sessionflow | bgap/b3-sessionflow | — | WAITING w3 (needs B1,B2,B4) | — | — |
-| B6 community | bgap/b6-community | — | WAITING w3 (needs B5,B7) | — | — |
+| B6 community | bgap/b6-community | ~/dev/bgap-b6 | DISPATCHED w3 | — | — |
 | B8 drills-agg | bgap/b8-drills-agg | — | WAITING w4 (needs B6 + OD-B8-1) | — | — |
 
 ## Owner decisions
@@ -67,11 +67,17 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   had NULL school_id. Fixed forward in seed_caseroom_dev.py (registry-aware
   school binding) → 478 passed (360+16+42+60). WAVE 1 COMPLETE.
 
+- 2026-07-17 B7 → feature/backend-gap (phase head c1df02c). ZERO conflicts
+  (per-phase sdd subdir rule working). Integration 512 passed (478+34).
+  Deadline-prompt push maps to notification category session_reminders.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
   developer apps (redirect URIs + env vars listed there); set
   WEBAPP_SESSION_SECRET in prod .env. Non-blocking: OAuth 503s cleanly
   until then; all flows mocked in tests.
+- B7: all seeded firm deadline dates are curated ESTIMATES
+  (is_estimate=TRUE) — replace with real 2026-27 cycle dates before launch.
 - B5 DEFERRED (tracked, unscheduled): OTP/signup rate-limiting,
   login_otp_codes reaping, orphaned-avatar cleanup, stale Booth template copy.
