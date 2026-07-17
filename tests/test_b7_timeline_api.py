@@ -152,5 +152,49 @@ class TestTimelineApi(unittest.TestCase):
         self.assertEqual(len(self.alice.get("/api/v1/timeline").json()["firms"]), 1)
 
 
+@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
+@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+class TestDashboardTimelineKeys(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+        from webapp.repositories import firms as firms_repo
+        cls._ctx = TestClient(app)
+        cls.alice = cls._ctx.__enter__()
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM users WHERE email = 'a@yale.edu';")
+                cls.aid = cur.fetchone()[0]
+        s = create_session(cls.aid, user_agent="b7-dash", ip_address=None)
+        cls.alice.cookies.set(SESSION_COOKIE_NAME, s.id)
+        cls.mck = next(f for f in firms_repo.list_firms() if f["slug"] == "mckinsey")["id"]
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM user_firms WHERE user_id = %s;", (cls.aid,))
+        cls._ctx.__exit__(None, None, None)
+
+    def test_dashboard_has_diagnostic_and_timeline(self):
+        self.alice.post("/api/v1/timeline/firms", json={"firm_id": self.mck})
+        d = self.alice.get("/api/v1/dashboard").json()
+        # Additive — existing B4 keys still present.
+        self.assertIn("recommendations", d)
+        self.assertIn("dimension_averages", d)
+        # New B7 keys.
+        self.assertIn("diagnostic", d)
+        self.assertEqual(set(d["diagnostic"]) >= {
+            "cases_done_60d", "dimensions", "strengths", "weaknesses",
+            "focus_dimension", "trend"}, True)
+        self.assertIn("timeline", d)
+        self.assertEqual(d["timeline"]["tracked_count"], 1)
+        self.assertEqual(d["timeline"]["next_deadline"]["slug"], "mckinsey")
+
+
 if __name__ == "__main__":
     unittest.main()

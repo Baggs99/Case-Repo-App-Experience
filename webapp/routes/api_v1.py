@@ -26,6 +26,7 @@ from webapp.auth.users import User, authenticate
 from webapp.csrf import require_same_origin
 from webapp.db import get_pool
 from webapp import drills
+from webapp import timeline_service
 from webapp.preview_urls import preview_page_urls
 from webapp.push.events import push_to_user
 from webapp.repositories import availability as availability_repo
@@ -374,4 +375,9 @@ def dashboard(user: User = Depends(require_auth_api)):
         # existing web shape, recommendations = canonical item shape).
         "dimension_averages": dashboard_repo.dimension_averages(user.id),
         "recommendations": dashboard_repo.recommendations(user.id),
+        # B7 §4 Home: diagnostic block + timeline summary (next deadline across
+        # tracked firms). Additive — no existing key changes.
+        "diagnostic": dashboard_repo.diagnostic(user.id),
+        "timeline": timeline_service.next_deadline_summary(
+            user.id, datetime.now(timezone.utc).date()),
     }
