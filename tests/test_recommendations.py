@@ -205,6 +205,31 @@ class TestRecommendationSurfaces(unittest.TestCase):
         r = TestClient(app).get("/api/v1/recommendations")
         self.assertEqual(r.status_code, 401)
 
+    # ── Task 3: Home-card mouth ─────────────────────────────────────────────
+
+    def test_api_v1_dashboard_gains_dims_and_recs(self):
+        r = self.cara.get("/api/v1/dashboard")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        # dimension_averages: existing web-dashboard shape, weakest first.
+        dims = body["dimension_averages"]
+        self.assertTrue(dims)
+        self.assertEqual(set(dims[0]), {"dimension", "avg_score", "samples"})
+        self.assertEqual(dims[0]["dimension"], "quant")
+        # recommendations: canonical item shape, rules fire.
+        recs = body["recommendations"]
+        by_rule = {rec["rule"]: rec["case_id"] for rec in recs}
+        self.assertEqual(by_rule["coverage-gap"], self.b1)
+        for rec in recs:
+            self.assertEqual(set(rec), {"case_id", "title", "case_type",
+                                        "difficulty", "why", "rule"})
+
+    def test_api_v1_dashboard_keeps_existing_keys(self):
+        body = self.cara.get("/api/v1/dashboard").json()
+        for key in ("sessions_finalized", "streak_weeks", "next_session",
+                    "streak_days", "drill_done_today"):
+            self.assertIn(key, body)
+
 
 if __name__ == "__main__":
     unittest.main()
