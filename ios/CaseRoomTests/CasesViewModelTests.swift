@@ -28,7 +28,8 @@ final class CasesViewModelTests: XCTestCase {
         CaseSummary(
             id: id, caseTitle: title, caseType: nil, difficulty: "Medium",
             difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
-            industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil
+            industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil,
+            avgRating: nil, runCount: nil, doneForYou: nil
         )
     }
 

@@ -113,7 +113,8 @@ final class IntentsTests: XCTestCase {
             id: 42, caseTitle: "Widget Co Profitability", caseType: "profitability",
             difficulty: "medium", difficultyScore: 0.5, firm: nil, industry: nil,
             industryDisplay: nil, industryRaw: nil, pageCount: 12,
-            sourceSchool: "HBS", sourceYear: 2024
+            sourceSchool: "HBS", sourceYear: 2024,
+            avgRating: nil, runCount: nil, doneForYou: nil
         )
         let entity = CaseEntity(from: summary)
         XCTAssertEqual(entity.id, 42)
@@ -189,7 +190,8 @@ private struct FakeCatalog: EntityCatalog {
             id: id, caseTitle: "Detail Co", caseType: nil, difficulty: "hard",
             difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
             industryRaw: nil, pageCount: nil, sourceSchool: "Wharton", sourceYear: nil,
-            previewUrls: [], pdfUrl: "/x.pdf"
+            previewUrls: [], pdfUrl: "/x.pdf",
+            avgRating: nil, runCount: nil, doneForYou: nil
         )
     }
 
@@ -198,7 +200,8 @@ private struct FakeCatalog: EntityCatalog {
             CaseSummary(
                 id: i, caseTitle: "Case \(i)", caseType: nil, difficulty: nil,
                 difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
-                industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil
+                industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil,
+                avgRating: nil, runCount: nil, doneForYou: nil
             )
         }
     }

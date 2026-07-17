@@ -1,109 +1,240 @@
 /*
- * Purpose: Cases tab — searchable, difficulty-filterable list of case
- *          summaries backed by CasesViewModel.
- * Inputs: CasesViewModel (default APIClient.shared via CasesService).
+ * Purpose: Library tab (canvas 5a phone list / canvas 2c tablet
+ *          master–detail) — H1 (phone only; the shell draws it on iPad), type
+ *          chips, the Everything/Not done/Done toggle row with the live
+ *          "N OPEN · N DONE" count, and the casebook rows (retired-done
+ *          greyed below a divider). Hosts the `libraryPath` NavigationStack
+ *          (F1 deferred tab-stack mounting to F4 — see RootShell's
+ *          libraryDetailOpen chrome gate). The chip row/toggle row/rows list
+ *          are factored into LibraryTypeChipRow/LibraryToggleRow/
+ *          LibraryRowsList below so Task 5's LibraryMasterDetailView.swift
+ *          (regular size class, canvas 2c) reuses them verbatim with
+ *          select-on-tap instead of push.
+ * Inputs: LibraryViewModel (default APIClient.shared via LibraryService); DEBUG
+ *         `-LibraryFixtures` swaps in the FixtureLibraryService stub so
+ *         screenshots need no dev server.
  * Outputs: none.
  * Run: shown by RootShell for DSTab.library.
  */
 
 import SwiftUI
 
-private struct CasesFilterKey: Equatable {
-    var query: String
-    var difficulty: String?
-}
-
 struct CasesListView: View {
-    @State private var viewModel = CasesViewModel()
+    @State private var viewModel: LibraryViewModel
+    @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.dsPalette) private var palette
+
+    init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") {
+            let fixtureVM = LibraryViewModel(service: LibraryFixtures.service)
+            fixtureVM.fixtureDecorations = LibraryFixtures.decorations
+            _viewModel = State(initialValue: fixtureVM)
+        } else {
+            _viewModel = State(initialValue: LibraryViewModel())
+        }
+        #else
+        _viewModel = State(initialValue: LibraryViewModel())
+        #endif
+    }
 
     var body: some View {
-        NavigationStack {
-            content
-                .navigationTitle("Cases")
+        NavigationStack(path: Binding(
+            get: { AppRouter.shared.libraryPath },
+            set: { AppRouter.shared.libraryPath = $0 }
+        )) {
+            sizeClassBody
                 .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: Int.self) { caseId in
-                    CaseDetailView(caseId: caseId)
-                }
-                .searchable(text: $viewModel.query, prompt: "Search cases")
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Picker("Difficulty", selection: $viewModel.difficulty) {
-                                Text("All").tag(String?.none)
-                                Text("Easy").tag(String?.some("Easy"))
-                                Text("Medium").tag(String?.some("Medium"))
-                                Text("Hard").tag(String?.some("Hard"))
-                            }
-                        } label: {
-                            Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                        }
+                .navigationDestination(for: AppRoute.self) { route in
+                    if case .caseDetail(let id) = route {
+                        CaseDetailView(caseId: id)
                     }
-                }
-                .task(id: CasesFilterKey(query: viewModel.query, difficulty: viewModel.difficulty)) {
-                    // Debounce so typing doesn't fire a request per keystroke.
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled else { return }
-                    await viewModel.load()
                 }
         }
     }
 
     @ViewBuilder
-    private var content: some View {
-        if viewModel.isLoading && viewModel.results.isEmpty {
-            ProgressView()
-        } else if let errorMessage = viewModel.errorMessage {
-            ContentUnavailableView(errorMessage, systemImage: "wifi.slash")
-        } else if viewModel.results.isEmpty {
-            ContentUnavailableView("No Cases", systemImage: "folder")
-        } else {
-            List(viewModel.results) { caseSummary in
-                NavigationLink(value: caseSummary.id) {
-                    CaseRow(caseSummary: caseSummary)
+    private var sizeClassBody: some View {
+        Group {
+            if hSize == .regular {
+                // F4 Task 5: tablet master–detail (canvas 2c, 1fr|470px split).
+                LibraryMasterDetailView(viewModel: viewModel)
+            } else {
+                phoneList
+            }
+        }
+        .task { await viewModel.load() }
+        .onChange(of: viewModel.type) { _, _ in
+            // The type chip filters server-side (CaseQuery.caseType) — the
+            // done toggle stays client-side over the already-loaded set, so
+            // only a type change needs a reload (carry-in from Task 2 review).
+            Task { await viewModel.load() }
+        }
+    }
+
+    private var phoneList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Library")
+                    .dsText(.h1Tab)
+                    .foregroundStyle(palette.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                LibraryTypeChipRow(viewModel: viewModel)
+                    .padding(.top, 14)
+
+                LibraryToggleRow(viewModel: viewModel)
+                    .padding(.top, 9)
+
+                LibraryRowsList(viewModel: viewModel) { libraryCase in
+                    AppRouter.shared.go(to: .caseDetail(libraryCase.id))
                 }
             }
+            .padding(.horizontal, 22)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
+// MARK: - Shared chip/toggle/rows components (phone list + Task 5 tablet
+// master–detail's left column both bind these to the same LibraryViewModel).
+
+/// Type chip row (All / Market entry / Profitability / M&A / Sizing) — active
+/// chip = ink capsule fill, inactive = glassChip(). Tapping sets `vm.type`;
+/// the caller (CasesListView.sizeClassBody) reloads on that change.
+struct LibraryTypeChipRow: View {
+    let viewModel: LibraryViewModel
+    @Environment(\.dsPalette) private var palette
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                ForEach(LibraryType.allCases, id: \.self) { type in
+                    chip(for: type)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    @ViewBuilder
+    private func chip(for type: LibraryType) -> some View {
+        let active = viewModel.type == type
+        let label = Button {
+            viewModel.type = type
+        } label: {
+            Text(type.label)
+                .font(.archivo(11.5, weight: 600))
+                .foregroundStyle(active ? palette.onInk : palette.ink)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+        }
+        .buttonStyle(DSPressStyle())
+
+        if active {
+            label.background(Capsule().fill(palette.ink))
+        } else {
+            label.glassChip()
         }
     }
 }
 
-private struct CaseRow: View {
-    let caseSummary: CaseSummary
+/// The `countLine` (left, kicker/muted) + Everything/Not done/Done text
+/// toggles (right, active = ink+underline) over a bottom hairline.
+struct LibraryToggleRow: View {
+    let viewModel: LibraryViewModel
+    @Environment(\.dsPalette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(caseSummary.caseTitle)
-                .font(.headline)
-            HStack(spacing: 8) {
-                if let difficulty = caseSummary.difficulty {
-                    Text(difficulty)
-                        .font(.caption.bold())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color("BrandAccent").opacity(0.15))
-                        .foregroundStyle(Color("BrandAccent"))
-                        .clipShape(Capsule())
-                }
-                if let secondary = secondaryLine {
-                    Text(secondary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(alignment: .lastTextBaseline) {
+                Text(viewModel.countLine)
+                    .font(.archivo(9.5, weight: 600))
+                    .tracking(9.5 * 0.14)
+                    .tabularNumbers()
+                    .foregroundStyle(palette.muted)
+                Spacer()
+                HStack(spacing: 14) {
+                    ForEach(LibraryDone.allCases, id: \.self) { done in
+                        doneToggle(done)
+                    }
                 }
             }
+            .padding(.bottom, 9)
+
+            Rectangle().fill(palette.hairline).frame(height: 1)
         }
-        .padding(.vertical, 2)
     }
 
-    private var secondaryLine: String? {
-        switch (caseSummary.industryDisplay, caseSummary.firm) {
-        case let (industry?, firm?):
-            return "\(industry) · \(firm)"
-        case let (industry?, nil):
-            return industry
-        case let (nil, firm?):
-            return firm
-        default:
-            return nil
+    private func doneToggle(_ done: LibraryDone) -> some View {
+        let active = viewModel.done == done
+        return Button {
+            viewModel.done = done
+        } label: {
+            Text(done.label)
+                .font(.archivo(11, weight: 600))
+                .foregroundStyle(active ? palette.ink : palette.faint)
+                .overlay(alignment: .bottom) {
+                    if active {
+                        Rectangle().fill(palette.ink).frame(height: 1).offset(y: 3)
+                    }
+                }
         }
+        .buttonStyle(DSPressStyle())
+    }
+}
+
+/// The casebook rows list (`LibraryRowView` per `.row`, `LibraryDividerRow`
+/// per `.divider`, empty-state serif italic). `onRowTap` is push-to-detail on
+/// phone, select-only on tablet (Task 5); `selectedID` drives the glass-chip
+/// fill and is nil (no highlight) on phone.
+struct LibraryRowsList: View {
+    let viewModel: LibraryViewModel
+    var selectedID: Int? = nil
+    let onRowTap: (LibraryCase) -> Void
+    @Environment(\.dsPalette) private var palette
+
+    init(viewModel: LibraryViewModel, selectedID: Int? = nil, onRowTap: @escaping (LibraryCase) -> Void) {
+        self.viewModel = viewModel
+        self.selectedID = selectedID
+        self.onRowTap = onRowTap
+    }
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(viewModel.filteredRows) { row in
+                switch row {
+                case .row(let libraryCase):
+                    LibraryRowView(row: libraryCase, isSelected: libraryCase.id == selectedID) {
+                        onRowTap(libraryCase)
+                    }
+                case .divider(let label):
+                    LibraryDividerRow(label: label)
+                }
+            }
+
+            // Error / loading / empty are distinct states (the bare
+            // filteredRows.isEmpty must not read as "no results" on a failed or
+            // in-flight load). Error + loading surfaces are undesigned
+            // (Decisions §6) — kept minimal and token-styled.
+            if let error = viewModel.errorMessage {
+                Text(error)
+                    .font(.serifVoice(14, italic: true))
+                    .foregroundStyle(palette.muted)
+                    .padding(.vertical, 26)
+            } else if viewModel.isLoading && viewModel.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 26)
+            } else if viewModel.isEmpty {
+                Text("Nothing here under these filters.")
+                    .font(.serifVoice(14, italic: true))
+                    .foregroundStyle(palette.muted)
+                    .padding(.vertical, 26)
+            }
+        }
+        .padding(.top, 2)
+        .padding(.bottom, 40)
     }
 }
 

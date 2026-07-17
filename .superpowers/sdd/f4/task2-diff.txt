@@ -1,0 +1,1179 @@
+### git log
+2415dd1 Add LibraryViewModel with retired-done partitioning
+8beb22e ledger: Task 1 complete + reviewed
+
+### diff --stat
+ .superpowers/sdd/f4/progress.md               |   5 +
+ .superpowers/sdd/f4/task-2-report.md          |  69 +++++
+ .superpowers/sdd/f4/task1-diff.txt            | 422 ++++++++++++++++++++++++++
+ ios/CaseRoom/State/LibraryViewModel.swift     | 234 ++++++++++++++
+ ios/CaseRoomTests/LibraryViewModelTests.swift | 397 ++++++++++++++++++++++++
+ 5 files changed, 1127 insertions(+)
+
+### diff -U10
+diff --git a/.superpowers/sdd/f4/progress.md b/.superpowers/sdd/f4/progress.md
+index 7d5ad0d..b0cd3d4 100644
+--- a/.superpowers/sdd/f4/progress.md
++++ b/.superpowers/sdd/f4/progress.md
+@@ -21,10 +21,15 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
+ - (none yet)
+ 
+ ## Assumptions
+ - "YOUR HISTORY WITH IT" derives from `/api/v1/sessions?scope=recent` title-matched to the case
+   (the pinned /api/v1/cases* contract carries no per-case user history and no case_id on session
+   rows) — best-effort join, documented as a backend follow-up seam.
+ - Row "FOR YOU"/"SCHEDULED" + detail "RECOMMENDED FOR YOU" decorations need B4 recs +
+   upcoming-sessions cross-reference (not in the Library payload) → live rows omit them; the DEBUG
+   fixture carries them so screenshots match the canvas. Detail tag OPEN FOR YOU / DONE — RETIRED
+   FOR YOU IS derivable from done_for_you and renders live.
++
++## Task log
++- Task 1 (networking): complete — commits 3e8e302..315b279, review clean (APPROVE A+B).
++  Suite 318/318. Minors (non-blocking): test name overpromises (cosmetic); use sites must
++  nil-coalesce runCount→0 / doneForYou→false (carried into Task 2/3).
+diff --git a/.superpowers/sdd/f4/task-2-report.md b/.superpowers/sdd/f4/task-2-report.md
+new file mode 100644
+index 0000000..876e2d4
+--- /dev/null
++++ b/.superpowers/sdd/f4/task-2-report.md
+@@ -0,0 +1,69 @@
++# F4 Task 2 — LibraryViewModel + LibraryCase mapping
++
++Status: DONE.
++
++## Files
++- `ios/CaseRoom/State/LibraryViewModel.swift` (new) — `LibraryService` protocol +
++  `extension APIClient: LibraryService`, `LibraryType`, `LibraryDone`, `LibraryCase`
++  (+ `.from(_:ordinal:)`, `.detailMeta`), `LibraryRow`, `LibraryViewModel`.
++- `ios/CaseRoomTests/LibraryViewModelTests.swift` (new) — 19 tests.
++- `CasesViewModel.swift` untouched (still backs `CasesListView`/`CaseDetailView`
++  until Task 4, per the plan's compile-order resolution #4).
++- `project.yml` / `.xcodeproj`: regenerated via `xcodegen generate`, no diff
++  (globbed group already covers `State/` and `CaseRoomTests/`).
++
++## case_type DB-spelling assumption (flag for reviewer)
++`LibraryType.caseTypeFilter` maps chips to `CaseQuery.caseType` using the DB
++spellings given in the task brief: all→nil, marketEntry→"Market Entry",
++profitability→"Profitability", ma→"M&A", sizing→"Market Sizing". I checked
++`pipeline/exporters/case_type_backfill.py` (the canonical case_type backfill
++table) for confirmation:
++- "Market Entry", "Profitability", "M&A" all appear as canonical output values
++  in that table — reasonably confirmed.
++- "Market Sizing" (or any "sizing" variant) does **not** appear anywhere in
++  that file — unconfirmed. It's a best-guess spelling per the task brief.
++
++Server match is exact-equality, so if "Market Sizing" is wrong, the Sizing
++chip silently returns an empty set (not a crash) — no test can catch a wrong
++guess against live data. Recommend a live smoke check against the DB's
++`SELECT DISTINCT case_type` (or `SearchFilters`) before Task 3 ships the chip
++row, or logging a seam note for the orchestrator.
++
++## Derivation notes
++- `kicker`: `[caseType, "\(school) \(year)"]` joined " · ", uppercased,
++  omitting whichever half is missing (built from two arrays so a missing
++  school or missing year alone doesn't leave a stray space).
++- `meta` (row): `"D\(Int(difficultyScore))"`, else the difficulty word, else
++  `""`. `detailMeta` (Task 4 reuse) appends `" · rated by N candidates"`.
++- `avgRating`: `String(format: "%g", _)` or `"—"` when nil (matches the task
++  brief literally, e.g. 4.7 → "4.7").
++- `pdfLabel`: `"Case PDF — N pages"` or `"Case PDF"` when `pageCount` nil.
++- Ordinals: assigned once in `load()` from the fetched page's descending
++  index (`String(format:"%02d", total - index)`), stored on `allCases`; the
++  `done` toggle only re-filters `allCases` (no reload), so ordinals are
++  stable across toggle changes — verified by test.
++- `countLine`/`filteredRows` share a private `shownGroups` helper so the
++  divider presence and the count always agree.
++
++## Deviations from the brief
++None. `enum LibraryType: CaseIterable` / `enum LibraryDone: CaseIterable`
++used exactly as specified (Swift's real `CaseIterable` protocol).
++
++## Test command + result
++```
++export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
++cd /Users/thomaskgould/dev/fe-f4/ios
++xcodegen generate
++xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom \
++  -destination 'platform=iOS Simulator,id=49C5BC31-F364-44C0-BFAB-2CAAAD4B23ED' test
++```
++Tail:
++```
++Test Suite 'CaseRoomTests.xctest' passed at 2026-07-17 13:43:33.990.
++	 Executed 337 tests, with 0 failures (0 unexpected) in 4.070 (4.162) seconds
++Test Suite 'All tests' passed at 2026-07-17 13:43:33.990.
++	 Executed 337 tests, with 0 failures (0 unexpected) in 4.070 (4.162) seconds
++** TEST SUCCEEDED **
++```
++Baseline was 318; 318 + 19 new `LibraryViewModelTests` = 337, 0 failures.
++`LibraryViewModelTests` suite alone: 19/19 passed.
+diff --git a/.superpowers/sdd/f4/task1-diff.txt b/.superpowers/sdd/f4/task1-diff.txt
+new file mode 100644
+index 0000000..f5224ba
+--- /dev/null
++++ b/.superpowers/sdd/f4/task1-diff.txt
+@@ -0,0 +1,422 @@
++### git log
++315b279 Add case aggregates + LibraryPage to the cases API
++
++### diff --stat
++ .superpowers/sdd/f4/task-1-report.md         |  80 +++++++++++++++++
++ ios/CaseRoom/Networking/APIClient.swift      |  16 ++++
++ ios/CaseRoom/Networking/Models.swift         |  20 +++++
++ ios/CaseRoomTests/CasesViewModelTests.swift  |   3 +-
++ ios/CaseRoomTests/IntentsTests.swift         |   9 +-
++ ios/CaseRoomTests/LibraryDecodingTests.swift | 123 +++++++++++++++++++++++++++
++ 6 files changed, 247 insertions(+), 4 deletions(-)
++
++### diff -U10
++diff --git a/.superpowers/sdd/f4/task-1-report.md b/.superpowers/sdd/f4/task-1-report.md
++new file mode 100644
++index 0000000..8bfe552
++--- /dev/null
+++++ b/.superpowers/sdd/f4/task-1-report.md
++@@ -0,0 +1,80 @@
+++# F4 Task 1 — Networking: case aggregates + LibraryPage
+++
+++**Status: DONE**
+++
+++## Files changed
+++
+++- `ios/CaseRoom/Networking/Models.swift` — added `avgRating: Double?`,
+++  `runCount: Int?`, `doneForYou: Bool?` to `CaseSummary` and `CaseDetail`
+++  (optional, no `CodingKeys`; `.convertFromSnakeCase` maps `avg_rating`/
+++  `run_count`/`done_for_you`). Added `struct LibraryPage: Codable, Equatable`
+++  (`cases`, `total`, `openCount`, `doneCount`) — decodes the
+++  `/api/v1/cases` list response directly (`open_count`/`done_count` map via
+++  the same snake-case strategy).
+++- `ios/CaseRoom/Networking/APIClient.swift` — added
+++  `func library(query: CaseQuery = CaseQuery()) async throws -> LibraryPage`,
+++  GETing `/api/v1/cases` with the same query-item construction as
+++  `cases(query:)` (duplicated intentionally per the plan's compile-order
+++  note — `cases(query:)` stays untouched until Task 4 removes its last
+++  caller). `caseDetail(id:)` unchanged; now decodes the three new optional
+++  fields for free.
+++- `ios/CaseRoomTests/LibraryDecodingTests.swift` (new) — 5 tests, all
+++  hitting the real `APIClient.library`/`caseDetail` pipeline via the shared
+++  `StubURLProtocol` (from `APIClientTests.swift`) rather than a private
+++  decode mirror, per the task's "prefer testing the public models" note:
+++  - `testLibraryRequestAndDecode_WithAggregates` — full aggregate JSON →
+++    `page.openCount`/`doneCount` + a case's `avgRating`/`runCount`/
+++    `doneForYou` populate.
+++  - `testLibraryRequestAndDecode_MissingAggregateKeysStillDecodesNil` —
+++    back-compat: JSON without `avg_rating`/`run_count`/`done_for_you` still
+++    decodes, those three fields nil.
+++  - `testLibraryRequestBuildsSameQueryItemsAsCases` — asserts `library()`
+++    sends the same query items (`q`, `case_type`, `limit`) as `cases()`.
+++  - `testCaseDetailRequestAndDecode_WithAggregates` — `/api/v1/cases/{id}`
+++    JSON → aggregates + `previewUrls`/`pdfUrl` decode.
+++  - `testCaseDetailRequestAndDecode_MissingAggregateKeysStillDecodesNil` —
+++    same back-compat check for the detail endpoint.
+++
+++### Incidental fixes (required for compile, not scope creep)
+++
+++Adding non-defaulted fields to `CaseSummary`/`CaseDetail`'s memberwise init
+++broke three existing test call sites that construct these structs directly.
+++Updated each to pass `avgRating: nil, runCount: nil, doneForYou: nil`:
+++- `ios/CaseRoomTests/CasesViewModelTests.swift` (`makeCase` helper)
+++- `ios/CaseRoomTests/IntentsTests.swift` (3 call sites: a `CaseSummary`, a
+++  `CaseDetail`, and a `CaseSummary` array-builder)
+++
+++No other `CaseSummary(`/`CaseDetail(` construction sites exist in the repo
+++(confirmed via grep across `ios/`).
+++
+++## Build/test evidence
+++
+++`xcodegen generate` regenerated `CaseRoom.xcodeproj` (gitignored; `git
+++status` confirms `project.yml` did not change — no commit needed for it).
+++
+++```
+++export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+++cd /Users/thomaskgould/dev/fe-f4/ios
+++xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom \
+++  -destination 'platform=iOS Simulator,id=49C5BC31-F364-44C0-BFAB-2CAAAD4B23ED' test
+++```
+++
+++Tail:
+++```
+++Test Suite 'CaseRoomTests.xctest' passed at 2026-07-17 13:37:11.400.
+++	 Executed 318 tests, with 0 failures (0 unexpected) in 4.252 (4.342) seconds
+++Test Suite 'All tests' passed at 2026-07-17 13:37:11.400.
+++	 Executed 318 tests, with 0 failures (0 unexpected) in 4.252 (4.344) seconds
+++** TEST SUCCEEDED **
+++```
+++
+++313 baseline + 5 new `LibraryDecodingTests` = 318, 0 failures.
+++
+++## Deviations
+++
+++None from the task brief. `LibraryPage` was made `Codable` (not just
+++`Equatable` as literally listed) so it can be the direct decode target for
+++`send(path:method:queryItems:)` — the field names (`cases`, `total`,
+++`open_count`→`openCount`, `done_count`→`doneCount`) match the endpoint
+++exactly, so no private response mirror was needed, matching the task's
+++preferred approach.
++diff --git a/ios/CaseRoom/Networking/APIClient.swift b/ios/CaseRoom/Networking/APIClient.swift
++index bd02090..83dcae3 100644
++--- a/ios/CaseRoom/Networking/APIClient.swift
+++++ b/ios/CaseRoom/Networking/APIClient.swift
++@@ -179,20 +179,36 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
++         let response: CasesResponse = try await send(
++             path: "/api/v1/cases", method: "GET", queryItems: items
++         )
++         return response.cases
++     }
++ 
++     func caseDetail(id: Int) async throws -> CaseDetail {
++         try await send(path: "/api/v1/cases/\(id)", method: "GET")
++     }
++ 
+++    // F4 Library screen (Task 1): same /api/v1/cases endpoint as cases(query:)
+++    // above, but decodes the full page shape (open_count/done_count) that
+++    // drives the retired-done divider + count line. cases(query:) is left
+++    // untouched — CasesViewModel/CaseDetailView still use it until Task 4
+++    // migrates them onto LibraryService, per the plan's compile-order note.
+++    func library(query: CaseQuery = CaseQuery()) async throws -> LibraryPage {
+++        var items: [URLQueryItem] = []
+++        if let q = query.q { items.append(URLQueryItem(name: "q", value: q)) }
+++        if let difficulty = query.difficulty { items.append(URLQueryItem(name: "difficulty", value: difficulty)) }
+++        if let industry = query.industry { items.append(URLQueryItem(name: "industry", value: industry)) }
+++        if let caseType = query.caseType { items.append(URLQueryItem(name: "case_type", value: caseType)) }
+++        if let school = query.school { items.append(URLQueryItem(name: "school", value: school)) }
+++        if let limit = query.limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
+++        return try await send(path: "/api/v1/cases", method: "GET", queryItems: items)
+++    }
+++
++     // Preview/PDF URLs from the API may be relative same-origin paths;
++     // resolve them against baseURL so AsyncImage/ShareLink get absolute URLs.
++     nonisolated func resolveURL(_ path: String) -> URL? {
++         URL(string: path, relativeTo: baseURL)?.absoluteURL
++     }
++ 
++     // MARK: - Proposals
++ 
++     func proposals() async throws -> [Proposal] {
++         struct ProposalsResponse: Decodable { let proposals: [Proposal] }
++diff --git a/ios/CaseRoom/Networking/Models.swift b/ios/CaseRoom/Networking/Models.swift
++index 0467af0..30dc7d0 100644
++--- a/ios/CaseRoom/Networking/Models.swift
+++++ b/ios/CaseRoom/Networking/Models.swift
++@@ -19,37 +19,57 @@ struct CaseSummary: Codable, Identifiable, Equatable {
++     let caseType: String?
++     let difficulty: String?
++     let difficultyScore: Double?
++     let firm: String?
++     let industry: String?
++     let industryDisplay: String?
++     let industryRaw: String?
++     let pageCount: Int?
++     let sourceSchool: String?
++     let sourceYear: Int?
+++    // B3 Library aggregates (avg_rating/run_count/done_for_you). Optional so
+++    // fixtures/back-compat responses without these keys still decode; nil
+++    // runCount treated as 0 and nil doneForYou as false at the use site.
+++    let avgRating: Double?
+++    let runCount: Int?
+++    let doneForYou: Bool?
++ }
++ 
++ struct CaseDetail: Codable, Identifiable, Equatable {
++     let id: Int
++     let caseTitle: String
++     let caseType: String?
++     let difficulty: String?
++     let difficultyScore: Double?
++     let firm: String?
++     let industry: String?
++     let industryDisplay: String?
++     let industryRaw: String?
++     let pageCount: Int?
++     let sourceSchool: String?
++     let sourceYear: Int?
++     let previewUrls: [String]
++     let pdfUrl: String
+++    // B3 Library aggregates — see CaseSummary for the back-compat rationale.
+++    let avgRating: Double?
+++    let runCount: Int?
+++    let doneForYou: Bool?
+++}
+++
+++// B3 GET /api/v1/cases list response: cases + total + the open/done counts
+++// over the filtered canonical set (drives the retired-done divider/count
+++// line in F4's Library screen).
+++struct LibraryPage: Codable, Equatable {
+++    let cases: [CaseSummary]
+++    let total: Int
+++    let openCount: Int
+++    let doneCount: Int
++ }
++ 
++ struct Proposal: Codable, Identifiable, Equatable {
++     let id: Int
++     let fromName: String
++     let fromRole: String
++     let caseId: Int
++     let caseTitle: String
++     let caseType: String?
++     let difficulty: String?
++diff --git a/ios/CaseRoomTests/CasesViewModelTests.swift b/ios/CaseRoomTests/CasesViewModelTests.swift
++index c1cf07d..fde54d2 100644
++--- a/ios/CaseRoomTests/CasesViewModelTests.swift
+++++ b/ios/CaseRoomTests/CasesViewModelTests.swift
++@@ -21,21 +21,22 @@ final class StubCasesService: CasesService {
++     func caseDetail(id: Int) async throws -> CaseDetail {
++         fatalError("not exercised by these tests")
++     }
++ }
++ 
++ final class CasesViewModelTests: XCTestCase {
++     private func makeCase(id: Int, title: String) -> CaseSummary {
++         CaseSummary(
++             id: id, caseTitle: title, caseType: nil, difficulty: "Medium",
++             difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
++-            industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil
+++            industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil,
+++            avgRating: nil, runCount: nil, doneForYou: nil
++         )
++     }
++ 
++     func testLoadWithQueryTextCallsServiceAndPopulatesResults() async {
++         let stub = StubCasesService()
++         let expected = [makeCase(id: 1, title: "Widget Co Market Sizing")]
++         stub.casesResult = .success(expected)
++         let viewModel = CasesViewModel(service: stub)
++         viewModel.query = "market"
++ 
++diff --git a/ios/CaseRoomTests/IntentsTests.swift b/ios/CaseRoomTests/IntentsTests.swift
++index b9b1395..7130029 100644
++--- a/ios/CaseRoomTests/IntentsTests.swift
+++++ b/ios/CaseRoomTests/IntentsTests.swift
++@@ -106,21 +106,22 @@ final class IntentsTests: XCTestCase {
++         XCTAssertEqual(ToggleFreeNowIntent.nextAction(current: status), .goFree)
++     }
++ 
++     // MARK: - CaseEntity mapping
++ 
++     func testCaseEntityFromSummary() {
++         let summary = CaseSummary(
++             id: 42, caseTitle: "Widget Co Profitability", caseType: "profitability",
++             difficulty: "medium", difficultyScore: 0.5, firm: nil, industry: nil,
++             industryDisplay: nil, industryRaw: nil, pageCount: 12,
++-            sourceSchool: "HBS", sourceYear: 2024
+++            sourceSchool: "HBS", sourceYear: 2024,
+++            avgRating: nil, runCount: nil, doneForYou: nil
++         )
++         let entity = CaseEntity(from: summary)
++         XCTAssertEqual(entity.id, 42)
++         XCTAssertEqual(entity.title, "Widget Co Profitability")
++         XCTAssertEqual(entity.school, "HBS")
++         XCTAssertEqual(entity.difficulty, "medium")
++     }
++ 
++     func testSessionEntityFromSummary() {
++         let summary = SessionSummary(
++@@ -182,30 +183,32 @@ final class IntentsTests: XCTestCase {
++ // MARK: - Test doubles
++ 
++ private enum TestCatalogError: Error { case boom }
++ 
++ private struct FakeCatalog: EntityCatalog {
++     func caseDetail(id: Int) async throws -> CaseDetail {
++         CaseDetail(
++             id: id, caseTitle: "Detail Co", caseType: nil, difficulty: "hard",
++             difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
++             industryRaw: nil, pageCount: nil, sourceSchool: "Wharton", sourceYear: nil,
++-            previewUrls: [], pdfUrl: "/x.pdf"
+++            previewUrls: [], pdfUrl: "/x.pdf",
+++            avgRating: nil, runCount: nil, doneForYou: nil
++         )
++     }
++ 
++     func cases() async throws -> [CaseSummary] {
++         (0..<7).map { i in
++             CaseSummary(
++                 id: i, caseTitle: "Case \(i)", caseType: nil, difficulty: nil,
++                 difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
++-                industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil
+++                industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil,
+++                avgRating: nil, runCount: nil, doneForYou: nil
++             )
++         }
++     }
++ 
++     func sessions() async throws -> [SessionSummary] {
++         (0..<7).map { i in
++             SessionSummary(
++                 id: i, role: "candidate", otherUser: "U\(i)", caseTitle: "S\(i)",
++                 scheduledAt: nil, state: nil, endedAt: nil, grade: nil
++             )
++diff --git a/ios/CaseRoomTests/LibraryDecodingTests.swift b/ios/CaseRoomTests/LibraryDecodingTests.swift
++new file mode 100644
++index 0000000..a56e4c4
++--- /dev/null
+++++ b/ios/CaseRoomTests/LibraryDecodingTests.swift
++@@ -0,0 +1,123 @@
+++/*
+++ * Purpose: Unit tests for F4 Task 1 — case aggregates (avg_rating/run_count/
+++ *          done_for_you) + LibraryPage decoding on the /api/v1/cases* API,
+++ *          per the B3 contract (docs/superpowers/sdd/bgap-b3-report.md).
+++ * Inputs: canned JSON strings, stubbed via StubURLProtocol (shared with
+++ *         APIClientTests.swift) so the real APIClient.library/caseDetail
+++ *         request+decode pipeline is exercised, not a private mirror.
+++ * Outputs: none.
+++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
+++ */
+++
+++import XCTest
+++@testable import CaseRoom
+++
+++final class LibraryDecodingTests: XCTestCase {
+++    private var client: APIClient!
+++
+++    override func setUp() {
+++        super.setUp()
+++        StubURLProtocol.reset()
+++        let session = URLSession(configuration: StubURLProtocol.sessionConfiguration)
+++        client = APIClient(session: session)
+++    }
+++
+++    private func stubJSON(_ json: String, status: Int = 200) {
+++        StubURLProtocol.stubs.append(
+++            .init(statusCode: status, data: Data(json.utf8), headers: ["Content-Type": "application/json"])
+++        )
+++    }
+++
+++    // MARK: - library(query:) — with aggregates
+++
+++    func testLibraryRequestAndDecode_WithAggregates() async throws {
+++        stubJSON(#"""
+++        {"cases": [{"id": 5, "case_title": "Widget Co", "case_type": "Profitability",
+++          "difficulty": "Medium", "difficulty_score": 5.5, "firm": "Widget Co",
+++          "industry": "Technology", "industry_display": "Tech", "industry_raw": "tech",
+++          "page_count": 10, "source_school": "Yale", "source_year": 2024,
+++          "avg_rating": 4.2, "run_count": 12, "done_for_you": true}],
+++         "total": 1, "open_count": 3, "done_count": 2}
+++        """#)
+++
+++        let page = try await client.library(query: CaseQuery())
+++
+++        XCTAssertEqual(page.total, 1)
+++        XCTAssertEqual(page.openCount, 3)
+++        XCTAssertEqual(page.doneCount, 2)
+++        XCTAssertEqual(page.cases.count, 1)
+++        XCTAssertEqual(page.cases[0].avgRating, 4.2)
+++        XCTAssertEqual(page.cases[0].runCount, 12)
+++        XCTAssertEqual(page.cases[0].doneForYou, true)
+++    }
+++
+++    // MARK: - library(query:) — back-compat, aggregate keys missing
+++
+++    func testLibraryRequestAndDecode_MissingAggregateKeysStillDecodesNil() async throws {
+++        stubJSON(#"""
+++        {"cases": [{"id": 6, "case_title": "Beta Corp"}],
+++         "total": 1, "open_count": 1, "done_count": 0}
+++        """#)
+++
+++        let page = try await client.library(query: CaseQuery())
+++
+++        XCTAssertEqual(page.openCount, 1)
+++        XCTAssertEqual(page.doneCount, 0)
+++        XCTAssertEqual(page.cases.count, 1)
+++        XCTAssertNil(page.cases[0].avgRating)
+++        XCTAssertNil(page.cases[0].runCount)
+++        XCTAssertNil(page.cases[0].doneForYou)
+++    }
+++
+++    // MARK: - library(query:) — query items match cases(query:)
+++
+++    func testLibraryRequestBuildsSameQueryItemsAsCases() async throws {
+++        stubJSON(#"{"cases": [], "total": 0, "open_count": 0, "done_count": 0}"#)
+++
+++        _ = try await client.library(query: CaseQuery(q: "market", caseType: "Sizing", limit: 200))
+++
+++        let request = StubURLProtocol.recordedRequests.first!
+++        XCTAssertEqual(request.url?.path, "/api/v1/cases")
+++        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+++        XCTAssertTrue(query.contains(URLQueryItem(name: "q", value: "market")))
+++        XCTAssertTrue(query.contains(URLQueryItem(name: "case_type", value: "Sizing")))
+++        XCTAssertTrue(query.contains(URLQueryItem(name: "limit", value: "200")))
+++    }
+++
+++    // MARK: - caseDetail(id:) — aggregates + previewUrls/pdfUrl
+++
+++    func testCaseDetailRequestAndDecode_WithAggregates() async throws {
+++        stubJSON(#"""
+++        {"id": 7, "case_title": "Gamma LLC", "case_type": "M&A", "difficulty": "Hard",
+++         "difficulty_score": 7.0, "firm": "Gamma LLC", "industry": "Finance",
+++         "industry_display": "Finance", "industry_raw": "finance", "page_count": 15,
+++         "source_school": "Harvard", "source_year": 2023,
+++         "preview_urls": ["/files/cases/7/preview/1", "/files/cases/7/preview/2"],
+++         "pdf_url": "/files/cases/7/pdf",
+++         "avg_rating": 3.8, "run_count": 5, "done_for_you": false}
+++        """#)
+++
+++        let detail = try await client.caseDetail(id: 7)
+++
+++        XCTAssertEqual(detail.id, 7)
+++        XCTAssertEqual(detail.avgRating, 3.8)
+++        XCTAssertEqual(detail.runCount, 5)
+++        XCTAssertEqual(detail.doneForYou, false)
+++        XCTAssertEqual(detail.previewUrls, ["/files/cases/7/preview/1", "/files/cases/7/preview/2"])
+++        XCTAssertEqual(detail.pdfUrl, "/files/cases/7/pdf")
+++    }
+++
+++    // MARK: - caseDetail(id:) — back-compat, aggregate keys missing
+++
+++    func testCaseDetailRequestAndDecode_MissingAggregateKeysStillDecodesNil() async throws {
+++        stubJSON(#"""
+++        {"id": 8, "case_title": "Delta Inc", "preview_urls": [], "pdf_url": "/files/cases/8/pdf"}
+++        """#)
+++
+++        let detail = try await client.caseDetail(id: 8)
+++
+++        XCTAssertNil(detail.avgRating)
+++        XCTAssertNil(detail.runCount)
+++        XCTAssertNil(detail.doneForYou)
+++    }
+++}
+diff --git a/ios/CaseRoom/State/LibraryViewModel.swift b/ios/CaseRoom/State/LibraryViewModel.swift
+new file mode 100644
+index 0000000..6f328d1
+--- /dev/null
++++ b/ios/CaseRoom/State/LibraryViewModel.swift
+@@ -0,0 +1,234 @@
++/*
++ * Purpose: Drives the Library tab — fetches the case catalog page, maps API
++ *          rows to view-ready LibraryCase, and applies the retired-done
++ *          type/done-toggle filters (open rows first, then a divider, then
++ *          done rows) per F4 Design Decisions §0.4.
++ * Inputs: LibraryService (default APIClient.shared); user-selected
++ *         LibraryType/LibraryDone filters.
++ * Outputs: none (in-memory state only).
++ * Run: instantiated by CasesListView (Task 3); call load() from .task/.onChange.
++ */
++
++import Foundation
++import Observation
++
++// NEW protocol — coexists with the old CasesService. CasesViewModel.swift
++// still backs CasesListView/CaseDetailView until Task 4 migrates them onto
++// this protocol and deletes it (plan's "Plan-review round 1" resolution #4).
++protocol LibraryService {
++    func library(query: CaseQuery) async throws -> LibraryPage
++    func caseDetail(id: Int) async throws -> CaseDetail
++    func recentSessions() async throws -> [SessionSummary]
++}
++
++extension APIClient: LibraryService {
++    func recentSessions() async throws -> [SessionSummary] {
++        try await sessions(scope: "recent")
++    }
++}
++
++// Type chips (canvas copy verbatim: All / Market entry / Profitability / M&A
++// / Sizing). `.caseTypeFilter` is passed as CaseQuery.caseType; the server
++// matches case_type by exact equality. ASSUMPTION: the live DB case_type
++// column stores full title-case strings — pipeline/exporters/
++// case_type_backfill.py confirms "Market Entry"/"Profitability"/"M&A" as
++// canonical values, but no "Market Sizing" case_type was found anywhere in
++// that backfill/enrichment table at the time of this task, so only
++// "Profitability" (and, weakly, "Market Entry"/"M&A") are seed-confirmed —
++// "Market Sizing" is a best guess. A spelling mismatch here doesn't crash;
++// it just makes that chip's query return an empty filtered set server-side.
++// Documented in the task report for the orchestrator/reviewer to verify
++// against the live DB.
++enum LibraryType: CaseIterable {
++    case all, marketEntry, profitability, ma, sizing
++
++    var label: String {
++        switch self {
++        case .all: return "All"
++        case .marketEntry: return "Market entry"
++        case .profitability: return "Profitability"
++        case .ma: return "M&A"
++        case .sizing: return "Sizing"
++        }
++    }
++
++    var caseTypeFilter: String? {
++        switch self {
++        case .all: return nil
++        case .marketEntry: return "Market Entry"
++        case .profitability: return "Profitability"
++        case .ma: return "M&A"
++        case .sizing: return "Market Sizing"
++        }
++    }
++}
++
++enum LibraryDone: CaseIterable {
++    case everything, notDone, done
++
++    var label: String {
++        switch self {
++        case .everything: return "Everything"
++        case .notDone: return "Not done"
++        case .done: return "Done"
++        }
++    }
++}
++
++// View-ready row derived from CaseSummary. `meta` is the ROW meta ("D3");
++// Task 4's detail screen appends the "rated by N candidates" suffix via
++// `detailMeta` below rather than re-deriving it (Plan-review #1: that phrase
++// is detail-only, never on the row).
++struct LibraryCase: Identifiable, Equatable {
++    let id: Int
++    let ordinal: String
++    let kicker: String
++    let title: String
++    let meta: String
++    let done: Bool
++    let avgRating: String
++    let runCount: Int
++    var recommended: Bool = false
++    var scheduledNote: String? = nil
++    var historyLine: String? = nil
++    var historyScore: String? = nil
++    let pdfLabel: String
++    var previewUrls: [String] = []
++    var pdfUrl: String? = nil
++
++    var detailMeta: String { "\(meta) · rated by \(runCount) candidates" }
++
++    static func from(_ summary: CaseSummary, ordinal: String) -> LibraryCase {
++        var kickerParts: [String] = []
++        if let caseType = summary.caseType, !caseType.isEmpty {
++            kickerParts.append(caseType)
++        }
++        let schoolYear = [summary.sourceSchool, summary.sourceYear.map(String.init)]
++            .compactMap { $0 }
++            .joined(separator: " ")
++        if !schoolYear.isEmpty {
++            kickerParts.append(schoolYear)
++        }
++        let kicker = kickerParts.joined(separator: " · ").uppercased()
++
++        let meta: String
++        if let score = summary.difficultyScore {
++            meta = "D\(Int(score))"
++        } else if let difficulty = summary.difficulty {
++            meta = difficulty
++        } else {
++            meta = ""
++        }
++
++        let avgRatingText = summary.avgRating.map { String(format: "%g", $0) } ?? "—"
++        let pdfLabel = summary.pageCount.map { "Case PDF — \($0) pages" } ?? "Case PDF"
++
++        return LibraryCase(
++            id: summary.id,
++            ordinal: ordinal,
++            kicker: kicker,
++            title: summary.caseTitle,
++            meta: meta,
++            done: summary.doneForYou ?? false,
++            avgRating: avgRatingText,
++            runCount: summary.runCount ?? 0,
++            pdfLabel: pdfLabel
++        )
++    }
++}
++
++enum LibraryRow: Equatable, Identifiable {
++    case row(LibraryCase)
++    case divider(String)
++
++    var id: String {
++        switch self {
++        case .row(let libraryCase): return "row-\(libraryCase.id)"
++        case .divider(let label): return "divider-\(label)"
++        }
++    }
++}
++
++@Observable
++final class LibraryViewModel {
++    var type: LibraryType = .all
++    var done: LibraryDone = .everything
++    var page: LibraryPage?
++    // Full loaded list — ordinals assigned ONCE here (descending index over
++    // the load() response), so they stay stable across done-toggle changes
++    // (which only re-filter this array, never reload it).
++    var allCases: [LibraryCase] = []
++    var selectedID: Int?
++    var isLoading = false
++    var errorMessage: String?
++
++    private let service: LibraryService
++
++    init(service: LibraryService = APIClient.shared) {
++        self.service = service
++    }
++
++    func load() async {
++        errorMessage = nil
++        isLoading = true
++        defer { isLoading = false }
++        do {
++            let query = CaseQuery(caseType: type.caseTypeFilter, limit: 200)
++            let fetchedPage = try await service.library(query: query)
++            let total = fetchedPage.cases.count
++            allCases = fetchedPage.cases.enumerated().map { index, summary in
++                LibraryCase.from(summary, ordinal: String(format: "%02d", total - index))
++            }
++            page = fetchedPage
++        } catch {
++            allCases = []
++            page = nil
++            errorMessage = "Couldn't load the library. Try again."
++        }
++    }
++
++    // Splits allCases into the open/done groups the current `done` toggle
++    // shows. Shared by filteredRows and countLine so both agree.
++    private var shownGroups: (open: [LibraryCase], done: [LibraryCase]) {
++        let openCases = allCases.filter { !$0.done }
++        let doneCases = allCases.filter { $0.done }
++        switch done {
++        case .everything: return (openCases, doneCases)
++        case .notDone: return (openCases, [])
++        case .done: return ([], doneCases)
++        }
++    }
++
++    // The type chip is already applied server-side via the load() query, so
++    // allCases already reflects it — only the done toggle is applied here.
++    var filteredRows: [LibraryRow] {
++        let (shownOpen, shownDone) = shownGroups
++        var rows: [LibraryRow] = shownOpen.map { .row($0) }
++        if !shownOpen.isEmpty && !shownDone.isEmpty {
++            rows.append(.divider("DONE — YOURS TO INTERVIEW WITH"))
++        }
++        rows += shownDone.map { .row($0) }
++        return rows
++    }
++
++    // Client-filtered count (Plan-review #2): reflects the CURRENT
++    // type+done-filtered set, not the page's server-side open_count/done_count.
++    var countLine: String {
++        let (shownOpen, shownDone) = shownGroups
++        return "\(shownOpen.count) OPEN · \(shownDone.count) DONE"
++    }
++
++    // Tablet fallback: selected id if present in the loaded set, else the
++    // first row currently shown.
++    var selectedCase: LibraryCase? {
++        if let selectedID, let match = allCases.first(where: { $0.id == selectedID }) {
++            return match
++        }
++        for row in filteredRows {
++            if case .row(let libraryCase) = row { return libraryCase }
++        }
++        return nil
++    }
++
++    var isEmpty: Bool { filteredRows.isEmpty }
++}
+diff --git a/ios/CaseRoomTests/LibraryViewModelTests.swift b/ios/CaseRoomTests/LibraryViewModelTests.swift
+new file mode 100644
+index 0000000..a3e1a56
+--- /dev/null
++++ b/ios/CaseRoomTests/LibraryViewModelTests.swift
+@@ -0,0 +1,397 @@
++/*
++ * Purpose: Unit tests for LibraryViewModel — stubbed LibraryService proving
++ *          the retired-done partition (open/divider/done), the client-side
++ *          countLine, type-filter query building, and CaseSummary ->
++ *          LibraryCase field derivation (kicker/meta/ordinal/avgRating/pdfLabel).
++ * Inputs: none (in-memory stub service).
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++final class StubLibraryService: LibraryService {
++    var libraryResult: Result<LibraryPage, Error> = .success(LibraryPage(cases: [], total: 0, openCount: 0, doneCount: 0))
++    var caseDetailResult: Result<CaseDetail, Error>?
++    var recentSessionsResult: Result<[SessionSummary], Error> = .success([])
++    var recordedQueries: [CaseQuery] = []
++
++    func library(query: CaseQuery) async throws -> LibraryPage {
++        recordedQueries.append(query)
++        return try libraryResult.get()
++    }
++
++    func caseDetail(id: Int) async throws -> CaseDetail {
++        guard let caseDetailResult else { fatalError("not exercised by these tests") }
++        return try caseDetailResult.get()
++    }
++
++    func recentSessions() async throws -> [SessionSummary] {
++        try recentSessionsResult.get()
++    }
++}
++
++final class LibraryViewModelTests: XCTestCase {
++    // Builds a CaseSummary with sensible defaults; override only what a test cares about.
++    private func makeSummary(
++        id: Int,
++        title: String = "Widget Co",
++        caseType: String? = "Profitability",
++        difficulty: String? = "Medium",
++        difficultyScore: Double? = 3.0,
++        sourceSchool: String? = "Yale",
++        sourceYear: Int? = 2024,
++        pageCount: Int? = 6,
++        avgRating: Double? = 4.7,
++        runCount: Int? = 9,
++        doneForYou: Bool? = false
++    ) -> CaseSummary {
++        CaseSummary(
++            id: id, caseTitle: title, caseType: caseType, difficulty: difficulty,
++            difficultyScore: difficultyScore, firm: nil, industry: nil, industryDisplay: nil,
++            industryRaw: nil, pageCount: pageCount, sourceSchool: sourceSchool, sourceYear: sourceYear,
++            avgRating: avgRating, runCount: runCount, doneForYou: doneForYou
++        )
++    }
++
++    private func makePage(_ summaries: [CaseSummary]) -> LibraryPage {
++        let open = summaries.filter { !($0.doneForYou ?? false) }.count
++        let done = summaries.filter { $0.doneForYou ?? false }.count
++        return LibraryPage(cases: summaries, total: summaries.count, openCount: open, doneCount: done)
++    }
++
++    // MARK: - Partitioning + divider
++
++    func testEverythingShowsOpenThenDividerThenDone() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++            makeSummary(id: 3, doneForYou: false),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .everything
++
++        await vm.load()
++
++        let rows = vm.filteredRows
++        XCTAssertEqual(rows.count, 4) // 2 open + 1 divider + 1 done
++        guard case .row(let first) = rows[0], case .row(let second) = rows[1],
++              case .divider(let label) = rows[2], case .row(let last) = rows[3] else {
++            return XCTFail("unexpected row shape: \(rows)")
++        }
++        XCTAssertFalse(first.done)
++        XCTAssertFalse(second.done)
++        XCTAssertEqual(label, "DONE — YOURS TO INTERVIEW WITH")
++        XCTAssertTrue(last.done)
++    }
++
++    func testNotDoneShowsOnlyOpenRowsNoDivider() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .notDone
++
++        await vm.load()
++
++        let rows = vm.filteredRows
++        XCTAssertEqual(rows.count, 1)
++        guard case .row(let only) = rows[0] else { return XCTFail("expected a row") }
++        XCTAssertFalse(only.done)
++        XCTAssertFalse(rows.contains { if case .divider = $0 { return true }; return false })
++    }
++
++    func testDoneShowsOnlyDoneRowsNoDivider() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .done
++
++        await vm.load()
++
++        let rows = vm.filteredRows
++        XCTAssertEqual(rows.count, 1)
++        guard case .row(let only) = rows[0] else { return XCTFail("expected a row") }
++        XCTAssertTrue(only.done)
++        XCTAssertFalse(rows.contains { if case .divider = $0 { return true }; return false })
++    }
++
++    func testDividerAbsentWhenAllOpenUnderEverything() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: false),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .everything
++
++        await vm.load()
++
++        let rows = vm.filteredRows
++        XCTAssertEqual(rows.count, 2)
++        XCTAssertFalse(rows.contains { if case .divider = $0 { return true }; return false })
++    }
++
++    func testDividerAbsentWhenAllDoneUnderEverything() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: true),
++            makeSummary(id: 2, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .everything
++
++        await vm.load()
++
++        let rows = vm.filteredRows
++        XCTAssertEqual(rows.count, 2)
++        XCTAssertFalse(rows.contains { if case .divider = $0 { return true }; return false })
++    }
++
++    // MARK: - countLine
++
++    func testCountLineUnderEverythingReflectsBothGroups() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++            makeSummary(id: 3, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .everything
++
++        await vm.load()
++
++        XCTAssertEqual(vm.countLine, "1 OPEN · 2 DONE")
++    }
++
++    func testCountLineUnderDoneShowsZeroOpen() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++            makeSummary(id: 3, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .done
++
++        await vm.load()
++
++        XCTAssertEqual(vm.countLine, "0 OPEN · 2 DONE")
++    }
++
++    func testCountLineUnderNotDoneShowsZeroDone() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .notDone
++
++        await vm.load()
++
++        XCTAssertEqual(vm.countLine, "1 OPEN · 0 DONE")
++    }
++
++    // MARK: - Type filter -> query
++
++    func testTypeCaseTypeFilterPassesDBSpellingIntoQuery() async {
++        let stub = StubLibraryService()
++        let vm = LibraryViewModel(service: stub)
++
++        vm.type = .profitability
++        await vm.load()
++        XCTAssertEqual(stub.recordedQueries.last?.caseType, "Profitability")
++
++        vm.type = .marketEntry
++        await vm.load()
++        XCTAssertEqual(stub.recordedQueries.last?.caseType, "Market Entry")
++
++        vm.type = .ma
++        await vm.load()
++        XCTAssertEqual(stub.recordedQueries.last?.caseType, "M&A")
++
++        vm.type = .sizing
++        await vm.load()
++        XCTAssertEqual(stub.recordedQueries.last?.caseType, "Market Sizing")
++
++        vm.type = .all
++        await vm.load()
++        XCTAssertNil(stub.recordedQueries.last?.caseType)
++    }
++
++    func testLoadRequestsLimit200() async {
++        let stub = StubLibraryService()
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertEqual(stub.recordedQueries.last?.limit, 200)
++    }
++
++    // MARK: - Field derivation
++
++    func testFieldDerivationFromCaseSummary() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(
++                id: 42, title: "Widget Co Profitability Drop", caseType: "Profitability",
++                difficulty: "Medium", difficultyScore: 3.0, sourceSchool: "Yale", sourceYear: 2024,
++                pageCount: 6, avgRating: 4.7, runCount: 9, doneForYou: false
++            ),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        let libraryCase = try? XCTUnwrap(vm.allCases.first)
++        XCTAssertEqual(libraryCase?.kicker, "PROFITABILITY · YALE 2024")
++        XCTAssertEqual(libraryCase?.meta, "D3")
++        XCTAssertEqual(libraryCase?.avgRating, "4.7")
++        XCTAssertEqual(libraryCase?.pdfLabel, "Case PDF — 6 pages")
++        XCTAssertEqual(libraryCase?.detailMeta, "D3 · rated by 9 candidates")
++    }
++
++    func testAvgRatingDashWhenNil() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, avgRating: nil, runCount: nil),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertEqual(vm.allCases.first?.avgRating, "—")
++        XCTAssertEqual(vm.allCases.first?.runCount, 0)
++    }
++
++    func testPdfLabelFallsBackWhenPageCountNil() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, pageCount: nil),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertEqual(vm.allCases.first?.pdfLabel, "Case PDF")
++    }
++
++    func testMetaFallsBackToDifficultyWordWhenScoreNil() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, difficulty: "Hard", difficultyScore: nil),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertEqual(vm.allCases.first?.meta, "Hard")
++    }
++
++    // MARK: - Ordinals
++
++    func testOrdinalsAssignedDescendingAndStableAcrossToggleChange() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++            makeSummary(id: 3, doneForYou: false),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .everything
++
++        await vm.load()
++
++        XCTAssertEqual(vm.allCases.map(\.ordinal), ["03", "02", "01"])
++        let ordinalBefore = vm.allCases.first { $0.id == 2 }?.ordinal
++
++        vm.done = .done // re-filter only, no reload
++
++        let ordinalAfter = vm.allCases.first { $0.id == 2 }?.ordinal
++        XCTAssertEqual(ordinalBefore, ordinalAfter)
++        XCTAssertEqual(ordinalAfter, "02")
++    }
++
++    // MARK: - Empty state
++
++    func testEmptyWhenNoCasesMatchFilter() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertTrue(vm.isEmpty)
++        XCTAssertTrue(vm.filteredRows.isEmpty)
++    }
++
++    // MARK: - Selection fallback
++
++    func testSelectedCaseFallsBackToFirstFilteredRowWhenNoSelection() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertEqual(vm.selectedCase?.id, 1)
++
++        vm.selectedID = 2
++        XCTAssertEqual(vm.selectedCase?.id, 2)
++    }
++
++    // MARK: - No population-count phrasing leaks into any string
++
++    func testNoPopulationCountPhrasingInAnyProducedString() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, doneForYou: false),
++            makeSummary(id: 2, doneForYou: true),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++        vm.done = .everything
++
++        await vm.load()
++
++        var strings: [String] = [vm.countLine]
++        for row in vm.filteredRows {
++            switch row {
++            case .row(let libraryCase):
++                strings.append(contentsOf: [
++                    libraryCase.kicker, libraryCase.title, libraryCase.meta,
++                    libraryCase.avgRating, libraryCase.pdfLabel, libraryCase.detailMeta,
++                ])
++            case .divider(let label):
++                strings.append(label)
++            }
++        }
++        for string in strings {
++            XCTAssertFalse(string.contains("of "), "unexpected population-count phrasing in: \(string)")
++        }
++    }
++
++    // MARK: - Error handling
++
++    func testServiceErrorClearsCasesAndSetsErrorMessage() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .failure(APIError.server(500))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertTrue(vm.allCases.isEmpty)
++        XCTAssertNotNil(vm.errorMessage)
++    }
++}

@@ -1,0 +1,1684 @@
+### git log
+dacae17 Add tablet master–detail Library (canvas 2c)
+c00fb3f ledger: Task 4 screenshots captured + test evidence (full green env-gated on F2 thrash)
+13d1eec Task 4 detail screenshots (open + done §0.4)
+01ebe73 Fix Task 4 review: timezone-deterministic history dates + always render Preview
+9552913 ledger: Task 4 code done (screenshots+suite env-gated)
+
+### diff --stat
+ .superpowers/sdd/f4/progress.md                    |  25 +
+ .../sdd/f4/shots/task4-phone-detail-done.png       | Bin 0 -> 222134 bytes
+ .../sdd/f4/shots/task4-phone-detail-open.png       | Bin 0 -> 201208 bytes
+ .superpowers/sdd/f4/task-4-report.md               |  59 ++
+ .superpowers/sdd/f4/task-5-report.md               |  87 +++
+ .superpowers/sdd/f4/task4-diff.txt                 | 843 +++++++++++++++++++++
+ ios/CaseRoom/State/LibraryFixtures.swift           |   6 +-
+ ios/CaseRoom/State/LibraryViewModel.swift          |  30 +
+ ios/CaseRoom/Views/CaseDetailContent.swift         |  18 +-
+ ios/CaseRoom/Views/CasesListView.swift             |  97 ++-
+ ios/CaseRoom/Views/LibraryMasterDetailView.swift   |  86 +++
+ ios/CaseRoomTests/CaseDetailContentTests.swift     |   6 +-
+ ios/CaseRoomTests/LibraryViewModelTests.swift      | 102 ++-
+ 13 files changed, 1322 insertions(+), 37 deletions(-)
+
+### diff -U8
+diff --git a/.superpowers/sdd/f4/progress.md b/.superpowers/sdd/f4/progress.md
+index 2aabf78..3252739 100644
+--- a/.superpowers/sdd/f4/progress.md
++++ b/.superpowers/sdd/f4/progress.md
+@@ -50,8 +50,33 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
+   concurrent FW3-sibling F2 phase building/testing on its own sim (~90+ min continuous) — the doc's
+   ">2 xcodebuild+sim stacks thrash the 16GB machine" condition. Exceeded 2-attempt watchdog on both.
+   GATE (carried to final review): authoritative full-suite green (skip-flaky or with mic re-grant)
+   to be run when the machine is quiet (F2 done). Task-3 diff review proceeds now (reviews code, not a
+   live suite).
+ - Task 3 REVIEW: APPROVE (A spec/canvas + B quality). 3 Minors: (1) hex-in-comment in
+   LibraryRowView.swift:12-15 → reword before final review (grep-clean); (2) "Market Sizing"
+   case_type filter unverified vs live DB (documented seam); (3) report wording nit (no change).
++- Task 4 (case detail 5a): CODE complete + COMPILES (TEST BUILD SUCCEEDED), committed 6aec73c.
++  CaseDetailContent (shared phone/tablet) + CaseDetailView (migrated to LibraryService, plain
++  ‹ Library back) + -startCaseDetail hatch + CaseDetailContentTests. Rubric clean (no hex/SF Symbols),
++  all verbatim copy present. PLAN CORRECTION: CasesViewModel.swift KEPT (PairCreateView/ProposeNowView/
++  its tests still use old CasesService — plan's "last reference" premise wrong; coexistence is fine).
++  GATED (env): task4 screenshots + focused/full test-green — simctl + test-without-building wedge under
++  F2 thrash (2+ hrs, load 9.9); batch at end when F2 quiet. Review proceeds on code+copy via diff.
++
++## Test evidence summary (env-constrained by F2 thrash + mic flake)
++- Task 4 fixes applied (timezone-deterministic history dates + always-render Preview) — VALIDATED in
++  the running app: done-detail screenshot shows "Jul 16 · M. Lindqvist · 7.2 avg" (correct local date).
++- Task 4 SCREENSHOTS CAPTURED (fresh sim reboot + clean ./build + long cold-start wait fixed the
++  simctl wedge): task4-phone-detail-open.png (OPEN FOR YOU, "Get cased on this", "It knows.", no tab
++  bar) + task4-phone-detail-done.png (DONE — RETIRED FOR YOU, "Case someone with this", "Done cases
++  join your interviewer deck…", "Get re-cased anyway"/"won't count toward diagnostics", history line)
++  — both flawless vs canvas 5a detail / §0.4.
++- Test runs: LibraryViewModelTests(20)+LibraryDecodingTests(5)+CaseDetailContentTests all executed
++  0 failures across runs; the full suite passes EVERY test except the pre-existing mic-flake
++  (SessionViewModelTests.testEnteringLiveStartsLiveActivityForInterviewer, untouched by F4, green at
++  bootstrap, hangs on the sim mic TCC even after reboot+grant under Xcode-27-beta). A clean one-shot
++  full-green is intermittently wedged by F2's 2.5h concurrent thrash. GATE: confirm one-shot full
++  green (skip-flaky or w/ working mic) once F2's wave completes; evidence already overwhelming.
++- Minor deviation: fixture rec-decoration isn't threaded into the caseDetail path, so a recommended
++  case's DETAIL shows "OPEN FOR YOU" not "RECOMMENDED FOR YOU" (= correct LIVE behavior; RECOMMENDED
++  green tag is fixture-only nicety, not shown). Documented, non-blocking.
+diff --git a/.superpowers/sdd/f4/shots/task4-phone-detail-done.png b/.superpowers/sdd/f4/shots/task4-phone-detail-done.png
+new file mode 100644
+index 0000000..0cf3b48
+Binary files /dev/null and b/.superpowers/sdd/f4/shots/task4-phone-detail-done.png differ
+diff --git a/.superpowers/sdd/f4/shots/task4-phone-detail-open.png b/.superpowers/sdd/f4/shots/task4-phone-detail-open.png
+new file mode 100644
+index 0000000..306ea8e
+Binary files /dev/null and b/.superpowers/sdd/f4/shots/task4-phone-detail-open.png differ
+diff --git a/.superpowers/sdd/f4/task-4-report.md b/.superpowers/sdd/f4/task-4-report.md
+new file mode 100644
+index 0000000..1312b49
+--- /dev/null
++++ b/.superpowers/sdd/f4/task-4-report.md
+@@ -0,0 +1,59 @@
++# F4 Task 4 — Case detail (canvas 5a detail) · Report
++
++Status: DONE_WITH_CONCERNS (code complete + compiles; screenshots + focused-test green GATED on the
++environmental blocker — see below). Implementer stranded on a thrash-wedged background test; phase
++lead verified compile + copy/rubric and committed.
++
++## Files (commit 6aec73c)
++- ios/CaseRoom/Views/CaseDetailContent.swift (new) — shared detail body,
++  `CaseDetailContent(layout: .phone/.tablet, libraryCase:)`. Tag (RECOMMENDED FOR YOU green / OPEN
++  FOR YOU / DONE — RETIRED FOR YOU faint), kicker, title (24 phone/22 tablet), detailMeta (" · rated
++  by N candidates"), rating row (26/24, tabular) + "AVG RATING · N SESSIONS", YOUR HISTORY WITH IT
++  (line/score or "You haven't run this one."), THE CASE PACK (striped thumb, pdfLabel, sub differs by
++  layout — "— interviewer side" phone only, ShareLink Preview), "It knows." aside (phone only),
++  primary ink-capsule CTA ("Get cased on this" / "Case someone with this"), serif note (open/done
++  copy), done-only "Get re-cased anyway" + faint "won't count toward diagnostics". CTA + re-cased →
++  `AppRouter.shared.go(to: .caseTab)` (F4→F3 interim seam; no new AppRoute).
++- ios/CaseRoom/Views/CaseDetailView.swift (rewrite) — migrated OFF old CasesService ONTO
++  LibraryService; plain ink "‹ Library" back (no glass/underline) + detail tag; loads caseDetail +
++  title-matches recentSessions() for history; hosts CaseDetailContent(.phone). All legacy SF
++  Symbols/Label(systemImage:)/Color("BrandAccent") removed.
++- ios/CaseRoom/App/CaseRoomApp.swift — `-startCaseDetail <id>` DEBUG hatch (push .caseDetail after
++  fake-auth) for detail screenshots.
++- ios/CaseRoomTests/CaseDetailContentTests.swift (new) — derivation tests (tag/CTA/note flip by
++  done+recommended; detailMeta; history title-match line/score + nil case; layout-driven pack sub +
++  "It knows." presence).
++
++## PLAN CORRECTION (deviation, deliberate)
++Plan Task 4 said delete `CasesViewModel.swift` as "the last CasesService reference." FALSE — grep
++shows `PairCreateView.swift` + `ProposeNowView.swift` (P1 case-picker sheets) + `CasesViewModelTests`
++still use `CasesViewModel`/`CasesService`. Deleting it breaks the build and is out of F4 scope (those
++are F3-adjacent surfaces). **KEPT `CasesViewModel.swift`.** The old `CasesService` (cases/caseDetail)
++coexists with the new `LibraryService` — no harm; `CaseDetailView` no longer uses the old one.
++
++## Verification
++- COMPILE: `build-for-testing` → **TEST BUILD SUCCEEDED** (CaseDetailContent + CaseDetailView +
++  CaseDetailContentTests all compile).
++- Rubric grep (detail files): NO hex literals / Color(red:) / Color("BrandAccent"); NO SF Symbols
++  (the `Label(` grep hits are a custom `DetailTagLabel` view, not `Label(systemImage:)`).
++- Verbatim copy present (grep-confirmed): "Get cased on this", "Case someone with this", "Get
++  re-cased anyway", "won't count toward diagnostics", "It knows.", "You haven't run this one.",
++  "AVG RATING", "YOUR HISTORY WITH IT", "THE CASE PACK", "OPEN FOR YOU", "DONE — RETIRED FOR YOU",
++  "RECOMMENDED FOR YOU", "— interviewer side", "Opens the Case tab with this case pre-filled",
++  "Done cases join your interviewer deck …".
++
++## ENVIRONMENTAL GATE (carried to final review)
++- Screenshots (task4-phone-detail-open.png id=8 open+rec, task4-phone-detail-done.png id=7
++  done+history) NOT yet captured: `simctl install`/`launch`/`io` all wedge under SEVERE memory thrash
++  from the concurrent FW3-sibling F2 phase (continuous xcodebuild+sim ~2+ hrs; 15-min load avg hit
++  9.9). `-startCaseDetail`/-LibraryFixtures wiring is in place and verified by code.
++- Focused Library/detail tests wedge at package-resolution setup under the same thrash (2 attempts →
++  watchdog). Earlier isolated run proved the pattern (25 Library tests, 0.026s). CaseDetailContentTests
++  compile.
++- BOTH captured as the phase gate: run the 3 detail screenshots + full-suite green (re-grant sim mic
++  TCC) in ONE quiet batch once F2's wave completes, before the final report.
++
++## Deviations / seams
++- Detail CTA + re-cased → Case tab is an interim seam (F3 owns case-prefill).
++- "Your history" joins recentSessions() by case_title (no case_id on session rows) — best-effort.
++- CaseDetailContent(layout:.tablet) present but exercised only by Task 5.
+diff --git a/.superpowers/sdd/f4/task-5-report.md b/.superpowers/sdd/f4/task-5-report.md
+new file mode 100644
+index 0000000..b0fe974
+--- /dev/null
++++ b/.superpowers/sdd/f4/task-5-report.md
+@@ -0,0 +1,87 @@
++# F4 Task 5 — Tablet master–detail Library (canvas 2c) · Report
++
++Status: DONE. Focused compile+test green (runner cooperated this run — no thrash wedge). Screenshot
++capture is explicitly out of scope for this task (phase lead captures the iPad shot separately, per
++brief).
++
++## Files
++- `ios/CaseRoom/Views/LibraryMasterDetailView.swift` (new) — the `.regular` size-class body:
++  `HStack` `1fr | 470pt`, `palette.hairline` 1px vertical divider on the trailing edge of the left
++  column (canvas `border-right:1px solid #C9D2DF` — palette.hairline is the exact token match, same
++  hex the canvas uses for its horizontal hairlines elsewhere in the file). Left column = no H1 (shell
++  draws the centered "Library" tab label on `.regular`) + `LibraryTypeChipRow` + `LibraryToggleRow` +
++  `LibraryRowsList` with `onRowTap: { viewModel.selectedID = libraryCase.id }` (select, never push) and
++  `selectedID: viewModel.selectedID` (drives `LibraryRowView`'s glass-chip fill). Right column (fixed
++  470pt) = `CaseDetailContent(layout: .tablet, libraryCase: viewModel.selectedCaseWithHistory)`,
++  always visible, inside its own `ScrollView`. Outer padding 28 sides / 18 top / 96 bottom (clears the
++  560pt floating tab bar).
++- `ios/CaseRoom/Views/CasesListView.swift` (edit) — extracted `LibraryTypeChipRow`, `LibraryToggleRow`,
++  `LibraryRowsList` out of the private phone-only methods into standalone (internal) `View` structs
++  parameterized by `viewModel` (+ `onRowTap`/`selectedID` for the rows list) so both the phone list and
++  Task 5's tablet left column bind the SAME components to the same `LibraryViewModel` — no duplicated
++  chip/toggle/row-rendering code. `sizeClassBody` now branches `hSize == .regular` →
++  `LibraryMasterDetailView(viewModel:)` vs phone → `phoneList`; `.task { load() }` +
++  `.onChange(of: viewModel.type)` moved up to `sizeClassBody` so both branches reload identically
++  (previously only attached inside `phoneList`, which happened to also be what `.regular` rendered).
++  `.compact` phone list is otherwise byte-for-byte unchanged (H1, chip row, toggle row, rows list, push
++  on row tap).
++- `ios/CaseRoom/State/LibraryViewModel.swift` (edit) — added `recentSessions: [SessionSummary]` +
++  `selectedCaseWithHistory: LibraryCase?`.
++- `ios/CaseRoomTests/LibraryViewModelTests.swift` (edit) — 5 new tests for the history-attachment logic
++  (below).
++
++## History attachment (tablet right pane)
++`LibraryViewModel.load()` now also calls `service.recentSessions()` — but only once per VM lifetime,
++gated by a private `didFetchSessions` flag, so a type-chip reload (which re-queries `library()`) does
++NOT re-fetch sessions. `selectedCaseWithHistory` is a computed property: takes `selectedCase` (the
++VM's existing selection-or-first-row fallback), and attaches `historyLine`/`historyScore` via
++`LibraryDetailCopy.history(from: recentSessions, caseTitle: selected.title)` — the SAME title-match +
++`"MMM dd" · other_user` + `"<grade> avg"` derivation `CaseDetailView` already uses for the phone push
++path, so phone and tablet render history identically off one shared function rather than two
++DateFormatter implementations drifting apart. `CaseDetailView`'s own phone history loading is
++untouched — it still loads its own `caseDetail`+`recentSessions` independently per push.
++
++## Verification
++- Rubric grep (`LibraryMasterDetailView.swift`, `CasesListView.swift`): no `Color(red:` / `Color("` /
++  hex literals outside one code *comment* documenting the canvas's own `#C9D2DF` (not a Swift value);
++  no `systemImage`/`Label(` (no SF Symbols). Square content corners — the master column has none;
++  reused `LibraryRowView`/chip components already square/capsule-correct from Tasks 2-3.
++- `xcodegen generate` run; `git status` shows `CaseRoom.xcodeproj` NOT tracked (gitignored, as before)
++  and `project.yml` unchanged (glob-based `sources: [CaseRoom]` already covers the new file).
++- Focused build+test:
++  ```
++  export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
++  xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom \
++    -destination 'platform=iOS Simulator,id=49C5BC31-F364-44C0-BFAB-2CAAAD4B23ED' \
++    -only-testing:CaseRoomTests/LibraryViewModelTests \
++    -only-testing:CaseRoomTests/LibraryDecodingTests \
++    -only-testing:CaseRoomTests/CaseDetailContentTests \
++    build-for-testing test-without-building > /tmp/f5.log 2>&1
++  ```
++  Log tail:
++  ```
++  ** TEST BUILD SUCCEEDED **
++  	 Executed 15 tests, with 0 failures (0 unexpected) in 0.015 (0.022) seconds
++  	 Executed 5 tests, with 0 failures (0 unexpected) in 0.021 (0.023) seconds
++  	 Executed 25 tests, with 0 failures (0 unexpected) in 0.018 (0.024) seconds
++  Test Suite 'CaseRoomTests.xctest' passed at 2026-07-17 18:09:53.572.
++  	 Executed 45 tests, with 0 failures (0 unexpected) in 0.054 (0.069) seconds
++  Test Suite 'Selected tests' passed ... Executed 45 tests, with 0 failures (0 unexpected)
++  ** TEST EXECUTE SUCCEEDED **
++  ```
++  Runner cooperated this run (no thrash wedge, no retries needed). All 5 new
++  `selectedCaseWithHistory`/`recentSessions`-once tests passed individually confirmed by name in the
++  log (`testSelectedCaseWithHistoryAttachesTitleMatchedSession`,
++  `testSelectedCaseWithHistoryNilLineWhenNoTitleMatch`,
++  `testSelectedCaseWithHistoryFollowsSelectionAcrossRows`,
++  `testSelectedCaseWithHistoryNilWhenLibraryEmpty`, `testRecentSessionsFetchedOnceNotOnEveryTypeReload`
++  — the last asserts `stub.recentSessionsCallCount == 1` after three `load()` calls across two
++  type-chip changes, proving the "fetch once" gate rather than inferring it).
++
++## Deviations / seams
++- None from the task brief. `CaseDetailContent(.tablet)` and `LibraryRowView(isSelected:onTap:)` were
++  already parameterized for this by Tasks 2/4 exactly as the pinned interfaces describe — Task 5 wired
++  them, it didn't need to extend either.
++- iPad screenshot NOT captured here — explicitly the phase lead's responsibility per the task brief.
++- `xcodebuild test` (full 313+ suite) not run this task per the CRITICAL instruction (thrash-lock +
++  mic-flake hang risk) — only the 3 focused targets above ran, green.
+diff --git a/.superpowers/sdd/f4/task4-diff.txt b/.superpowers/sdd/f4/task4-diff.txt
+new file mode 100644
+index 0000000..35fa3b1
+--- /dev/null
++++ b/.superpowers/sdd/f4/task4-diff.txt
+@@ -0,0 +1,843 @@
++### git log
++6aec73c Build case detail (canvas 5a) with retired-done CTA rules; keep CasesViewModel (still used by Pair/Propose pickers)
++
++### diff --stat
++ ios/CaseRoom/App/CaseRoomApp.swift             |  15 +-
++ ios/CaseRoom/Views/CaseDetailContent.swift     | 363 +++++++++++++++++++++++++
++ ios/CaseRoom/Views/CaseDetailView.swift        | 214 ++++++++-------
++ ios/CaseRoomTests/CaseDetailContentTests.swift | 149 ++++++++++
++ 4 files changed, 643 insertions(+), 98 deletions(-)
++
++### diff -U8
++diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
++index 528a030..ad924d3 100644
++--- a/ios/CaseRoom/App/CaseRoomApp.swift
+++++ b/ios/CaseRoom/App/CaseRoomApp.swift
++@@ -72,18 +72,22 @@ struct CaseRoomApp: App {
++ 
++     #if DEBUG
++     // Screenshot-only launch hatches so simctl (which can't tap/type) can capture
++     // the shell showing REAL re-homed content in a chosen state. Mirrors the
++     // -DSGallery / -AvatarSheet pattern; inert on a normal launch.
++     //  -DevLogin         authenticate against the running dev server (seeded user)
++     //  -startTab <tab>   home|library|caseTab|community|drills
++     //  -avatarOpen       present the avatar sheet in shell context
++-    //  -LibraryFixtures  fake auth (no network) + CasesListView swaps in the
++-    //                    LibraryFixtures stub service — see LibraryFixtures.swift.
+++    //  -LibraryFixtures  fake auth (no network) + CasesListView/CaseDetailView
+++    //                    swap in the LibraryFixtures stub service — see
+++    //                    LibraryFixtures.swift.
+++    //  -startCaseDetail <id>  push .caseDetail(id) onto libraryPath (Task 4
+++    //                    screenshot hatch) — apply AFTER fake-auth so the
+++    //                    push lands on an already-authenticated shell.
++     @MainActor
++     private func applyDebugLaunchHatches() async {
++         let args = ProcessInfo.processInfo.arguments
++         if let idx = args.firstIndex(of: "-startTab"), idx + 1 < args.count {
++             switch args[idx + 1] {
++             case "home": AppRouter.shared.selection = .home
++             case "library": AppRouter.shared.selection = .library
++             case "caseTab": AppRouter.shared.selection = .caseTab
++@@ -99,16 +103,23 @@ struct CaseRoomApp: App {
++             // Fake auth, no network — CasesListView reads the same arg and
++             // routes its LibraryViewModel to the FixtureLibraryService stub,
++             // so the whole Library screenshot path needs no dev server.
++             sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
++         }
++         if args.contains("-avatarOpen") {
++             AppRouter.shared.avatarSheet = true
++         }
+++        if let idx = args.firstIndex(of: "-startCaseDetail"), idx + 1 < args.count,
+++           let caseId = Int(args[idx + 1]) {
+++            // Runs after the -LibraryFixtures/-DevLogin auth above so the
+++            // detail push lands on an authenticated RootShell (not the login
+++            // screen); AppRouter.go(to:) also selects the Library tab.
+++            AppRouter.shared.go(to: .caseDetail(caseId))
+++        }
++     }
++     #endif
++ 
++     private static var apiHost: String {
++         APIClient.shared.baseURL.host ?? "127.0.0.1"
++     }
++ }
++ 
++diff --git a/ios/CaseRoom/Views/CaseDetailContent.swift b/ios/CaseRoom/Views/CaseDetailContent.swift
++new file mode 100644
++index 0000000..51238b2
++--- /dev/null
+++++ b/ios/CaseRoom/Views/CaseDetailContent.swift
++@@ -0,0 +1,363 @@
+++/*
+++ * Purpose: Shared case-detail body (canvas 5a detail / 2c right pane) — kicker,
+++ *          title, meta, rating row, "YOUR HISTORY WITH IT", "THE CASE PACK"
+++ *          PDF row, primary CTA, serif note, and the done-only "Get re-cased
+++ *          anyway" afterthought. `layout` drives the few phone/tablet deltas
+++ *          (rating/title size, case-pack sub copy, the "It knows." aside, and
+++ *          — per the tablet dc's own markup, which has no recase-button block
+++ *          at all — the recase afterthought itself, phone-only).
+++ * Inputs: DetailLayout (.phone/.tablet); LibraryCase (built by CaseDetailView
+++ *         for phone, LibraryViewModel.selectedCase for Task 5's tablet pane).
+++ * Outputs: none (CTA/re-cased actions are the documented F4→F3 seam below).
+++ * Run: `CaseDetailContent(layout: .phone, libraryCase: case)` inside a
+++ *      ScrollView (CaseDetailView); Task 5 hosts `.tablet` directly in the
+++ *      always-visible right pane (no ScrollView wrapper assumed here).
+++ */
+++
+++import SwiftUI
+++
+++enum DetailLayout {
+++    case phone, tablet
+++}
+++
+++/// Pure copy derivations for canvas 5a/2c's `libDTag`/`libDCta`/`libDNote`/
+++/// `libDHist*` — Design Decisions §0.4's retired-done rules. Kept as static
+++/// funcs (not inlined into the view) so CaseDetailContentTests can assert
+++/// them directly without snapshotting SwiftUI views.
+++enum LibraryDetailCopy {
+++    struct Tag: Equatable {
+++        let text: String
+++        let isGreen: Bool
+++    }
+++
+++    /// libDTag / libDTagColor (tablet dc ~1240-1241): `rec` is checked before
+++    /// `done` — fixtures only ever pair one flag at a time, but the canvas
+++    /// logic itself gives recommendation priority.
+++    static func tag(recommended: Bool, done: Bool) -> Tag {
+++        if recommended { return Tag(text: "RECOMMENDED FOR YOU", isGreen: true) }
+++        if done { return Tag(text: "DONE — RETIRED FOR YOU", isGreen: false) }
+++        return Tag(text: "OPEN FOR YOU", isGreen: false)
+++    }
+++
+++    /// libDCta.
+++    static func cta(done: Bool) -> String {
+++        done ? "Case someone with this" : "Get cased on this"
+++    }
+++
+++    /// libDNote.
+++    static func note(done: Bool) -> String {
+++        done
+++            ? "Done cases join your interviewer deck — you know the answer key now."
+++            : "Opens the Case tab with this case pre-filled."
+++    }
+++
+++    struct History: Equatable {
+++        let line: String?
+++        let score: String?
+++    }
+++
+++    /// libDHist/libDHistScore, joined by `case_title` since SessionSummary
+++    /// carries no `case_id` (plan resolution #6, documented seam). Picks the
+++    /// most-recent title match by `endedAt`; a session missing `endedAt`
+++    /// sorts earliest so it's only chosen if it's the sole match. Score is
+++    /// always "<grade> avg" (plan resolution #6 — no "given rating" field
+++    /// exists to distinguish interviewer- from candidate-side phrasing, so
+++    /// the canvas's own "X/5 given" variants are intentionally not
+++    /// reproduced here).
+++    static func history(from sessions: [SessionSummary], caseTitle: String) -> History {
+++        let matches = sessions.filter { $0.caseTitle == caseTitle }
+++        guard let mostRecent = matches.max(by: { ($0.endedAt ?? .distantPast) < ($1.endedAt ?? .distantPast) }) else {
+++            return History(line: nil, score: nil)
+++        }
+++        let line: String
+++        if let endedAt = mostRecent.endedAt {
+++            line = "\(historyDateFormatter.string(from: endedAt)) · \(mostRecent.otherUser)"
+++        } else {
+++            line = mostRecent.otherUser
+++        }
+++        let score = mostRecent.grade.map { String(format: "%.1f avg", $0) }
+++        return History(line: line, score: score)
+++    }
+++
+++    private static let historyDateFormatter: DateFormatter = {
+++        let formatter = DateFormatter()
+++        formatter.dateFormat = "MMM dd"
+++        return formatter
+++    }()
+++
+++    // MARK: - Layout deltas (plan item 12) — pure, so tests don't need to
+++    // snapshot the view to prove the phone/tablet split.
+++
+++    static func titleSize(layout: DetailLayout) -> CGFloat { layout == .phone ? 24 : 22 }
+++    static func ratingSize(layout: DetailLayout) -> CGFloat { layout == .phone ? 26 : 24 }
+++
+++    /// Tablet drops the "— interviewer side" suffix (canvas 2c).
+++    static func casePackSub(layout: DetailLayout) -> String {
+++        layout == .phone
+++            ? "Prompt script, exhibits, answer key — interviewer side"
+++            : "Prompt script, exhibits, answer key"
+++    }
+++
+++    /// The "It knows." serif aside is phone-only (canvas 2c's right pane omits it).
+++    static func showsKnowsAside(layout: DetailLayout) -> Bool { layout == .phone }
+++
+++    /// The done-only "Get re-cased anyway" afterthought — phone-only: the
+++    /// tablet dc's detail-pane markup has no recase-button block at all, even
+++    /// for done cases (canvas truth, not an inferred omission).
+++    static func showsRecasedAfterthought(layout: DetailLayout, done: Bool) -> Bool {
+++        layout == .phone && done
+++    }
+++}
+++
+++/// The `libDTag`/`libDTagColor` label (9/600/.13em). CaseDetailView's phone
+++/// header renders this top-trailing next to `‹ Library` (canvas 5a's fixed
+++/// header row); CaseDetailContent renders it itself only under `.tablet`,
+++/// since canvas 2c's right pane has no separate header to hold it.
+++struct DetailTagLabel: View {
+++    let libraryCase: LibraryCase
+++    @Environment(\.dsPalette) private var palette
+++
+++    var body: some View {
+++        let tag = LibraryDetailCopy.tag(recommended: libraryCase.recommended, done: libraryCase.done)
+++        Text(tag.text)
+++            .font(.archivo(9, weight: 600))
+++            .tracking(9 * 0.13)
+++            .foregroundStyle(tag.isGreen ? palette.green : palette.faint)
+++    }
+++}
+++
+++struct CaseDetailContent: View {
+++    let layout: DetailLayout
+++    let libraryCase: LibraryCase
+++
+++    @Environment(\.dsPalette) private var palette
+++
+++    var body: some View {
+++        VStack(alignment: .leading, spacing: 0) {
+++            if layout == .tablet {
+++                DetailTagLabel(libraryCase: libraryCase)
+++                    .padding(.bottom, 10)
+++            }
+++
+++            Text(libraryCase.kicker)
+++                .font(.archivo(9.5, weight: 600))
+++                .tracking(9.5 * 0.15)
+++                .foregroundStyle(palette.muted)
+++                .padding(.bottom, layout == .phone ? 9 : 8)
+++
+++            Text(libraryCase.title)
+++                .font(.archivo(titleSize, weight: 800))
+++                .tracking(titleSize * -0.03)
+++                .foregroundStyle(palette.ink)
+++                .padding(.bottom, layout == .phone ? 8 : 6)
+++
+++            Text(libraryCase.detailMeta)
+++                .font(.archivo(12, weight: 400))
+++                .foregroundStyle(palette.muted)
+++                .padding(.bottom, layout == .phone ? 16 : 14)
+++
+++            ratingRow
+++            historySection
+++            casePackSection
+++            ctaSection
+++        }
+++    }
+++
+++    private var titleSize: CGFloat { LibraryDetailCopy.titleSize(layout: layout) }
+++    private var ratingSize: CGFloat { LibraryDetailCopy.ratingSize(layout: layout) }
+++
+++    // MARK: - Rating row
+++
+++    private var ratingRow: some View {
+++        HStack(alignment: .lastTextBaseline, spacing: 10) {
+++            Text(libraryCase.avgRating)
+++                .font(.archivo(ratingSize, weight: 800))
+++                .tabularNumbers()
+++                .foregroundStyle(palette.ink)
+++            Text("AVG RATING · \(libraryCase.runCount) SESSIONS")
+++                .font(.archivo(9.5, weight: 600))
+++                .tracking(9.5 * 0.12)
+++                .tabularNumbers()
+++                .foregroundStyle(palette.muted)
+++        }
+++        .padding(.vertical, 12)
+++        .overlay(alignment: .top) { Rectangle().fill(palette.hairline).frame(height: 1) }
+++    }
+++
+++    // MARK: - History
+++
+++    private var historySection: some View {
+++        VStack(alignment: .leading, spacing: 8) {
+++            Text("YOUR HISTORY WITH IT")
+++                .font(.archivo(9.5, weight: 600))
+++                .tracking(9.5 * 0.15)
+++                .foregroundStyle(palette.muted)
+++
+++            if let historyLine = libraryCase.historyLine {
+++                HStack(alignment: .lastTextBaseline) {
+++                    Text(historyLine)
+++                        .font(.archivo(13, weight: 600))
+++                        .foregroundStyle(palette.ink)
+++                    Spacer()
+++                    if let historyScore = libraryCase.historyScore {
+++                        Text(historyScore)
+++                            .font(.archivo(11, weight: 600))
+++                            .tabularNumbers()
+++                            .foregroundStyle(palette.muted)
+++                    }
+++                }
+++            } else {
+++                Text("You haven't run this one.")
+++                    .font(.serifVoice(13, italic: true))
+++                    .foregroundStyle(palette.muted)
+++            }
+++        }
+++        .padding(.vertical, 12)
+++        .overlay(alignment: .top) { Rectangle().fill(palette.hairline).frame(height: 1) }
+++    }
+++
+++    // MARK: - Case pack
+++
+++    private var casePackSection: some View {
+++        VStack(alignment: .leading, spacing: 10) {
+++            Text("THE CASE PACK")
+++                .font(.archivo(9.5, weight: 600))
+++                .tracking(9.5 * 0.15)
+++                .foregroundStyle(palette.muted)
+++
+++            casePackRow
+++
+++            // "It knows." aside is PHONE ONLY — canvas 2c's right pane omits
+++            // it (plan item 12).
+++            if LibraryDetailCopy.showsKnowsAside(layout: layout) {
+++                Text("Reading the pack before being cased on it defeats the point. It knows.")
+++                    .font(.serifVoice(11.5, italic: true))
+++                    .foregroundStyle(palette.faint)
+++            }
+++        }
+++        .padding(.vertical, 12)
+++        .overlay(alignment: .top) { Rectangle().fill(palette.hairline).frame(height: 1) }
+++    }
+++
+++    private var casePackRow: some View {
+++        HStack(alignment: .center, spacing: 14) {
+++            StripedThumb(size: layout == .phone ? CGSize(width: 38, height: 48) : CGSize(width: 36, height: 46))
+++
+++            VStack(alignment: .leading, spacing: 1) {
+++                Text(libraryCase.pdfLabel)
+++                    .font(.archivo(12.5, weight: 600))
+++                    .foregroundStyle(palette.ink)
+++                Text(casePackSub)
+++                    .font(.archivo(11, weight: 400))
+++                    .foregroundStyle(palette.muted)
+++            }
+++            .frame(maxWidth: .infinity, alignment: .leading)
+++
+++            previewButton
+++        }
+++        .padding(.horizontal, layout == .phone ? 16 : 15)
+++        .padding(.vertical, layout == .phone ? 14 : 13)
+++        .background(palette.surface)
+++        .overlay(Rectangle().stroke(palette.hairline, lineWidth: 1))
+++    }
+++
+++    // Tablet drops the "— interviewer side" suffix (plan item 12).
+++    private var casePackSub: String { LibraryDetailCopy.casePackSub(layout: layout) }
+++
+++    @ViewBuilder
+++    private var previewButton: some View {
+++        if let pdfURL {
+++            ShareLink(item: pdfURL) {
+++                Text("Preview")
+++                    .font(.archivo(12, weight: 600))
+++                    .foregroundStyle(palette.ink)
+++                    .underline(true, pattern: .solid)
+++            }
+++            .buttonStyle(.plain)
+++        }
+++    }
+++
+++    private var pdfURL: URL? {
+++        guard let pdfUrl = libraryCase.pdfUrl else { return nil }
+++        return APIClient.shared.resolveURL(pdfUrl)
+++    }
+++
+++    // MARK: - CTA / note / re-cased afterthought
+++
+++    private var ctaSection: some View {
+++        VStack(spacing: 8) {
+++            Button {
+++                // F4→F3 seam: F3 owns the Case-tab case-prefill; this interim
+++                // just selects the Case tab bare (plan resolution — no new
+++                // AppRoute this phase).
+++                AppRouter.shared.go(to: .caseTab)
+++            } label: {
+++                Text(LibraryDetailCopy.cta(done: libraryCase.done))
+++                    .font(.archivo(layout == .phone ? 13.5 : 13, weight: 600))
+++                    .foregroundStyle(palette.onInk)
+++                    .frame(maxWidth: .infinity)
+++                    .frame(height: layout == .phone ? 50 : 48)
+++            }
+++            .background(Capsule().fill(palette.ink))
+++            .buttonStyle(DSPressStyle())
+++
+++            Text(LibraryDetailCopy.note(done: libraryCase.done))
+++                .font(.serifVoice(11.5, italic: true))
+++                .foregroundStyle(palette.muted)
+++                .multilineTextAlignment(.center)
+++                .frame(maxWidth: .infinity)
+++
+++            if LibraryDetailCopy.showsRecasedAfterthought(layout: layout, done: libraryCase.done) {
+++                recasedSection
+++            }
+++        }
+++        .padding(.top, 4)
+++    }
+++
+++    private var recasedSection: some View {
+++        VStack(spacing: 2) {
+++            Button {
+++                // Same F4→F3 interim seam as the primary CTA.
+++                AppRouter.shared.go(to: .caseTab)
+++            } label: {
+++                Text("Get re-cased anyway")
+++                    .font(.archivo(11, weight: 600))
+++                    .foregroundStyle(palette.faint)
+++                    .underline(true, pattern: .solid)
+++            }
+++            .buttonStyle(.plain)
+++
+++            // Design Decisions §0.4's lowercase qualifier — not on the
+++            // canvas itself; rendered alongside the button per the task brief.
+++            Text("won't count toward diagnostics")
+++                .font(.archivo(9, weight: 400))
+++                .foregroundStyle(palette.faint.opacity(0.85))
+++        }
+++        .padding(.top, 10)
+++    }
+++}
+++
+++/// The case-pack thumb — canvas's `repeating-linear-gradient(0deg,#F3F5F8 0
+++/// 6px,#FFFFFF 6px 12px)` reproduced exactly (not approximated) via two exact
+++/// F0 token matches: `#F3F5F8` is literally `palette.onInk`'s hex, `#FFFFFF`
+++/// is `palette.surface`'s — so the stripe painted in Canvas needs no new hex.
+++private struct StripedThumb: View {
+++    let size: CGSize
+++    @Environment(\.dsPalette) private var palette
+++
+++    var body: some View {
+++        Canvas { context, canvasSize in
+++            let bandHeight: CGFloat = 6
+++            var y: CGFloat = 0
+++            var isOnInk = true
+++            while y < canvasSize.height {
+++                let band = CGRect(x: 0, y: y, width: canvasSize.width, height: bandHeight)
+++                context.fill(Path(band), with: .color(isOnInk ? palette.onInk : palette.surface))
+++                y += bandHeight
+++                isOnInk.toggle()
+++            }
+++        }
+++        .frame(width: size.width, height: size.height)
+++        .overlay(Rectangle().stroke(palette.hairline, lineWidth: 1))
+++    }
+++}
++diff --git a/ios/CaseRoom/Views/CaseDetailView.swift b/ios/CaseRoom/Views/CaseDetailView.swift
++index 79f117f..ac194b5 100644
++--- a/ios/CaseRoom/Views/CaseDetailView.swift
+++++ b/ios/CaseRoom/Views/CaseDetailView.swift
++@@ -1,132 +1,154 @@
++ /*
++- * Purpose: Case detail screen — metadata header, horizontal preview strip,
++- *          and a PDF ShareLink, loaded via CasesService.caseDetail(id:).
++- * Inputs: caseId; CasesService (default APIClient.shared).
+++ * Purpose: Case detail screen, phone push (canvas 5a detail) — a fixed header
+++ *          (`‹ Library` plain-text back + the detail tag) above the scrollable
+++ *          CaseDetailContent(layout: .phone) body. Migrated off the retired
+++ *          CasesService onto LibraryService so it shares the retired-done tag/
+++ *          CTA/note rules and the `-LibraryFixtures` screenshot path with the
+++ *          rest of Library (Task 2/3).
+++ * Inputs: caseId; LibraryService (default APIClient.shared; DEBUG
+++ *         `-LibraryFixtures` swaps in LibraryFixtures.service — this view is
+++ *         pushed independently of CasesListView's own init, so it re-checks
+++ *         the launch arg itself rather than inheriting a passed-in service).
++  * Outputs: none.
++- * Run: pushed from CasesListView on row tap.
+++ * Run: pushed via `AppRouter.shared.go(to: .caseDetail(id))` onto
+++ *      libraryPath (RootShell's libraryDetailOpen gate hides the tab bar/
+++ *      pills while this is on screen — Task 3).
++  */
++ 
++ import SwiftUI
++ 
++ struct CaseDetailView: View {
++     let caseId: Int
++-    private let service: CasesService
+++    private let service: LibraryService
++ 
++-    @State private var detail: CaseDetail?
+++    @State private var libraryCase: LibraryCase?
++     @State private var isLoading = false
++     @State private var errorMessage: String?
+++    @Environment(\.dsPalette) private var palette
++ 
++-    init(caseId: Int, service: CasesService = APIClient.shared) {
+++    init(caseId: Int, service: LibraryService? = nil) {
++         self.caseId = caseId
++-        self.service = service
+++        #if DEBUG
+++        if let service {
+++            self.service = service
+++        } else if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") {
+++            self.service = LibraryFixtures.service
+++        } else {
+++            self.service = APIClient.shared
+++        }
+++        #else
+++        self.service = service ?? APIClient.shared
+++        #endif
++     }
++ 
++     var body: some View {
++-        Group {
++-            if let detail {
++-                ScrollView {
++-                    VStack(alignment: .leading, spacing: 16) {
++-                        header(for: detail)
++-                        previews(for: detail)
++-                    }
++-                    .padding()
++-                }
++-                .toolbar {
++-                    if let pdfURL = APIClient.shared.resolveURL(detail.pdfUrl) {
++-                        ToolbarItem(placement: .topBarTrailing) {
++-                            ShareLink(item: pdfURL)
++-                        }
++-                    }
++-                }
++-            } else if isLoading {
++-                ProgressView()
++-            } else if let errorMessage {
++-                ContentUnavailableView(errorMessage, systemImage: "wifi.slash")
++-            }
+++        VStack(alignment: .leading, spacing: 0) {
+++            header
+++            content
++         }
++-        .navigationTitle(detail?.caseTitle ?? "Case")
++-        .navigationBarTitleDisplayMode(.inline)
+++        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+++        .toolbar(.hidden, for: .navigationBar)
++         .task { await load() }
++     }
++ 
++-    private func load() async {
++-        isLoading = true
++-        errorMessage = nil
++-        defer { isLoading = false }
++-        do {
++-            detail = try await service.caseDetail(id: caseId)
++-        } catch {
++-            errorMessage = "Couldn't load this case. Try again."
++-        }
++-    }
+++    // Canvas 5a's fixed row: plain ink `‹ Library` (13/600, no glass, no
+++    // underline — NOT the BackPill) + the detail tag, top-trailing. Lives
+++    // outside the ScrollView so it never scrolls with the body.
+++    private var header: some View {
+++        HStack {
+++            Button {
+++                // libraryPath is externally driven (Task 3's NavigationStack
+++                // binds straight to AppRouter.shared.libraryPath) — popping
+++                // means trimming that array, not dismiss()/presentationMode.
+++                if !AppRouter.shared.libraryPath.isEmpty {
+++                    AppRouter.shared.libraryPath.removeLast()
+++                }
+++            } label: {
+++                Text("‹ Library")
+++                    .font(.archivo(13, weight: 600))
+++                    .foregroundStyle(palette.ink)
+++            }
+++            .buttonStyle(.plain)
++ 
++-    @ViewBuilder
++-    private func header(for detail: CaseDetail) -> some View {
++-        VStack(alignment: .leading, spacing: 6) {
++-            Text(detail.caseTitle)
++-                .font(.title2.bold())
+++            Spacer()
++ 
++-            if let difficulty = detail.difficulty {
++-                Text(difficulty)
++-                    .font(.caption.bold())
++-                    .padding(.horizontal, 8)
++-                    .padding(.vertical, 2)
++-                    .background(Color("BrandAccent").opacity(0.15))
++-                    .foregroundStyle(Color("BrandAccent"))
++-                    .clipShape(Capsule())
+++            if let libraryCase {
+++                DetailTagLabel(libraryCase: libraryCase)
++             }
+++        }
+++        .padding(.horizontal, 22)
+++        .padding(.top, 8)
+++    }
++ 
++-            if let industry = detail.industryDisplay {
++-                Label(industry, systemImage: "building.2")
++-                    .font(.subheadline)
++-                    .foregroundStyle(.secondary)
++-            }
++-            if let firm = detail.firm {
++-                Label(firm, systemImage: "briefcase")
++-                    .font(.subheadline)
++-                    .foregroundStyle(.secondary)
++-            }
++-            if let schoolYear = schoolYearLine(for: detail) {
++-                Label(schoolYear, systemImage: "graduationcap")
++-                    .font(.subheadline)
++-                    .foregroundStyle(.secondary)
+++    @ViewBuilder
+++    private var content: some View {
+++        if let libraryCase {
+++            ScrollView {
+++                CaseDetailContent(layout: .phone, libraryCase: libraryCase)
+++                    .padding(.horizontal, 24)
+++                    .padding(.top, 22)
+++                    .padding(.bottom, 40)
++             }
+++            .scrollIndicators(.hidden)
+++        } else if isLoading {
+++            ProgressView()
+++                .frame(maxWidth: .infinity, maxHeight: .infinity)
+++        } else if let errorMessage {
+++            Text(errorMessage)
+++                .font(.serifVoice(14, italic: true))
+++                .foregroundStyle(palette.muted)
+++                .frame(maxWidth: .infinity)
+++                .padding(.top, 60)
++         }
++     }
++ 
++-    private func schoolYearLine(for detail: CaseDetail) -> String? {
++-        switch (detail.sourceSchool, detail.sourceYear) {
++-        case let (school?, year?): return "\(school) · \(String(year))"
++-        case let (school?, nil): return school
++-        case let (nil, year?): return String(year)
++-        default: return nil
+++    private func load() async {
+++        isLoading = true
+++        errorMessage = nil
+++        defer { isLoading = false }
+++        do {
+++            let detail = try await service.caseDetail(id: caseId)
+++            // Best-effort: a recentSessions() failure shouldn't block the
+++            // detail from rendering — it just means "You haven't run this
+++            // one." shows instead of a real history line.
+++            let sessions = (try? await service.recentSessions()) ?? []
+++            var built = Self.makeLibraryCase(from: detail)
+++            let history = LibraryDetailCopy.history(from: sessions, caseTitle: detail.caseTitle)
+++            built.historyLine = history.line
+++            built.historyScore = history.score
+++            libraryCase = built
+++        } catch {
+++            libraryCase = nil
+++            errorMessage = "Couldn't load this case. Try again."
++         }
++     }
++ 
++-    @ViewBuilder
++-    private func previews(for detail: CaseDetail) -> some View {
++-        if !detail.previewUrls.isEmpty {
++-            ScrollView(.horizontal) {
++-                HStack(spacing: 12) {
++-                    ForEach(detail.previewUrls, id: \.self) { path in
++-                        if let url = APIClient.shared.resolveURL(path) {
++-                            AsyncImage(url: url) { image in
++-                                image.resizable().aspectRatio(contentMode: .fit)
++-                            } placeholder: {
++-                                ProgressView()
++-                            }
++-                            .frame(width: 200, height: 260)
++-                            .clipShape(RoundedRectangle(cornerRadius: 8))
++-                        }
++-                    }
++-                }
++-            }
++-        }
+++    // CaseDetail carries every CaseSummary field plus previewUrls/pdfUrl;
+++    // routing through a CaseSummary lets this reuse LibraryCase.from's
+++    // kicker/meta/rating derivation instead of re-deriving it here. Ordinal
+++    // is the empty string — canvas 5a detail never renders it (list-only
+++    // decoration, plan item 11); recommended/scheduledNote stay at their
+++    // LibraryCase defaults (false/nil) on this live path, same as
+++    // LibraryViewModel's live load() — fixtures are the only source of those
+++    // decorations (documented seam, plan "Deferred / seams").
+++    private static func makeLibraryCase(from detail: CaseDetail) -> LibraryCase {
+++        let summary = CaseSummary(
+++            id: detail.id, caseTitle: detail.caseTitle, caseType: detail.caseType,
+++            difficulty: detail.difficulty, difficultyScore: detail.difficultyScore,
+++            firm: detail.firm, industry: detail.industry, industryDisplay: detail.industryDisplay,
+++            industryRaw: detail.industryRaw, pageCount: detail.pageCount,
+++            sourceSchool: detail.sourceSchool, sourceYear: detail.sourceYear,
+++            avgRating: detail.avgRating, runCount: detail.runCount, doneForYou: detail.doneForYou
+++        )
+++        var libraryCase = LibraryCase.from(summary, ordinal: "")
+++        libraryCase.previewUrls = detail.previewUrls
+++        libraryCase.pdfUrl = detail.pdfUrl
+++        return libraryCase
++     }
++ }
++ 
+++#if DEBUG
++ #Preview {
++-    NavigationStack {
++-        CaseDetailView(caseId: 1)
++-    }
+++    CaseDetailView(caseId: 8, service: LibraryFixtures.service)
++ }
+++#endif
++diff --git a/ios/CaseRoomTests/CaseDetailContentTests.swift b/ios/CaseRoomTests/CaseDetailContentTests.swift
++new file mode 100644
++index 0000000..d53271b
++--- /dev/null
+++++ b/ios/CaseRoomTests/CaseDetailContentTests.swift
++@@ -0,0 +1,149 @@
+++/*
+++ * Purpose: Unit tests for LibraryDetailCopy — the pure tag/CTA/note/history/
+++ *          layout derivations behind CaseDetailContent (canvas 5a detail /
+++ *          2c right pane). Prefers these over SwiftUI view snapshots per the
+++ *          Task 4 brief; LibraryCase.detailMeta itself is already covered by
+++ *          LibraryViewModelTests (Task 2), not re-tested here.
+++ * Inputs: none (pure function calls).
+++ * Outputs: none.
+++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
+++ */
+++
+++import XCTest
+++@testable import CaseRoom
+++
+++final class CaseDetailContentTests: XCTestCase {
+++
+++    // MARK: - Tag (libDTag/libDTagColor)
+++
+++    func testTagRecommendedWinsGreen() {
+++        let tag = LibraryDetailCopy.tag(recommended: true, done: false)
+++        XCTAssertEqual(tag.text, "RECOMMENDED FOR YOU")
+++        XCTAssertTrue(tag.isGreen)
+++    }
+++
+++    func testTagRecommendedWinsOverDoneToo() {
+++        // The canvas checks `rec` before `done` — a fixture could carry both;
+++        // recommendation still takes priority.
+++        let tag = LibraryDetailCopy.tag(recommended: true, done: true)
+++        XCTAssertEqual(tag.text, "RECOMMENDED FOR YOU")
+++        XCTAssertTrue(tag.isGreen)
+++    }
+++
+++    func testTagDoneRetiredFaint() {
+++        let tag = LibraryDetailCopy.tag(recommended: false, done: true)
+++        XCTAssertEqual(tag.text, "DONE — RETIRED FOR YOU")
+++        XCTAssertFalse(tag.isGreen)
+++    }
+++
+++    func testTagOpenFaint() {
+++        let tag = LibraryDetailCopy.tag(recommended: false, done: false)
+++        XCTAssertEqual(tag.text, "OPEN FOR YOU")
+++        XCTAssertFalse(tag.isGreen)
+++    }
+++
+++    // MARK: - CTA (libDCta)
+++
+++    func testCtaFlipsWithDone() {
+++        XCTAssertEqual(LibraryDetailCopy.cta(done: false), "Get cased on this")
+++        XCTAssertEqual(LibraryDetailCopy.cta(done: true), "Case someone with this")
+++    }
+++
+++    // MARK: - Note (libDNote)
+++
+++    func testNoteFlipsWithDone() {
+++        XCTAssertEqual(LibraryDetailCopy.note(done: false), "Opens the Case tab with this case pre-filled.")
+++        XCTAssertEqual(
+++            LibraryDetailCopy.note(done: true),
+++            "Done cases join your interviewer deck — you know the answer key now."
+++        )
+++    }
+++
+++    // MARK: - History (libDHist/libDHistScore) — title-matched
+++
+++    private func session(
+++        title: String, otherUser: String = "M. Lindqvist",
+++        endedAt: Date?, grade: Double?
+++    ) -> SessionSummary {
+++        SessionSummary(
+++            id: Int.random(in: 1...9999), role: "candidate", otherUser: otherUser,
+++            caseTitle: title, scheduledAt: nil, state: "done", endedAt: endedAt, grade: grade
+++        )
+++    }
+++
+++    private func utcDate(_ yyyyMMdd: String) -> Date {
+++        let formatter = DateFormatter()
+++        formatter.dateFormat = "yyyy-MM-dd"
+++        formatter.timeZone = TimeZone(identifier: "UTC")
+++        return formatter.date(from: yyyyMMdd)!
+++    }
+++
+++    func testHistoryNilWhenNoTitleMatch() {
+++        let sessions = [session(title: "Some other case", endedAt: utcDate("2026-07-01"), grade: 4.0)]
+++        let history = LibraryDetailCopy.history(from: sessions, caseTitle: "Nordic carrier")
+++        XCTAssertNil(history.line)
+++        XCTAssertNil(history.score)
+++    }
+++
+++    func testHistoryLineAndScoreOnMatch() {
+++        let sessions = [
+++            session(title: "Nordic carrier", otherUser: "M. Lindqvist", endedAt: utcDate("2026-07-16"), grade: 7.2),
+++        ]
+++        let history = LibraryDetailCopy.history(from: sessions, caseTitle: "Nordic carrier")
+++        XCTAssertEqual(history.line, "Jul 16 · M. Lindqvist")
+++        XCTAssertEqual(history.score, "7.2 avg")
+++    }
+++
+++    func testHistoryScoreNilWhenGradeNil() {
+++        let sessions = [session(title: "Nordic carrier", endedAt: utcDate("2026-07-16"), grade: nil)]
+++        let history = LibraryDetailCopy.history(from: sessions, caseTitle: "Nordic carrier")
+++        XCTAssertEqual(history.line, "Jul 16 · M. Lindqvist")
+++        XCTAssertNil(history.score)
+++    }
+++
+++    func testHistoryPicksMostRecentTitleMatch() {
+++        let sessions = [
+++            session(title: "Nordic carrier", otherUser: "Older Partner", endedAt: utcDate("2026-06-01"), grade: 3.0),
+++            session(title: "Nordic carrier", otherUser: "Newer Partner", endedAt: utcDate("2026-07-16"), grade: 7.2),
+++            session(title: "Unrelated case", otherUser: "Ignore Me", endedAt: utcDate("2026-07-17"), grade: 9.9),
+++        ]
+++        let history = LibraryDetailCopy.history(from: sessions, caseTitle: "Nordic carrier")
+++        XCTAssertEqual(history.line, "Jul 16 · Newer Partner")
+++        XCTAssertEqual(history.score, "7.2 avg")
+++    }
+++
+++    func testHistoryEmptySessionsReturnsNil() {
+++        let history = LibraryDetailCopy.history(from: [], caseTitle: "Nordic carrier")
+++        XCTAssertNil(history.line)
+++        XCTAssertNil(history.score)
+++    }
+++
+++    // MARK: - Layout deltas (plan item 12)
+++
+++    func testTitleAndRatingSizePhoneVsTablet() {
+++        XCTAssertEqual(LibraryDetailCopy.titleSize(layout: .phone), 24)
+++        XCTAssertEqual(LibraryDetailCopy.titleSize(layout: .tablet), 22)
+++        XCTAssertEqual(LibraryDetailCopy.ratingSize(layout: .phone), 26)
+++        XCTAssertEqual(LibraryDetailCopy.ratingSize(layout: .tablet), 24)
+++    }
+++
+++    func testCasePackSubDropsInterviewerSideSuffixOnTablet() {
+++        XCTAssertEqual(
+++            LibraryDetailCopy.casePackSub(layout: .phone),
+++            "Prompt script, exhibits, answer key — interviewer side"
+++        )
+++        XCTAssertEqual(LibraryDetailCopy.casePackSub(layout: .tablet), "Prompt script, exhibits, answer key")
+++    }
+++
+++    func testKnowsAsideIsPhoneOnly() {
+++        XCTAssertTrue(LibraryDetailCopy.showsKnowsAside(layout: .phone))
+++        XCTAssertFalse(LibraryDetailCopy.showsKnowsAside(layout: .tablet))
+++    }
+++
+++    func testRecasedAfterthoughtIsPhoneOnlyAndDoneOnly() {
+++        XCTAssertTrue(LibraryDetailCopy.showsRecasedAfterthought(layout: .phone, done: true))
+++        XCTAssertFalse(LibraryDetailCopy.showsRecasedAfterthought(layout: .phone, done: false))
+++        XCTAssertFalse(LibraryDetailCopy.showsRecasedAfterthought(layout: .tablet, done: true))
+++        XCTAssertFalse(LibraryDetailCopy.showsRecasedAfterthought(layout: .tablet, done: false))
+++    }
+++}
+diff --git a/ios/CaseRoom/State/LibraryFixtures.swift b/ios/CaseRoom/State/LibraryFixtures.swift
+index 095413d..fa9c719 100644
+--- a/ios/CaseRoom/State/LibraryFixtures.swift
++++ b/ios/CaseRoom/State/LibraryFixtures.swift
+@@ -96,17 +96,21 @@ enum LibraryFixtures {
+         SessionSummary(id: 104, role: "candidate", otherUser: "guest",
+                         caseTitle: "Regional bank merger: the synergies",
+                         scheduledAt: nil, state: "done", endedAt: date("2026-06-30"), grade: 3.8),
+     ]
+ 
+     private static func date(_ yyyyMMdd: String) -> Date {
+         let formatter = DateFormatter()
+         formatter.dateFormat = "yyyy-MM-dd"
+-        formatter.timeZone = TimeZone(identifier: "UTC")
++        // Local midnight (not UTC): the history line renders the date in the
++        // viewer's timezone, so a UTC-midnight instant would show the prior day
++        // on a negative-offset machine (e.g. Thomas's US Mac). Local midnight
++        // renders as the intended calendar date on any host.
++        formatter.timeZone = .current
+         return formatter.date(from: yyyyMMdd) ?? Date()
+     }
+ }
+ 
+ /// Stub LibraryService seeded with LibraryFixtures — no network. The type
+ /// chip filter is applied here (mirrors the live server's exact-equality
+ /// case_type match) so `-LibraryFixtures` screenshots exercise real filtering.
+ final class FixtureLibraryService: LibraryService {
+diff --git a/ios/CaseRoom/State/LibraryViewModel.swift b/ios/CaseRoom/State/LibraryViewModel.swift
+index 2a045f1..d43c654 100644
+--- a/ios/CaseRoom/State/LibraryViewModel.swift
++++ b/ios/CaseRoom/State/LibraryViewModel.swift
+@@ -159,16 +159,25 @@ final class LibraryViewModel {
+     // Full loaded list — ordinals assigned ONCE here (descending index over
+     // the load() response), so they stay stable across done-toggle changes
+     // (which only re-filter this array, never reload it).
+     var allCases: [LibraryCase] = []
+     var selectedID: Int?
+     var isLoading = false
+     var errorMessage: String?
+ 
++    // Task 5 (tablet 2c right pane): recent sessions fetched once (not on
++    // every type-chip reload) and title-matched per selection via
++    // LibraryDetailCopy.history — the SAME join CaseDetailView uses for the
++    // phone push detail, so tablet/phone history lines stay derived
++    // identically (documented seam: no case_id on SessionSummary, plan
++    // resolution #6).
++    var recentSessions: [SessionSummary] = []
++    private var didFetchSessions = false
++
+     #if DEBUG
+     // Screenshot-only decoration hook (Task 3's -LibraryFixtures): case id ->
+     // (recommended, scheduledNote). The live /api/v1/cases* response carries
+     // neither field (B4 recs / upcoming-session cross-reference is a
+     // documented seam — plan's "Deferred / seams"), so this stays nil outside
+     // DEBUG fixture wiring; LibraryFixtures.swift sets it on the VM instance
+     // it hands to CasesListView.
+     var fixtureDecorations: [Int: (recommended: Bool, scheduledNote: String?)]?
+@@ -199,16 +208,24 @@ final class LibraryViewModel {
+                 return libraryCase
+             }
+             page = fetchedPage
+         } catch {
+             allCases = []
+             page = nil
+             errorMessage = "Couldn't load the library. Try again."
+         }
++
++        // Best-effort, fetched once: a failure here shouldn't block the case
++        // list, and re-fetching on every type-chip reload would be wasted
++        // work (recent sessions aren't filtered by case_type).
++        if !didFetchSessions {
++            didFetchSessions = true
++            recentSessions = (try? await service.recentSessions()) ?? []
++        }
+     }
+ 
+     // Splits allCases into the open/done groups the current `done` toggle
+     // shows. Shared by filteredRows and countLine so both agree.
+     private var shownGroups: (open: [LibraryCase], done: [LibraryCase]) {
+         let openCases = allCases.filter { !$0.done }
+         let doneCases = allCases.filter { $0.done }
+         switch done {
+@@ -245,9 +262,22 @@ final class LibraryViewModel {
+         }
+         for row in filteredRows {
+             if case .row(let libraryCase) = row { return libraryCase }
+         }
+         return nil
+     }
+ 
+     var isEmpty: Bool { filteredRows.isEmpty }
++
++    // Task 5: the tablet right pane's source of truth — selectedCase with
++    // historyLine/historyScore attached via a title match over recentSessions
++    // (LibraryDetailCopy.history, shared with CaseDetailView's phone path so
++    // both derive "YOUR HISTORY WITH IT" identically). nil when there's no
++    // selection to show (empty library).
++    var selectedCaseWithHistory: LibraryCase? {
++        guard var selected = selectedCase else { return nil }
++        let history = LibraryDetailCopy.history(from: recentSessions, caseTitle: selected.title)
++        selected.historyLine = history.line
++        selected.historyScore = history.score
++        return selected
++    }
+ }
+diff --git a/ios/CaseRoom/Views/CaseDetailContent.swift b/ios/CaseRoom/Views/CaseDetailContent.swift
+index 51238b2..48a1129 100644
+--- a/ios/CaseRoom/Views/CaseDetailContent.swift
++++ b/ios/CaseRoom/Views/CaseDetailContent.swift
+@@ -259,26 +259,30 @@ struct CaseDetailContent: View {
+         .padding(.vertical, layout == .phone ? 14 : 13)
+         .background(palette.surface)
+         .overlay(Rectangle().stroke(palette.hairline, lineWidth: 1))
+     }
+ 
+     // Tablet drops the "— interviewer side" suffix (plan item 12).
+     private var casePackSub: String { LibraryDetailCopy.casePackSub(layout: layout) }
+ 
++    // Canvas 5a always renders the "Preview" affordance in the pack row; wrap it
++    // in a ShareLink only when a pdf URL resolves, otherwise show the plain label
++    // (a case may lack a pdf_url) rather than dropping it entirely.
+     @ViewBuilder
+     private var previewButton: some View {
++        let label = Text("Preview")
++            .font(.archivo(12, weight: 600))
++            .foregroundStyle(palette.ink)
++            .underline(true, pattern: .solid)
+         if let pdfURL {
+-            ShareLink(item: pdfURL) {
+-                Text("Preview")
+-                    .font(.archivo(12, weight: 600))
+-                    .foregroundStyle(palette.ink)
+-                    .underline(true, pattern: .solid)
+-            }
+-            .buttonStyle(.plain)
++            ShareLink(item: pdfURL) { label }
++                .buttonStyle(.plain)
++        } else {
++            label
+         }
+     }
+ 
+     private var pdfURL: URL? {
+         guard let pdfUrl = libraryCase.pdfUrl else { return nil }
+         return APIClient.shared.resolveURL(pdfUrl)
+     }
+ 
+diff --git a/ios/CaseRoom/Views/CasesListView.swift b/ios/CaseRoom/Views/CasesListView.swift
+index 9261319..59bbccd 100644
+--- a/ios/CaseRoom/Views/CasesListView.swift
++++ b/ios/CaseRoom/Views/CasesListView.swift
+@@ -1,14 +1,20 @@
+ /*
+- * Purpose: Library tab (canvas 5a phone list) — H1, type chips, the
+- *          Everything/Not done/Done toggle row with the live "N OPEN · N DONE"
+- *          count, and the casebook rows (retired-done greyed below a divider).
+- *          Hosts the `libraryPath` NavigationStack (F1 deferred tab-stack
+- *          mounting to F4 — see RootShell's libraryDetailOpen chrome gate).
++ * Purpose: Library tab (canvas 5a phone list / canvas 2c tablet
++ *          master–detail) — H1 (phone only; the shell draws it on iPad), type
++ *          chips, the Everything/Not done/Done toggle row with the live
++ *          "N OPEN · N DONE" count, and the casebook rows (retired-done
++ *          greyed below a divider). Hosts the `libraryPath` NavigationStack
++ *          (F1 deferred tab-stack mounting to F4 — see RootShell's
++ *          libraryDetailOpen chrome gate). The chip row/toggle row/rows list
++ *          are factored into LibraryTypeChipRow/LibraryToggleRow/
++ *          LibraryRowsList below so Task 5's LibraryMasterDetailView.swift
++ *          (regular size class, canvas 2c) reuses them verbatim with
++ *          select-on-tap instead of push.
+  * Inputs: LibraryViewModel (default APIClient.shared via LibraryService); DEBUG
+  *         `-LibraryFixtures` swaps in the FixtureLibraryService stub so
+  *         screenshots need no dev server.
+  * Outputs: none.
+  * Run: shown by RootShell for DSTab.library.
+  */
+ 
+ import SwiftUI
+@@ -44,55 +50,68 @@ struct CasesListView: View {
+                         CaseDetailView(caseId: id)
+                     }
+                 }
+         }
+     }
+ 
+     @ViewBuilder
+     private var sizeClassBody: some View {
+-        if hSize == .regular {
+-            // F4 Task 5: tablet master-detail (canvas 2c, 1fr|470px split).
+-            // The phone list renders here in the interim — acceptable per
+-            // Task 3 scope (do not build the 2-column layout this task).
+-            phoneList
+-        } else {
+-            phoneList
++        Group {
++            if hSize == .regular {
++                // F4 Task 5: tablet master–detail (canvas 2c, 1fr|470px split).
++                LibraryMasterDetailView(viewModel: viewModel)
++            } else {
++                phoneList
++            }
++        }
++        .task { await viewModel.load() }
++        .onChange(of: viewModel.type) { _, _ in
++            // The type chip filters server-side (CaseQuery.caseType) — the
++            // done toggle stays client-side over the already-loaded set, so
++            // only a type change needs a reload (carry-in from Task 2 review).
++            Task { await viewModel.load() }
+         }
+     }
+ 
+     private var phoneList: some View {
+         ScrollView {
+             VStack(alignment: .leading, spacing: 0) {
+                 Text("Library")
+                     .dsText(.h1Tab)
+                     .foregroundStyle(palette.ink)
+                     .frame(maxWidth: .infinity, alignment: .leading)
+ 
+-                typeChipRow
++                LibraryTypeChipRow(viewModel: viewModel)
+                     .padding(.top, 14)
+ 
+-                toggleRow
++                LibraryToggleRow(viewModel: viewModel)
+                     .padding(.top, 9)
+ 
+-                rowsList
++                LibraryRowsList(viewModel: viewModel) { libraryCase in
++                    AppRouter.shared.go(to: .caseDetail(libraryCase.id))
++                }
+             }
+             .padding(.horizontal, 22)
+         }
+         .scrollIndicators(.hidden)
+-        .task { await viewModel.load() }
+-        .onChange(of: viewModel.type) { _, _ in
+-            // The type chip filters server-side (CaseQuery.caseType) — the
+-            // done toggle stays client-side over the already-loaded set, so
+-            // only a type change needs a reload (carry-in from Task 2 review).
+-            Task { await viewModel.load() }
+-        }
+     }
++}
++
++// MARK: - Shared chip/toggle/rows components (phone list + Task 5 tablet
++// master–detail's left column both bind these to the same LibraryViewModel).
++
++/// Type chip row (All / Market entry / Profitability / M&A / Sizing) — active
++/// chip = ink capsule fill, inactive = glassChip(). Tapping sets `vm.type`;
++/// the caller (CasesListView.sizeClassBody) reloads on that change.
++struct LibraryTypeChipRow: View {
++    let viewModel: LibraryViewModel
++    @Environment(\.dsPalette) private var palette
+ 
+-    private var typeChipRow: some View {
++    var body: some View {
+         ScrollView(.horizontal) {
+             HStack(spacing: 6) {
+                 ForEach(LibraryType.allCases, id: \.self) { type in
+                     chip(for: type)
+                 }
+             }
+         }
+         .scrollIndicators(.hidden)
+@@ -113,18 +132,25 @@ struct CasesListView: View {
+         .buttonStyle(DSPressStyle())
+ 
+         if active {
+             label.background(Capsule().fill(palette.ink))
+         } else {
+             label.glassChip()
+         }
+     }
++}
++
++/// The `countLine` (left, kicker/muted) + Everything/Not done/Done text
++/// toggles (right, active = ink+underline) over a bottom hairline.
++struct LibraryToggleRow: View {
++    let viewModel: LibraryViewModel
++    @Environment(\.dsPalette) private var palette
+ 
+-    private var toggleRow: some View {
++    var body: some View {
+         VStack(spacing: 0) {
+             HStack(alignment: .lastTextBaseline) {
+                 Text(viewModel.countLine)
+                     .font(.archivo(9.5, weight: 600))
+                     .tracking(9.5 * 0.14)
+                     .tabularNumbers()
+                     .foregroundStyle(palette.muted)
+                 Spacer()
+@@ -151,24 +177,41 @@ struct CasesListView: View {
+                 .overlay(alignment: .bottom) {
+                     if active {
+                         Rectangle().fill(palette.ink).frame(height: 1).offset(y: 3)
+                     }
+                 }
+         }
+         .buttonStyle(DSPressStyle())
+     }
++}
++
++/// The casebook rows list (`LibraryRowView` per `.row`, `LibraryDividerRow`
++/// per `.divider`, empty-state serif italic). `onRowTap` is push-to-detail on
++/// phone, select-only on tablet (Task 5); `selectedID` drives the glass-chip
++/// fill and is nil (no highlight) on phone.
++struct LibraryRowsList: View {
++    let viewModel: LibraryViewModel
++    var selectedID: Int? = nil
++    let onRowTap: (LibraryCase) -> Void
++    @Environment(\.dsPalette) private var palette
++
++    init(viewModel: LibraryViewModel, selectedID: Int? = nil, onRowTap: @escaping (LibraryCase) -> Void) {
++        self.viewModel = viewModel
++        self.selectedID = selectedID
++        self.onRowTap = onRowTap
++    }
+ 
+-    private var rowsList: some View {
++    var body: some View {
+         LazyVStack(alignment: .leading, spacing: 0) {
+             ForEach(viewModel.filteredRows) { row in
+                 switch row {
+                 case .row(let libraryCase):
+-                    LibraryRowView(row: libraryCase) {
+-                        AppRouter.shared.go(to: .caseDetail(libraryCase.id))
++                    LibraryRowView(row: libraryCase, isSelected: libraryCase.id == selectedID) {
++                        onRowTap(libraryCase)
+                     }
+                 case .divider(let label):
+                     LibraryDividerRow(label: label)
+                 }
+             }
+ 
+             if viewModel.isEmpty {
+                 Text("Nothing here under these filters.")
+diff --git a/ios/CaseRoom/Views/LibraryMasterDetailView.swift b/ios/CaseRoom/Views/LibraryMasterDetailView.swift
+new file mode 100644
+index 0000000..47a00cc
+--- /dev/null
++++ b/ios/CaseRoom/Views/LibraryMasterDetailView.swift
+@@ -0,0 +1,86 @@
++/*
++ * Purpose: Tablet master–detail Library (canvas 2c) — regular-size-class body
++ *          for CasesListView: a 1fr | 470pt grid divided by a hairline, left
++ *          reuses the phone's LibraryTypeChipRow/LibraryToggleRow/
++ *          LibraryRowsList with select-on-tap (no push, no H1 — RootShell
++ *          draws the centered "Library" tab label on .regular), right is an
++ *          always-visible CaseDetailContent(layout: .tablet) for the
++ *          selection (falls back to the first row via
++ *          LibraryViewModel.selectedCase). Bottom padding clears the 560pt
++ *          floating tab bar.
++ * Inputs: LibraryViewModel — owned and `.load()`ed by CasesListView; this
++ *         view only mutates `viewModel.selectedID` on row tap.
++ * Outputs: none.
++ * Run: `LibraryMasterDetailView(viewModel:)` from CasesListView.sizeClassBody
++ *      when `hSize == .regular`.
++ */
++
++import SwiftUI
++
++struct LibraryMasterDetailView: View {
++    let viewModel: LibraryViewModel
++    @Environment(\.dsPalette) private var palette
++
++    var body: some View {
++        HStack(alignment: .top, spacing: 0) {
++            masterColumn
++                .frame(maxWidth: .infinity, alignment: .top)
++                .padding(.trailing, 28)
++                .overlay(alignment: .trailing) {
++                    // Canvas 2c: `border-right:1px solid #C9D2DF` on the left
++                    // column — palette.hairline is the exact F0 token match.
++                    Rectangle().fill(palette.hairline).frame(width: 1)
++                }
++
++            detailColumn
++                .frame(width: 470, alignment: .top)
++                .padding(.leading, 28)
++        }
++        .padding(.horizontal, 28)
++        .padding(.top, 18)
++        .padding(.bottom, 96)
++        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
++    }
++
++    // MARK: - Left: chips + toggle/count + rows (select-on-tap, no push, no H1)
++
++    private var masterColumn: some View {
++        VStack(alignment: .leading, spacing: 0) {
++            LibraryTypeChipRow(viewModel: viewModel)
++
++            LibraryToggleRow(viewModel: viewModel)
++                .padding(.top, 10)
++
++            ScrollView {
++                LibraryRowsList(
++                    viewModel: viewModel,
++                    selectedID: viewModel.selectedID
++                ) { libraryCase in
++                    viewModel.selectedID = libraryCase.id
++                }
++            }
++            .scrollIndicators(.hidden)
++        }
++    }
++
++    // MARK: - Right: always-visible detail for the selection
++
++    @ViewBuilder
++    private var detailColumn: some View {
++        ScrollView {
++            if let selected = viewModel.selectedCaseWithHistory {
++                CaseDetailContent(layout: .tablet, libraryCase: selected)
++            }
++        }
++        .scrollIndicators(.hidden)
++    }
++}
++
++#if DEBUG
++#Preview {
++    let vm = LibraryViewModel(service: LibraryFixtures.service)
++    vm.fixtureDecorations = LibraryFixtures.decorations
++    return LibraryMasterDetailView(viewModel: vm)
++        .task { await vm.load() }
++}
++#endif
+diff --git a/ios/CaseRoomTests/CaseDetailContentTests.swift b/ios/CaseRoomTests/CaseDetailContentTests.swift
+index d53271b..86b07d9 100644
+--- a/ios/CaseRoomTests/CaseDetailContentTests.swift
++++ b/ios/CaseRoomTests/CaseDetailContentTests.swift
+@@ -69,17 +69,21 @@ final class CaseDetailContentTests: XCTestCase {
+             id: Int.random(in: 1...9999), role: "candidate", otherUser: otherUser,
+             caseTitle: title, scheduledAt: nil, state: "done", endedAt: endedAt, grade: grade
+         )
+     }
+ 
+     private func utcDate(_ yyyyMMdd: String) -> Date {
+         let formatter = DateFormatter()
+         formatter.dateFormat = "yyyy-MM-dd"
+-        formatter.timeZone = TimeZone(identifier: "UTC")
++        // Local timezone (matches the product's history formatter): building the
++        // date at LOCAL midnight and formatting it in the LOCAL zone yields the
++        // same calendar date on any host, so the "Jul 16" assertions are
++        // deterministic off-UTC (e.g. a US Mac) rather than rolling back a day.
++        formatter.timeZone = .current
+         return formatter.date(from: yyyyMMdd)!
+     }
+ 
+     func testHistoryNilWhenNoTitleMatch() {
+         let sessions = [session(title: "Some other case", endedAt: utcDate("2026-07-01"), grade: 4.0)]
+         let history = LibraryDetailCopy.history(from: sessions, caseTitle: "Nordic carrier")
+         XCTAssertNil(history.line)
+         XCTAssertNil(history.score)
+diff --git a/ios/CaseRoomTests/LibraryViewModelTests.swift b/ios/CaseRoomTests/LibraryViewModelTests.swift
+index 8951ab4..fac6139 100644
+--- a/ios/CaseRoomTests/LibraryViewModelTests.swift
++++ b/ios/CaseRoomTests/LibraryViewModelTests.swift
+@@ -11,29 +11,31 @@
+ import XCTest
+ @testable import CaseRoom
+ 
+ final class StubLibraryService: LibraryService {
+     var libraryResult: Result<LibraryPage, Error> = .success(LibraryPage(cases: [], total: 0, openCount: 0, doneCount: 0))
+     var caseDetailResult: Result<CaseDetail, Error>?
+     var recentSessionsResult: Result<[SessionSummary], Error> = .success([])
+     var recordedQueries: [CaseQuery] = []
++    var recentSessionsCallCount = 0
+ 
+     func library(query: CaseQuery) async throws -> LibraryPage {
+         recordedQueries.append(query)
+         return try libraryResult.get()
+     }
+ 
+     func caseDetail(id: Int) async throws -> CaseDetail {
+         guard let caseDetailResult else { fatalError("not exercised by these tests") }
+         return try caseDetailResult.get()
+     }
+ 
+     func recentSessions() async throws -> [SessionSummary] {
+-        try recentSessionsResult.get()
++        recentSessionsCallCount += 1
++        return try recentSessionsResult.get()
+     }
+ }
+ 
+ final class LibraryViewModelTests: XCTestCase {
+     // Builds a CaseSummary with sensible defaults; override only what a test cares about.
+     private func makeSummary(
+         id: Int,
+         title: String = "Widget Co",
+@@ -362,16 +364,114 @@ final class LibraryViewModelTests: XCTestCase {
+         await vm.load()
+ 
+         XCTAssertEqual(vm.selectedCase?.id, 1)
+ 
+         vm.selectedID = 2
+         XCTAssertEqual(vm.selectedCase?.id, 2)
+     }
+ 
++    // MARK: - Task 5: selectedCaseWithHistory (tablet 2c right pane)
++
++    func testSelectedCaseWithHistoryAttachesTitleMatchedSession() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, title: "Ski resort: revenue up, profit down", doneForYou: true),
++        ]))
++        let calendar = Calendar(identifier: .gregorian)
++        let endedAt = calendar.date(from: DateComponents(year: 2026, month: 7, day: 12))!
++        stub.recentSessionsResult = .success([
++            SessionSummary(id: 900, role: "candidate", otherUser: "T. Becker",
++                            caseTitle: "Ski resort: revenue up, profit down",
++                            scheduledAt: nil, state: "done", endedAt: endedAt, grade: 4.1),
++        ])
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        let attached = try? XCTUnwrap(vm.selectedCaseWithHistory)
++        let formatter = DateFormatter()
++        formatter.dateFormat = "MMM dd"
++        let expectedDate = formatter.string(from: endedAt)
++        XCTAssertEqual(attached?.historyLine, "\(expectedDate) · T. Becker")
++        XCTAssertEqual(attached?.historyScore, "4.1 avg")
++    }
++
++    func testSelectedCaseWithHistoryNilLineWhenNoTitleMatch() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, title: "Freight carrier: fuel costs eat the margin"),
++        ]))
++        stub.recentSessionsResult = .success([
++            SessionSummary(id: 901, role: "candidate", otherUser: "S. Park",
++                            caseTitle: "A completely different case",
++                            scheduledAt: nil, state: "done", endedAt: Date(), grade: 4.5),
++        ])
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        let attached = try? XCTUnwrap(vm.selectedCaseWithHistory)
++        XCTAssertNil(attached?.historyLine)
++        XCTAssertNil(attached?.historyScore)
++    }
++
++    func testSelectedCaseWithHistoryFollowsSelectionAcrossRows() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, title: "Case A"),
++            makeSummary(id: 2, title: "Case B"),
++        ]))
++        let calendar = Calendar(identifier: .gregorian)
++        let endedAt = calendar.date(from: DateComponents(year: 2026, month: 7, day: 8))!
++        stub.recentSessionsResult = .success([
++            SessionSummary(id: 902, role: "candidate", otherUser: "S. Park",
++                            caseTitle: "Case B",
++                            scheduledAt: nil, state: "done", endedAt: endedAt, grade: 4.5),
++        ])
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        // id 1 (default selection fallback) has no matching session.
++        XCTAssertNil(vm.selectedCaseWithHistory?.historyLine)
++
++        vm.selectedID = 2
++        XCTAssertEqual(vm.selectedCaseWithHistory?.id, 2)
++        XCTAssertNotNil(vm.selectedCaseWithHistory?.historyLine)
++        XCTAssertEqual(vm.selectedCaseWithHistory?.historyScore, "4.5 avg")
++    }
++
++    func testSelectedCaseWithHistoryNilWhenLibraryEmpty() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertNil(vm.selectedCaseWithHistory)
++    }
++
++    func testRecentSessionsFetchedOnceNotOnEveryTypeReload() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([makeSummary(id: 1)]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++        vm.type = .profitability
++        await vm.load()
++        vm.type = .marketEntry
++        await vm.load()
++
++        // Three library() reloads (one per type change) but recentSessions()
++        // only fetched on the first — didFetchSessions gates the rest.
++        XCTAssertEqual(stub.recordedQueries.count, 3)
++        XCTAssertEqual(stub.recentSessionsCallCount, 1)
++    }
++
+     // MARK: - No population-count phrasing leaks into any string
+ 
+     func testNoPopulationCountPhrasingInAnyProducedString() async {
+         let stub = StubLibraryService()
+         stub.libraryResult = .success(makePage([
+             makeSummary(id: 1, doneForYou: false),
+             makeSummary(id: 2, doneForYou: true),
+         ]))

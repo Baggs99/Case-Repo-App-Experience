@@ -26,6 +26,12 @@ struct CaseSummary: Codable, Identifiable, Equatable {
     let pageCount: Int?
     let sourceSchool: String?
     let sourceYear: Int?
+    // B3 Library aggregates (avg_rating/run_count/done_for_you). Optional so
+    // fixtures/back-compat responses without these keys still decode; nil
+    // runCount treated as 0 and nil doneForYou as false at the use site.
+    let avgRating: Double?
+    let runCount: Int?
+    let doneForYou: Bool?
 }
 
 struct CaseDetail: Codable, Identifiable, Equatable {
@@ -43,6 +49,20 @@ struct CaseDetail: Codable, Identifiable, Equatable {
     let sourceYear: Int?
     let previewUrls: [String]
     let pdfUrl: String
+    // B3 Library aggregates — see CaseSummary for the back-compat rationale.
+    let avgRating: Double?
+    let runCount: Int?
+    let doneForYou: Bool?
+}
+
+// B3 GET /api/v1/cases list response: cases + total + the open/done counts
+// over the filtered canonical set (drives the retired-done divider/count
+// line in F4's Library screen).
+struct LibraryPage: Codable, Equatable {
+    let cases: [CaseSummary]
+    let total: Int
+    let openCount: Int
+    let doneCount: Int
 }
 
 struct Proposal: Codable, Identifiable, Equatable {

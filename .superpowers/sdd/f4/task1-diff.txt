@@ -1,0 +1,422 @@
+### git log
+315b279 Add case aggregates + LibraryPage to the cases API
+
+### diff --stat
+ .superpowers/sdd/f4/task-1-report.md         |  80 +++++++++++++++++
+ ios/CaseRoom/Networking/APIClient.swift      |  16 ++++
+ ios/CaseRoom/Networking/Models.swift         |  20 +++++
+ ios/CaseRoomTests/CasesViewModelTests.swift  |   3 +-
+ ios/CaseRoomTests/IntentsTests.swift         |   9 +-
+ ios/CaseRoomTests/LibraryDecodingTests.swift | 123 +++++++++++++++++++++++++++
+ 6 files changed, 247 insertions(+), 4 deletions(-)
+
+### diff -U10
+diff --git a/.superpowers/sdd/f4/task-1-report.md b/.superpowers/sdd/f4/task-1-report.md
+new file mode 100644
+index 0000000..8bfe552
+--- /dev/null
++++ b/.superpowers/sdd/f4/task-1-report.md
+@@ -0,0 +1,80 @@
++# F4 Task 1 — Networking: case aggregates + LibraryPage
++
++**Status: DONE**
++
++## Files changed
++
++- `ios/CaseRoom/Networking/Models.swift` — added `avgRating: Double?`,
++  `runCount: Int?`, `doneForYou: Bool?` to `CaseSummary` and `CaseDetail`
++  (optional, no `CodingKeys`; `.convertFromSnakeCase` maps `avg_rating`/
++  `run_count`/`done_for_you`). Added `struct LibraryPage: Codable, Equatable`
++  (`cases`, `total`, `openCount`, `doneCount`) — decodes the
++  `/api/v1/cases` list response directly (`open_count`/`done_count` map via
++  the same snake-case strategy).
++- `ios/CaseRoom/Networking/APIClient.swift` — added
++  `func library(query: CaseQuery = CaseQuery()) async throws -> LibraryPage`,
++  GETing `/api/v1/cases` with the same query-item construction as
++  `cases(query:)` (duplicated intentionally per the plan's compile-order
++  note — `cases(query:)` stays untouched until Task 4 removes its last
++  caller). `caseDetail(id:)` unchanged; now decodes the three new optional
++  fields for free.
++- `ios/CaseRoomTests/LibraryDecodingTests.swift` (new) — 5 tests, all
++  hitting the real `APIClient.library`/`caseDetail` pipeline via the shared
++  `StubURLProtocol` (from `APIClientTests.swift`) rather than a private
++  decode mirror, per the task's "prefer testing the public models" note:
++  - `testLibraryRequestAndDecode_WithAggregates` — full aggregate JSON →
++    `page.openCount`/`doneCount` + a case's `avgRating`/`runCount`/
++    `doneForYou` populate.
++  - `testLibraryRequestAndDecode_MissingAggregateKeysStillDecodesNil` —
++    back-compat: JSON without `avg_rating`/`run_count`/`done_for_you` still
++    decodes, those three fields nil.
++  - `testLibraryRequestBuildsSameQueryItemsAsCases` — asserts `library()`
++    sends the same query items (`q`, `case_type`, `limit`) as `cases()`.
++  - `testCaseDetailRequestAndDecode_WithAggregates` — `/api/v1/cases/{id}`
++    JSON → aggregates + `previewUrls`/`pdfUrl` decode.
++  - `testCaseDetailRequestAndDecode_MissingAggregateKeysStillDecodesNil` —
++    same back-compat check for the detail endpoint.
++
++### Incidental fixes (required for compile, not scope creep)
++
++Adding non-defaulted fields to `CaseSummary`/`CaseDetail`'s memberwise init
++broke three existing test call sites that construct these structs directly.
++Updated each to pass `avgRating: nil, runCount: nil, doneForYou: nil`:
++- `ios/CaseRoomTests/CasesViewModelTests.swift` (`makeCase` helper)
++- `ios/CaseRoomTests/IntentsTests.swift` (3 call sites: a `CaseSummary`, a
++  `CaseDetail`, and a `CaseSummary` array-builder)
++
++No other `CaseSummary(`/`CaseDetail(` construction sites exist in the repo
++(confirmed via grep across `ios/`).
++
++## Build/test evidence
++
++`xcodegen generate` regenerated `CaseRoom.xcodeproj` (gitignored; `git
++status` confirms `project.yml` did not change — no commit needed for it).
++
++```
++export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
++cd /Users/thomaskgould/dev/fe-f4/ios
++xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom \
++  -destination 'platform=iOS Simulator,id=49C5BC31-F364-44C0-BFAB-2CAAAD4B23ED' test
++```
++
++Tail:
++```
++Test Suite 'CaseRoomTests.xctest' passed at 2026-07-17 13:37:11.400.
++	 Executed 318 tests, with 0 failures (0 unexpected) in 4.252 (4.342) seconds
++Test Suite 'All tests' passed at 2026-07-17 13:37:11.400.
++	 Executed 318 tests, with 0 failures (0 unexpected) in 4.252 (4.344) seconds
++** TEST SUCCEEDED **
++```
++
++313 baseline + 5 new `LibraryDecodingTests` = 318, 0 failures.
++
++## Deviations
++
++None from the task brief. `LibraryPage` was made `Codable` (not just
++`Equatable` as literally listed) so it can be the direct decode target for
++`send(path:method:queryItems:)` — the field names (`cases`, `total`,
++`open_count`→`openCount`, `done_count`→`doneCount`) match the endpoint
++exactly, so no private response mirror was needed, matching the task's
++preferred approach.
+diff --git a/ios/CaseRoom/Networking/APIClient.swift b/ios/CaseRoom/Networking/APIClient.swift
+index bd02090..83dcae3 100644
+--- a/ios/CaseRoom/Networking/APIClient.swift
++++ b/ios/CaseRoom/Networking/APIClient.swift
+@@ -179,20 +179,36 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
+         let response: CasesResponse = try await send(
+             path: "/api/v1/cases", method: "GET", queryItems: items
+         )
+         return response.cases
+     }
+ 
+     func caseDetail(id: Int) async throws -> CaseDetail {
+         try await send(path: "/api/v1/cases/\(id)", method: "GET")
+     }
+ 
++    // F4 Library screen (Task 1): same /api/v1/cases endpoint as cases(query:)
++    // above, but decodes the full page shape (open_count/done_count) that
++    // drives the retired-done divider + count line. cases(query:) is left
++    // untouched — CasesViewModel/CaseDetailView still use it until Task 4
++    // migrates them onto LibraryService, per the plan's compile-order note.
++    func library(query: CaseQuery = CaseQuery()) async throws -> LibraryPage {
++        var items: [URLQueryItem] = []
++        if let q = query.q { items.append(URLQueryItem(name: "q", value: q)) }
++        if let difficulty = query.difficulty { items.append(URLQueryItem(name: "difficulty", value: difficulty)) }
++        if let industry = query.industry { items.append(URLQueryItem(name: "industry", value: industry)) }
++        if let caseType = query.caseType { items.append(URLQueryItem(name: "case_type", value: caseType)) }
++        if let school = query.school { items.append(URLQueryItem(name: "school", value: school)) }
++        if let limit = query.limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
++        return try await send(path: "/api/v1/cases", method: "GET", queryItems: items)
++    }
++
+     // Preview/PDF URLs from the API may be relative same-origin paths;
+     // resolve them against baseURL so AsyncImage/ShareLink get absolute URLs.
+     nonisolated func resolveURL(_ path: String) -> URL? {
+         URL(string: path, relativeTo: baseURL)?.absoluteURL
+     }
+ 
+     // MARK: - Proposals
+ 
+     func proposals() async throws -> [Proposal] {
+         struct ProposalsResponse: Decodable { let proposals: [Proposal] }
+diff --git a/ios/CaseRoom/Networking/Models.swift b/ios/CaseRoom/Networking/Models.swift
+index 0467af0..30dc7d0 100644
+--- a/ios/CaseRoom/Networking/Models.swift
++++ b/ios/CaseRoom/Networking/Models.swift
+@@ -19,37 +19,57 @@ struct CaseSummary: Codable, Identifiable, Equatable {
+     let caseType: String?
+     let difficulty: String?
+     let difficultyScore: Double?
+     let firm: String?
+     let industry: String?
+     let industryDisplay: String?
+     let industryRaw: String?
+     let pageCount: Int?
+     let sourceSchool: String?
+     let sourceYear: Int?
++    // B3 Library aggregates (avg_rating/run_count/done_for_you). Optional so
++    // fixtures/back-compat responses without these keys still decode; nil
++    // runCount treated as 0 and nil doneForYou as false at the use site.
++    let avgRating: Double?
++    let runCount: Int?
++    let doneForYou: Bool?
+ }
+ 
+ struct CaseDetail: Codable, Identifiable, Equatable {
+     let id: Int
+     let caseTitle: String
+     let caseType: String?
+     let difficulty: String?
+     let difficultyScore: Double?
+     let firm: String?
+     let industry: String?
+     let industryDisplay: String?
+     let industryRaw: String?
+     let pageCount: Int?
+     let sourceSchool: String?
+     let sourceYear: Int?
+     let previewUrls: [String]
+     let pdfUrl: String
++    // B3 Library aggregates — see CaseSummary for the back-compat rationale.
++    let avgRating: Double?
++    let runCount: Int?
++    let doneForYou: Bool?
++}
++
++// B3 GET /api/v1/cases list response: cases + total + the open/done counts
++// over the filtered canonical set (drives the retired-done divider/count
++// line in F4's Library screen).
++struct LibraryPage: Codable, Equatable {
++    let cases: [CaseSummary]
++    let total: Int
++    let openCount: Int
++    let doneCount: Int
+ }
+ 
+ struct Proposal: Codable, Identifiable, Equatable {
+     let id: Int
+     let fromName: String
+     let fromRole: String
+     let caseId: Int
+     let caseTitle: String
+     let caseType: String?
+     let difficulty: String?
+diff --git a/ios/CaseRoomTests/CasesViewModelTests.swift b/ios/CaseRoomTests/CasesViewModelTests.swift
+index c1cf07d..fde54d2 100644
+--- a/ios/CaseRoomTests/CasesViewModelTests.swift
++++ b/ios/CaseRoomTests/CasesViewModelTests.swift
+@@ -21,21 +21,22 @@ final class StubCasesService: CasesService {
+     func caseDetail(id: Int) async throws -> CaseDetail {
+         fatalError("not exercised by these tests")
+     }
+ }
+ 
+ final class CasesViewModelTests: XCTestCase {
+     private func makeCase(id: Int, title: String) -> CaseSummary {
+         CaseSummary(
+             id: id, caseTitle: title, caseType: nil, difficulty: "Medium",
+             difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
+-            industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil
++            industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil,
++            avgRating: nil, runCount: nil, doneForYou: nil
+         )
+     }
+ 
+     func testLoadWithQueryTextCallsServiceAndPopulatesResults() async {
+         let stub = StubCasesService()
+         let expected = [makeCase(id: 1, title: "Widget Co Market Sizing")]
+         stub.casesResult = .success(expected)
+         let viewModel = CasesViewModel(service: stub)
+         viewModel.query = "market"
+ 
+diff --git a/ios/CaseRoomTests/IntentsTests.swift b/ios/CaseRoomTests/IntentsTests.swift
+index b9b1395..7130029 100644
+--- a/ios/CaseRoomTests/IntentsTests.swift
++++ b/ios/CaseRoomTests/IntentsTests.swift
+@@ -106,21 +106,22 @@ final class IntentsTests: XCTestCase {
+         XCTAssertEqual(ToggleFreeNowIntent.nextAction(current: status), .goFree)
+     }
+ 
+     // MARK: - CaseEntity mapping
+ 
+     func testCaseEntityFromSummary() {
+         let summary = CaseSummary(
+             id: 42, caseTitle: "Widget Co Profitability", caseType: "profitability",
+             difficulty: "medium", difficultyScore: 0.5, firm: nil, industry: nil,
+             industryDisplay: nil, industryRaw: nil, pageCount: 12,
+-            sourceSchool: "HBS", sourceYear: 2024
++            sourceSchool: "HBS", sourceYear: 2024,
++            avgRating: nil, runCount: nil, doneForYou: nil
+         )
+         let entity = CaseEntity(from: summary)
+         XCTAssertEqual(entity.id, 42)
+         XCTAssertEqual(entity.title, "Widget Co Profitability")
+         XCTAssertEqual(entity.school, "HBS")
+         XCTAssertEqual(entity.difficulty, "medium")
+     }
+ 
+     func testSessionEntityFromSummary() {
+         let summary = SessionSummary(
+@@ -182,30 +183,32 @@ final class IntentsTests: XCTestCase {
+ // MARK: - Test doubles
+ 
+ private enum TestCatalogError: Error { case boom }
+ 
+ private struct FakeCatalog: EntityCatalog {
+     func caseDetail(id: Int) async throws -> CaseDetail {
+         CaseDetail(
+             id: id, caseTitle: "Detail Co", caseType: nil, difficulty: "hard",
+             difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
+             industryRaw: nil, pageCount: nil, sourceSchool: "Wharton", sourceYear: nil,
+-            previewUrls: [], pdfUrl: "/x.pdf"
++            previewUrls: [], pdfUrl: "/x.pdf",
++            avgRating: nil, runCount: nil, doneForYou: nil
+         )
+     }
+ 
+     func cases() async throws -> [CaseSummary] {
+         (0..<7).map { i in
+             CaseSummary(
+                 id: i, caseTitle: "Case \(i)", caseType: nil, difficulty: nil,
+                 difficultyScore: nil, firm: nil, industry: nil, industryDisplay: nil,
+-                industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil
++                industryRaw: nil, pageCount: nil, sourceSchool: nil, sourceYear: nil,
++                avgRating: nil, runCount: nil, doneForYou: nil
+             )
+         }
+     }
+ 
+     func sessions() async throws -> [SessionSummary] {
+         (0..<7).map { i in
+             SessionSummary(
+                 id: i, role: "candidate", otherUser: "U\(i)", caseTitle: "S\(i)",
+                 scheduledAt: nil, state: nil, endedAt: nil, grade: nil
+             )
+diff --git a/ios/CaseRoomTests/LibraryDecodingTests.swift b/ios/CaseRoomTests/LibraryDecodingTests.swift
+new file mode 100644
+index 0000000..a56e4c4
+--- /dev/null
++++ b/ios/CaseRoomTests/LibraryDecodingTests.swift
+@@ -0,0 +1,123 @@
++/*
++ * Purpose: Unit tests for F4 Task 1 — case aggregates (avg_rating/run_count/
++ *          done_for_you) + LibraryPage decoding on the /api/v1/cases* API,
++ *          per the B3 contract (docs/superpowers/sdd/bgap-b3-report.md).
++ * Inputs: canned JSON strings, stubbed via StubURLProtocol (shared with
++ *         APIClientTests.swift) so the real APIClient.library/caseDetail
++ *         request+decode pipeline is exercised, not a private mirror.
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++final class LibraryDecodingTests: XCTestCase {
++    private var client: APIClient!
++
++    override func setUp() {
++        super.setUp()
++        StubURLProtocol.reset()
++        let session = URLSession(configuration: StubURLProtocol.sessionConfiguration)
++        client = APIClient(session: session)
++    }
++
++    private func stubJSON(_ json: String, status: Int = 200) {
++        StubURLProtocol.stubs.append(
++            .init(statusCode: status, data: Data(json.utf8), headers: ["Content-Type": "application/json"])
++        )
++    }
++
++    // MARK: - library(query:) — with aggregates
++
++    func testLibraryRequestAndDecode_WithAggregates() async throws {
++        stubJSON(#"""
++        {"cases": [{"id": 5, "case_title": "Widget Co", "case_type": "Profitability",
++          "difficulty": "Medium", "difficulty_score": 5.5, "firm": "Widget Co",
++          "industry": "Technology", "industry_display": "Tech", "industry_raw": "tech",
++          "page_count": 10, "source_school": "Yale", "source_year": 2024,
++          "avg_rating": 4.2, "run_count": 12, "done_for_you": true}],
++         "total": 1, "open_count": 3, "done_count": 2}
++        """#)
++
++        let page = try await client.library(query: CaseQuery())
++
++        XCTAssertEqual(page.total, 1)
++        XCTAssertEqual(page.openCount, 3)
++        XCTAssertEqual(page.doneCount, 2)
++        XCTAssertEqual(page.cases.count, 1)
++        XCTAssertEqual(page.cases[0].avgRating, 4.2)
++        XCTAssertEqual(page.cases[0].runCount, 12)
++        XCTAssertEqual(page.cases[0].doneForYou, true)
++    }
++
++    // MARK: - library(query:) — back-compat, aggregate keys missing
++
++    func testLibraryRequestAndDecode_MissingAggregateKeysStillDecodesNil() async throws {
++        stubJSON(#"""
++        {"cases": [{"id": 6, "case_title": "Beta Corp"}],
++         "total": 1, "open_count": 1, "done_count": 0}
++        """#)
++
++        let page = try await client.library(query: CaseQuery())
++
++        XCTAssertEqual(page.openCount, 1)
++        XCTAssertEqual(page.doneCount, 0)
++        XCTAssertEqual(page.cases.count, 1)
++        XCTAssertNil(page.cases[0].avgRating)
++        XCTAssertNil(page.cases[0].runCount)
++        XCTAssertNil(page.cases[0].doneForYou)
++    }
++
++    // MARK: - library(query:) — query items match cases(query:)
++
++    func testLibraryRequestBuildsSameQueryItemsAsCases() async throws {
++        stubJSON(#"{"cases": [], "total": 0, "open_count": 0, "done_count": 0}"#)
++
++        _ = try await client.library(query: CaseQuery(q: "market", caseType: "Sizing", limit: 200))
++
++        let request = StubURLProtocol.recordedRequests.first!
++        XCTAssertEqual(request.url?.path, "/api/v1/cases")
++        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
++        XCTAssertTrue(query.contains(URLQueryItem(name: "q", value: "market")))
++        XCTAssertTrue(query.contains(URLQueryItem(name: "case_type", value: "Sizing")))
++        XCTAssertTrue(query.contains(URLQueryItem(name: "limit", value: "200")))
++    }
++
++    // MARK: - caseDetail(id:) — aggregates + previewUrls/pdfUrl
++
++    func testCaseDetailRequestAndDecode_WithAggregates() async throws {
++        stubJSON(#"""
++        {"id": 7, "case_title": "Gamma LLC", "case_type": "M&A", "difficulty": "Hard",
++         "difficulty_score": 7.0, "firm": "Gamma LLC", "industry": "Finance",
++         "industry_display": "Finance", "industry_raw": "finance", "page_count": 15,
++         "source_school": "Harvard", "source_year": 2023,
++         "preview_urls": ["/files/cases/7/preview/1", "/files/cases/7/preview/2"],
++         "pdf_url": "/files/cases/7/pdf",
++         "avg_rating": 3.8, "run_count": 5, "done_for_you": false}
++        """#)
++
++        let detail = try await client.caseDetail(id: 7)
++
++        XCTAssertEqual(detail.id, 7)
++        XCTAssertEqual(detail.avgRating, 3.8)
++        XCTAssertEqual(detail.runCount, 5)
++        XCTAssertEqual(detail.doneForYou, false)
++        XCTAssertEqual(detail.previewUrls, ["/files/cases/7/preview/1", "/files/cases/7/preview/2"])
++        XCTAssertEqual(detail.pdfUrl, "/files/cases/7/pdf")
++    }
++
++    // MARK: - caseDetail(id:) — back-compat, aggregate keys missing
++
++    func testCaseDetailRequestAndDecode_MissingAggregateKeysStillDecodesNil() async throws {
++        stubJSON(#"""
++        {"id": 8, "case_title": "Delta Inc", "preview_urls": [], "pdf_url": "/files/cases/8/pdf"}
++        """#)
++
++        let detail = try await client.caseDetail(id: 8)
++
++        XCTAssertNil(detail.avgRating)
++        XCTAssertNil(detail.runCount)
++        XCTAssertNil(detail.doneForYou)
++    }
++}
