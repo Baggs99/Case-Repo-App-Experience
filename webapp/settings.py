@@ -42,6 +42,9 @@ class Settings:
     turn_provider: str
     turn_key_id: str | None
     turn_token: str | None
+    #: Spec A3 expiry windows (tunable server-side). Minutes.
+    proposal_now_expiry_min: int
+    session_missed_after_min: int
 
     def is_admin(self, email: str | None) -> bool:
         """True iff `email` is in the admin allowlist (case-insensitive)."""
@@ -100,4 +103,6 @@ def load_settings() -> Settings:
         turn_provider     = os.environ.get("TURN_PROVIDER", "cloudflare"),
         turn_key_id       = os.environ.get("TURN_KEY_ID") or None,
         turn_token        = os.environ.get("TURN_TOKEN") or None,
+        proposal_now_expiry_min = int(os.environ.get("PROPOSAL_NOW_EXPIRY_MIN", "120")),
+        session_missed_after_min = int(os.environ.get("SESSION_MISSED_AFTER_MIN", "60")),
     )
