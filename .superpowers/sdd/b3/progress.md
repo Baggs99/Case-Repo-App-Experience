@@ -35,4 +35,7 @@ Baseline: 545 passed, 0 failures (finish line = 545 + N new tests)
 - T8 debrief seeding (finalize + push)
 - T9 case rating aggregates on Library payloads
 
-Status: plan written, self-reviewed, hardened test cleanup for NO-ACTION FKs (_purge_session). Pending Opus plan-review.
+Status: plan written + self-reviewed + Opus plan-review (CHANGES-REQUESTED, 0 Critical / 2 Important) — both fixed (gate-error test assertion; claim-route ICS guard for negotiating), minors folded (dead code, gate-before-burned placement, expanded accept tail). Commit 2a55674. Executing tasks.
+
+## Task ledger (per subagent-driven-development)
+- Task 1: complete (2a55674..e2551fe, review CLEAN) — migrations 028/029 applied+idempotent, 4 tests green.
