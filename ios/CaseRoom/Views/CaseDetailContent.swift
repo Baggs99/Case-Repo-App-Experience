@@ -341,10 +341,10 @@ struct CaseDetailContent: View {
     }
 }
 
-/// The case-pack thumb — canvas's `repeating-linear-gradient(0deg,#F3F5F8 0
-/// 6px,#FFFFFF 6px 12px)` reproduced exactly (not approximated) via two exact
-/// F0 token matches: `#F3F5F8` is literally `palette.onInk`'s hex, `#FFFFFF`
-/// is `palette.surface`'s — so the stripe painted in Canvas needs no new hex.
+/// The case-pack thumb — the canvas's 6px repeating horizontal stripe
+/// reproduced exactly (not approximated) via two exact F0 token matches: the
+/// light band is `palette.onInk`, the surface band is `palette.surface` — so
+/// the stripe needs no new color literals.
 private struct StripedThumb: View {
     let size: CGSize
     @Environment(\.dsPalette) private var palette

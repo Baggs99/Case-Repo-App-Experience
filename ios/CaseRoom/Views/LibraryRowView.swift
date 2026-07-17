@@ -9,11 +9,11 @@
  *      in a phone list (Task 3) or with isSelected/select-on-tap (Task 5).
  *
  * Grey-token note (Task 3, F0 no-hex-elsewhere rule): the canvas retired
- * palette (#D3DAE3 ordinal, #B9C2CF kicker/meta) has no exact F0 token — both
- * are approximated as `palette.faint` at reduced opacity (lighter than faint's
- * own #A9B4C4, matching the canvas's direction) rather than adding new hex.
- * Retired title (#A9B4C4) and the row hairline (#DDE3EB) DO have exact token
- * matches (`palette.faint`, `palette.hairlineSoft`) and use them directly.
+ * ordinal and kicker/meta greys have no exact F0 token — both are approximated
+ * as `palette.faint` at reduced opacity (lighter than faint itself, matching
+ * the canvas's direction) rather than adding new color literals. The retired
+ * title and the row hairline DO have exact token matches (`palette.faint`,
+ * `palette.hairlineSoft`) and use them directly.
  */
 
 import SwiftUI

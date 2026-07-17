@@ -27,14 +27,17 @@ struct LibraryMasterDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
                 .padding(.trailing, 28)
                 .overlay(alignment: .trailing) {
-                    // Canvas 2c: `border-right:1px solid #C9D2DF` on the left
-                    // column — palette.hairline is the exact F0 token match.
+                    // Canvas 2c: a 1px right border on the left column —
+                    // palette.hairline is the exact F0 token match.
                     Rectangle().fill(palette.hairline).frame(width: 1)
                 }
 
+            // Canvas 2c: right track is 470px with its own 28px left padding
+            // (content 442). Pad INSIDE the fixed width so the track — and the
+            // divider — sit where the canvas puts them (Task 5 review A1).
             detailColumn
-                .frame(width: 470, alignment: .top)
                 .padding(.leading, 28)
+                .frame(width: 470, alignment: .top)
         }
         .padding(.horizontal, 28)
         .padding(.top, 18)

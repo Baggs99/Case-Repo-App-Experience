@@ -94,3 +94,6 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
   backend 655 (unchanged, iOS-only phase).
 - All 4 screenshots captured: task3-phone-list, task4-phone-detail-open, task4-phone-detail-done,
   task5-tablet. TEST GATE SATISFIED.
+- Task 5 REVIEW: APPROVE (A canvas + B quality). 4 Minors: A1 detail pane 28pt wide (frame-then-pad)
+  → fix; A2 initial load no left-highlight (canvas-faithful) → optional seed; A3 row sizes inherited
+  from phone component (out of scope); B1 redundant init (harmless). Portrait shot accepted (F0/F1).
