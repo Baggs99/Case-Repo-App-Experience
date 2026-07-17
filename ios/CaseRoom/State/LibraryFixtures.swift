@@ -101,7 +101,11 @@ enum LibraryFixtures {
     private static func date(_ yyyyMMdd: String) -> Date {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(identifier: "UTC")
+        // Local midnight (not UTC): the history line renders the date in the
+        // viewer's timezone, so a UTC-midnight instant would show the prior day
+        // on a negative-offset machine (e.g. Thomas's US Mac). Local midnight
+        // renders as the intended calendar date on any host.
+        formatter.timeZone = .current
         return formatter.date(from: yyyyMMdd) ?? Date()
     }
 }

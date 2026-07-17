@@ -264,16 +264,20 @@ struct CaseDetailContent: View {
     // Tablet drops the "— interviewer side" suffix (plan item 12).
     private var casePackSub: String { LibraryDetailCopy.casePackSub(layout: layout) }
 
+    // Canvas 5a always renders the "Preview" affordance in the pack row; wrap it
+    // in a ShareLink only when a pdf URL resolves, otherwise show the plain label
+    // (a case may lack a pdf_url) rather than dropping it entirely.
     @ViewBuilder
     private var previewButton: some View {
+        let label = Text("Preview")
+            .font(.archivo(12, weight: 600))
+            .foregroundStyle(palette.ink)
+            .underline(true, pattern: .solid)
         if let pdfURL {
-            ShareLink(item: pdfURL) {
-                Text("Preview")
-                    .font(.archivo(12, weight: 600))
-                    .foregroundStyle(palette.ink)
-                    .underline(true, pattern: .solid)
-            }
-            .buttonStyle(.plain)
+            ShareLink(item: pdfURL) { label }
+                .buttonStyle(.plain)
+        } else {
+            label
         }
     }
 

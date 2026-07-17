@@ -74,7 +74,11 @@ final class CaseDetailContentTests: XCTestCase {
     private func utcDate(_ yyyyMMdd: String) -> Date {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(identifier: "UTC")
+        // Local timezone (matches the product's history formatter): building the
+        // date at LOCAL midnight and formatting it in the LOCAL zone yields the
+        // same calendar date on any host, so the "Jul 16" assertions are
+        // deterministic off-UTC (e.g. a US Mac) rather than rolling back a day.
+        formatter.timeZone = .current
         return formatter.date(from: yyyyMMdd)!
     }
 
