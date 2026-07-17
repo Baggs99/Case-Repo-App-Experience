@@ -47,8 +47,7 @@ _load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 from webapp.auth.dependencies import RedirectToLogin
 from webapp.db import close_pool, init_pool
 from webapp.middleware import SessionMiddleware
-from webapp.push.events import push_enabled
-from webapp.push.starting_soon import starting_soon_loop
+from webapp.maintenance import maintenance_loop
 from webapp.routes import admin as admin_routes
 from webapp.routes import api_v1 as api_v1_routes
 from webapp.routes import auth as auth_routes
@@ -83,21 +82,18 @@ async def lifespan(app: FastAPI):
 
     app.state.templates = Jinja2Templates(directory=settings.templates_dir)
 
-    # Single-worker constraint: with multiple workers each would run its own
-    # loop (wasteful, though still correct — the UPDATE...RETURNING claim in
-    # notify_starting_soon() is atomic, so no session is ever double-pushed).
-    starting_soon_task = None
-    if push_enabled(settings):
-        starting_soon_task = asyncio.create_task(starting_soon_loop())
+    # DD-3: the maintenance loop (sweeps + starting-soon push) runs even when
+    # APNs is unconfigured — sweeps must fire for app-only clients. push inside
+    # notify_starting_soon() self-guards when push is disabled.
+    maintenance_task = asyncio.create_task(maintenance_loop())
 
     yield
 
-    if starting_soon_task is not None:
-        starting_soon_task.cancel()
-        try:
-            await starting_soon_task
-        except asyncio.CancelledError:
-            pass
+    maintenance_task.cancel()
+    try:
+        await maintenance_task
+    except asyncio.CancelledError:
+        pass
 
     close_pool()
 

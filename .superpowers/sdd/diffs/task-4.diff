@@ -1,0 +1,285 @@
+=== diff --stat ===
+ tests/test_b1_proposals_open.py  | 104 +++++++++++++++++++++++++++++++++++++++
+ webapp/repositories/proposals.py |  76 ++++++++++++++++++++++++++++
+ webapp/routes/proposals.py       |  21 ++++++++
+ 3 files changed, 201 insertions(+)
+
+=== full diff ===
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 3300a8d..4f65ebb 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -81,14 +81,118 @@ class TestOpenProposals(unittest.TestCase):
+ 
+     def test_named_recipient_has_no_claim_token(self):
+         r = self._open_link(to_user_id=self.bid)
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertIsNone(r.json()["claim_token"])
+         self.assertEqual(r.json()["to_user_id"], self.bid)
+ 
+     def test_bad_case_still_404(self):
+         r = self._open_link(case_id=999999)
+         self.assertEqual(r.status_code, 404)
+ 
+ 
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestClaim(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Claim Case', 'b1 claim case',"
++                    " 'DevSchool', 2093, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s OR "
++                            "(case_id IS NULL AND from_user_id = %s);", (cls.case_id, cls.aid))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _mk_open(self, client, **overrides):
++        payload = {"case_id": self.case_id, "from_role": "interviewer"}
++        payload.update(overrides)
++        return client.post("/api/proposals", json=payload).json()["claim_token"]
++
++    def test_creator_cannot_claim(self):
++        tok = self._mk_open(self.alice)
++        self.assertEqual(self.alice.post(f"/api/proposals/claim/{tok}").status_code, 409)
++
++    def test_unknown_token_404(self):
++        self.assertEqual(self.bob.post("/api/proposals/claim/nope-nope").status_code, 404)
++
++    def test_requires_auth(self):
++        tok = self._mk_open(self.alice)
++        anon = self.__class__._ctx.__class__  # unused; explicit anon client below
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 401)
++
++    def test_claim_now_with_case_auto_accepts_and_creates_session(self):
++        tok = self._mk_open(self.alice)  # no proposed_times -> "now"
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertTrue(body["accepted"])
++        self.assertIsNotNone(body["session_id"])
++        self.assertFalse(body["needs_negotiation"])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT interviewer_id, candidate_id FROM practice_sessions"
++                            " WHERE id = %s;", (body["session_id"],))
++                ivr, cand = cur.fetchone()
++        self.assertEqual((ivr, cand), (self.aid, self.bid))  # from_role=interviewer
++
++    def test_claim_scheduled_stays_pending(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        tok = self._mk_open(self.alice, proposed_times=[when])
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertEqual(r.json()["state"], "pending")
++        self.assertIsNone(r.json()["session_id"])
++        # to_user_id now bound to the claimer -> shows in Bob's inbox.
++        inbox = self.bob.get("/api/proposals/inbox").json()["proposals"]
++        self.assertIn(r.json()["proposal_id"], [p["id"] for p in inbox])
++
++    def test_claim_case_less_now_needs_negotiation(self):
++        tok = self._mk_open(self.alice, case_id=None)
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["accepted"])
++        self.assertIsNone(r.json()["session_id"])
++        self.assertTrue(r.json()["needs_negotiation"])
++
++    def test_double_claim_409(self):
++        tok = self._mk_open(self.alice)
++        self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
++        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index bedd049..1cfc91d 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -32,24 +32,100 @@ EXPIRY_DAYS = 7
+ _COLS = """
+     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
+     p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at,
+     p.claim_token, p.counter_times_json, p.counter_by, p.countered_at
+ """
+ 
+ 
+ def candidate_of(from_user_id: int, to_user_id: int, from_role: str) -> int:
+     """Who would sit as candidate if this proposal became a session."""
+     return to_user_id if from_role == "interviewer" else from_user_id
+ 
+ 
++def _resolve_roles(prop: dict) -> tuple[int, int]:
++    """(interviewer_id, candidate_id) for a proposal, per from_role."""
++    if prop["from_role"] == "interviewer":
++        return prop["from_user_id"], prop["to_user_id"]
++    return prop["to_user_id"], prop["from_user_id"]
++
++
++def _create_session_within(cur, prop: dict, scheduled_at) -> int:
++    """Create the practice session for an accepted proposal, using the caller's
++    already-locked cursor for the INSERT. Room/template lookups open their own
++    idempotent connections (existing repo convention). Requires prop['case_id']
++    not None (case-less proposals never reach here — see claim_proposal/respond).
++    """
++    interviewer_id, candidate_id = _resolve_roles(prop)
++    if is_burned(candidate_id, prop["case_id"]):
++        raise TransitionError(409, "This case is burned for the would-be candidate")
++    room = get_or_create_room(interviewer_id)
++    template_id = get_default_rubric_template_id(prop["case_id"], interviewer_id)
++    cur.execute(
++        "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++        " case_id, rubric_template_id, scheduled_at)"
++        " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
++        (room["id"], interviewer_id, candidate_id, prop["case_id"],
++         template_id, scheduled_at),
++    )
++    return cur.fetchone()["id"]
++
++
++def claim_proposal(token: str, user_id: int) -> dict:
++    """Claim an open ('send a link') proposal. The claimer becomes to_user_id.
++    Scheduled proposals stay 'pending' (claimer now responds); "now" proposals
++    (no proposed_times) auto-accept — creating a session when a case is set, or
++    marking accepted with needs_negotiation when the case is "interviewer
++    decides" (B3 wires the negotiating session). Any authed non-creator may
++    claim; B2 overrides the route's auth dependency for guests.
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(f"SELECT {_COLS} FROM proposals p"
++                        " WHERE p.claim_token = %s FOR UPDATE;", (token,))
++            prop = cur.fetchone()
++            if prop is None:
++                raise TransitionError(404, "No such claim link")
++            if prop["state"] != "pending":
++                raise TransitionError(409, f"Proposal is already {prop['state']}")
++            if prop["to_user_id"] is not None:
++                raise TransitionError(409, "This link has already been claimed")
++            if user_id == prop["from_user_id"]:
++                raise TransitionError(409, "You can't claim your own link")
++
++            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
++                        (user_id, prop["id"]))
++            prop["to_user_id"] = user_id
++
++            result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
++            if prop["proposed_times_json"]:
++                # Scheduled: claimer is now the recipient; awaits accept/counter.
++                result.update(state="pending", session_id=None,
++                              accepted=False, needs_negotiation=False)
++                return result
++
++            if prop["case_id"] is None:
++                cur.execute("UPDATE proposals SET state = 'accepted',"
++                            " responded_at = NOW() WHERE id = %s;", (prop["id"],))
++                result.update(state="accepted", session_id=None,
++                              accepted=True, needs_negotiation=True)
++                return result
++
++            session_id = _create_session_within(cur, prop, None)
++            cur.execute("UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
++                        " session_id = %s WHERE id = %s;", (session_id, prop["id"]))
++            result.update(state="accepted", session_id=session_id,
++                          accepted=True, needs_negotiation=False)
++            return result
++
++
+ def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
+                     case_id: Optional[int], from_role: str,
+                     message: Optional[str],
+                     proposed_times: list[datetime]) -> dict:
+     if to_user_id is not None and from_user_id == to_user_id:
+         raise TransitionError(400, "You can't propose to yourself")
+     if len(proposed_times) > MAX_PROPOSED_TIMES:
+         raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} proposed times")
+     # Burned only checkable when both case and candidate are known up front;
+     # open-link / case-less proposals defer the check to claim/accept.
+     if case_id is not None and to_user_id is not None:
+         if is_burned(candidate_of(from_user_id, to_user_id, from_role), case_id):
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index 85672c8..80c5e7e 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -95,24 +95,45 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+     _send_invites(request, prop["session_id"])
+     background.add_task(
+         push_to_user, prop["from_user_id"],
+         title="Proposal accepted",
+         body="Your case session proposal was accepted",
+         data={"kind": "accepted", "session_id": prop["session_id"]},
+     )
+     return {"accepted": True, "session_id": prop["session_id"],
+             "session_url": f"/session/{prop['session_id']}",
+             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
+ 
+ 
++@router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
++def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
++                   user: User = Depends(require_auth_api)):
++    """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
++    the creator; guests arrive in B2 by overriding require_auth_api."""
++    try:
++        result = repo.claim_proposal(claim_token, user.id)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++
++    if result["session_id"] is not None:
++        _send_invites(request, result["session_id"])
++        background.add_task(
++            push_to_user, result["from_user_id"],
++            title="Your invite was claimed",
++            body="Someone claimed your session link",
++            data={"kind": "accepted", "session_id": result["session_id"]},
++        )
++    return result
++
++
+ @router.post("/api/proposals/{proposal_id}/decline", dependencies=_MUTATING)
+ def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
+     try:
+         repo.respond(proposal_id, user.id, accept=False, scheduled_at=None)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"declined": True}
+ 
+ 
+ @router.get("/ics/session-{session_id}.ics")
+ def session_ics(session_id: int, request: Request,
+                 user: User = Depends(require_auth_api)):

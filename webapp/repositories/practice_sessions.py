@@ -283,3 +283,23 @@ def sweep_stale_sessions() -> int:
                 "            < NOW() - INTERVAL '6 hours');"
             )
             return cur.rowcount
+
+
+def sweep_missed(missed_after_min: int = 60) -> int:
+    """A3: an accepted session never joined (still 'scheduled'/'lobby')
+    missed_after_min past its scheduled start becomes 'missed' — distinct from
+    the 6-h 'aborted' backstop (sweep_stale_sessions). Only scheduled sessions
+    (scheduled_at set) qualify; unscheduled "now" sessions fall to the backstop.
+    Run this BEFORE sweep_stale_sessions so a past-start scheduled session is
+    marked 'missed', not 'aborted'. Returns rows swept."""
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE practice_sessions"
+                " SET state = 'missed', ended_at = NOW(), state_changed_at = NOW()"
+                " WHERE state IN ('scheduled', 'lobby')"
+                "   AND scheduled_at IS NOT NULL"
+                "   AND scheduled_at < NOW() - make_interval(mins => %s);",
+                (missed_after_min,),
+            )
+            return cur.rowcount

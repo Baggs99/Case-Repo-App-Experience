@@ -315,13 +315,14 @@ def _recent_session_json(row: dict) -> dict:
 
 @router.get("/proposals")
 def list_proposals(user: User = Depends(require_auth_api)):
-    proposals_repo.sweep_expired()  # T8.3: page loads stand in for cron
-    rows = proposals_repo.inbox(user.id)
-    # Curated subset of the inbox row — to_user_id/session_id/responded_at/
-    # state are internal bookkeeping the iOS inbox view has no use for.
+    # Sweeps run on the 60-s loop now (B1); a page-load sweep here is redundant
+    # but harmless for web-first callers, so we drop it.
+    rows = proposals_repo.list_for_api(user.id)
     proposals = [
         {
             "id": row["id"],
+            "direction": row["direction"],
+            "state": row["state"],
             "from_name": row["from_name"],
             "from_role": row["from_role"],
             "case_id": row["case_id"],
@@ -330,6 +331,10 @@ def list_proposals(user: User = Depends(require_auth_api)):
             "difficulty": row["difficulty"],
             "message": row["message"],
             "proposed_times": row["proposed_times_json"],
+            "claim_token": row["claim_token"],
+            "counter_times": row["counter_times_json"],
+            "counter_by": row["counter_by"],
+            "countered_at": row["countered_at"],
             "created_at": row["created_at"],
         }
         for row in rows

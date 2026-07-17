@@ -36,8 +36,8 @@ _MUTATING = [Depends(require_same_origin)]
 
 
 class ProposalBody(BaseModel):
-    to_user_id: int
-    case_id: int
+    to_user_id: Optional[int] = None
+    case_id: Optional[int] = None
     from_role: str = Field(pattern="^(interviewer|candidate)$")
     message: Optional[str] = Field(default=None, max_length=500)
     proposed_times: list[datetime] = Field(default_factory=list,
@@ -46,12 +46,17 @@ class ProposalBody(BaseModel):
 
 class RespondBody(BaseModel):
     scheduled_at: Optional[datetime] = None
+    time: Optional[datetime] = None  # chosen counter time (counter-accept)
+
+
+class CounterBody(BaseModel):
+    times: list[datetime] = Field(min_length=1, max_length=repo.MAX_PROPOSED_TIMES)
 
 
 @router.post("/api/proposals", dependencies=_MUTATING)
 def create_proposal(body: ProposalBody, background: BackgroundTasks,
                     user: User = Depends(require_auth_api)):
-    if get_case_by_id(body.case_id) is None:
+    if body.case_id is not None and get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
     try:
         proposal = repo.create_proposal(
@@ -62,13 +67,16 @@ def create_proposal(body: ProposalBody, background: BackgroundTasks,
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
-    sender_name = user.email.split("@")[0]
-    background.add_task(
-        push_to_user, body.to_user_id,
-        title="New session proposal",
-        body=f"{sender_name} proposed a case session",
-        data={"kind": "proposal", "proposal_id": proposal["id"]},
-    )
+    # Named-recipient proposals notify the recipient; open links have no
+    # recipient yet (notified when someone claims, Task 4).
+    if body.to_user_id is not None:
+        sender_name = user.email.split("@")[0]
+        background.add_task(
+            push_to_user, body.to_user_id,
+            title="New session proposal",
+            body=f"{sender_name} proposed a case session",
+            data={"kind": "proposal", "proposal_id": proposal["id"]},
+        )
     return proposal
 
 
@@ -82,16 +90,30 @@ def proposal_inbox(user: User = Depends(require_auth_api)):
 def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
                     background: BackgroundTasks,
                     user: User = Depends(require_auth_api)):
-    repo.sweep_expired()  # an 8-day-old proposal must expire, not accept
+    repo.sweep_expired()  # A3: an over-window proposal (now-ping >2h, or past its earliest start) must expire, not accept
     try:
         prop = repo.respond(proposal_id, user.id, accept=True,
-                            scheduled_at=body.scheduled_at)
+                            scheduled_at=body.scheduled_at, counter_time=body.time)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
+    if prop["session_id"] is None:
+        # Case-less "interviewer decides" accept — session created in B3
+        # negotiation; still notify the counterpart the proposal was accepted.
+        other = (prop["from_user_id"] if user.id == prop["to_user_id"]
+                 else prop["to_user_id"])
+        if other is not None:
+            background.add_task(
+                push_to_user, other, title="Proposal accepted",
+                body="Your case session proposal was accepted",
+                data={"kind": "accepted", "proposal_id": prop["id"]})
+        return {"accepted": True, "session_id": None, "needs_negotiation": True}
+
     _send_invites(request, prop["session_id"])
+    other = (prop["from_user_id"] if user.id == prop["to_user_id"]
+             else prop["to_user_id"])
     background.add_task(
-        push_to_user, prop["from_user_id"],
+        push_to_user, other,
         title="Proposal accepted",
         body="Your case session proposal was accepted",
         data={"kind": "accepted", "session_id": prop["session_id"]},
@@ -101,6 +123,27 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
 
 
+@router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+                   user: User = Depends(require_auth_api)):
+    """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+    the creator; guests arrive in B2 by overriding require_auth_api."""
+    try:
+        result = repo.claim_proposal(claim_token, user.id)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    if result["session_id"] is not None:
+        _send_invites(request, result["session_id"])
+        background.add_task(
+            push_to_user, result["from_user_id"],
+            title="Your invite was claimed",
+            body="Someone claimed your session link",
+            data={"kind": "accepted", "session_id": result["session_id"]},
+        )
+    return result
+
+
 @router.post("/api/proposals/{proposal_id}/decline", dependencies=_MUTATING)
 def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
     try:
@@ -108,6 +151,26 @@ def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     return {"declined": True}
+
+
+@router.post("/api/proposals/{proposal_id}/counter", dependencies=_MUTATING)
+def counter_proposal(proposal_id: int, body: CounterBody, background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+    """Recipient's one-round "Suggest new time" (spec §5.2). Pushes
+    proposal_countered to the proposer — the pattern B3 reuses for swap invites.
+    """
+    try:
+        prop = repo.counter_proposal(proposal_id, user.id, body.times)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    background.add_task(
+        push_to_user, prop["from_user_id"],
+        title="New times suggested",
+        body="Your proposal got a counter — pick a time",
+        data={"kind": "proposal_countered", "proposal_id": prop["id"]},
+    )
+    return {"countered": True, "proposal_id": prop["id"],
+            "counter_times": prop["counter_times_json"]}
 
 
 @router.get("/ics/session-{session_id}.ics")

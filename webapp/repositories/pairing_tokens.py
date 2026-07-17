@@ -10,6 +10,7 @@ from __future__ import annotations
 import secrets
 from typing import Optional
 
+from psycopg import errors as pg_errors
 from psycopg.rows import dict_row
 
 from webapp.db import get_pool
@@ -18,21 +19,44 @@ from webapp.repositories.feedback import is_burned
 from webapp.repositories.practice_sessions import create_practice_session
 
 
-def mint_token(interviewer_id: int, case_id: int, ttl_minutes: int = 10) -> dict:
-    token = secrets.token_urlsafe(24)
+# Unambiguous 6-char set (spec §8): A-Z + 2-9, minus 0/O/1/I.
+_SHORT_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _gen_short_code(n: int = 6) -> str:
+    return "".join(secrets.choice(_SHORT_ALPHABET) for _ in range(n))
+
+
+def mint_token(interviewer_id: int, case_id: Optional[int] = None,
+               ttl_minutes: int = 10) -> dict:
+    """Mint a pairing token (spec §8). case_id optional ("interviewer decides",
+    negotiated in B3). Returns token + 6-char short_code + expiry. Retries on
+    the astronomically rare short_code collision (partial-unique index)."""
     sql = """
-        INSERT INTO pairing_tokens (token, interviewer_id, case_id, expires_at)
-        VALUES (%s, %s, %s, now() + make_interval(mins => %s))
-        RETURNING token, expires_at;
+        INSERT INTO pairing_tokens (token, interviewer_id, case_id, short_code, expires_at)
+        VALUES (%s, %s, %s, %s, now() + make_interval(mins => %s))
+        RETURNING token, short_code, expires_at;
     """
     with get_pool().connection() as conn:
-        with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(sql, (token, interviewer_id, case_id, ttl_minutes))
-            return cur.fetchone()
+        for _ in range(5):
+            try:
+                with conn.cursor(row_factory=dict_row) as cur:
+                    # Regenerate BOTH on retry so a token clash (astronomically
+                    # rare) is also escaped, not just a short_code clash.
+                    cur.execute(sql, (secrets.token_urlsafe(24), interviewer_id,
+                                      case_id, _gen_short_code(), ttl_minutes))
+                    return cur.fetchone()
+            except pg_errors.UniqueViolation:
+                conn.rollback()  # token/short_code clash — regenerate
+                continue
+        raise TransitionError(500, "Could not allocate a pairing code")
 
 
-def claim(token: str, candidate_id: int) -> dict:
-    """Claim a token: creates the practice session in one transaction.
+def claim(*, candidate_id: int, token: Optional[str] = None,
+          short_code: Optional[str] = None) -> dict:
+    """Claim a pairing token by token OR short_code (spec §8), creating the
+    practice session in one transaction. Case-less tokens can't create a
+    session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
 
     The token row is locked with SELECT ... FOR UPDATE for the whole
     transaction — this is the anti-double-claim mechanism. A concurrent
@@ -47,12 +71,19 @@ def claim(token: str, candidate_id: int) -> dict:
     crash window, low harm (an orphaned scheduled session, not a data
     corruption), acceptable for v1.
     """
+    if token:
+        where, val = "token = %s", token
+    elif short_code:
+        where, val = "short_code = %s", short_code
+    else:
+        raise TransitionError(400, "Provide a token or short_code")
+
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "SELECT *, (expires_at < now()) AS expired"
-                " FROM pairing_tokens WHERE token = %s FOR UPDATE;",
-                (token,),
+                f" FROM pairing_tokens WHERE {where} FOR UPDATE;",
+                (val,),
             )
             row = cur.fetchone()
             if row is None:
@@ -63,6 +94,8 @@ def claim(token: str, candidate_id: int) -> dict:
                 raise TransitionError(409, "Pairing token already claimed")
             if row["interviewer_id"] == candidate_id:
                 raise TransitionError(409, "Cannot claim your own pairing token")
+            if row["case_id"] is None:
+                raise TransitionError(409, "Choose a case before pairing")
             if is_burned(candidate_id, row["case_id"]):
                 raise TransitionError(409, "You have already completed this case")
 
