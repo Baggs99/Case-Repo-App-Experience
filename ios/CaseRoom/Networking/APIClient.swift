@@ -57,6 +57,32 @@ protocol ProfileService {
     func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings
 }
 
+// Firm tracking + timeline-detail (B7 §4, Task 2). All cookie-authed;
+// POST/DELETE are same-origin from the native client, no Origin header needed.
+protocol TimelineService {
+    func timeline() async throws -> TimelineDetail
+    func timelineFirms() async throws -> [FirmCatalogEntry]
+    func trackFirm(firmId: Int) async throws
+    func untrackFirm(firmId: Int) async throws
+    func firmResult(firmId: Int, outcome: String) async throws -> FirmResult
+}
+
+// "Next up for you" (B4 §7, Task 2). Swap re-calls with the shown id excluded.
+protocol RecommendationService {
+    func recommendations(exclude: [Int]) async throws -> [Recommendation]
+}
+
+// Today's global gauntlet set + percentile-first results (B8, Task 2).
+protocol GauntletService {
+    func gauntlet() async throws -> Gauntlet
+}
+
+// Scoped leaderboards; Home's cohort footer only ever asks for scope=group,
+// the one scope with literal rank/points (B8, Task 2).
+protocol BoardService {
+    func groupBoard() async throws -> GroupBoard
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -83,7 +109,8 @@ protocol SessionService {
     func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
-actor APIClient: SessionService, PairService, DrillService, AvailabilityService, ProfileService {
+actor APIClient: SessionService, PairService, DrillService, AvailabilityService, ProfileService,
+    TimelineService, RecommendationService, GauntletService, BoardService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -267,6 +294,62 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
 
     func dashboard() async throws -> DashboardStats {
         try await send(path: "/api/v1/dashboard", method: "GET")
+    }
+
+    // MARK: - Timeline (TimelineService, B7)
+
+    func timeline() async throws -> TimelineDetail {
+        try await send(path: "/api/v1/timeline", method: "GET")
+    }
+
+    func timelineFirms() async throws -> [FirmCatalogEntry] {
+        struct FirmsResponse: Decodable { let firms: [FirmCatalogEntry] }
+        let response: FirmsResponse = try await send(path: "/api/v1/timeline/firms", method: "GET")
+        return response.firms
+    }
+
+    func trackFirm(firmId: Int) async throws {
+        struct TrackBody: Encodable { let firmId: Int }
+        try await sendNoContent(path: "/api/v1/timeline/firms", method: "POST", body: TrackBody(firmId: firmId))
+    }
+
+    func untrackFirm(firmId: Int) async throws {
+        try await sendNoContent(path: "/api/v1/timeline/firms/\(firmId)", method: "DELETE")
+    }
+
+    func firmResult(firmId: Int, outcome: String) async throws -> FirmResult {
+        struct ResultBody: Encodable { let outcome: String }
+        return try await send(
+            path: "/api/v1/timeline/firms/\(firmId)/result", method: "POST",
+            body: ResultBody(outcome: outcome)
+        )
+    }
+
+    // MARK: - Recommendations (RecommendationService, B4)
+
+    func recommendations(exclude: [Int]) async throws -> [Recommendation] {
+        struct RecommendationsResponse: Decodable { let recommendations: [Recommendation] }
+        var items: [URLQueryItem] = []
+        if !exclude.isEmpty {
+            items.append(URLQueryItem(name: "exclude", value: exclude.map(String.init).joined(separator: ",")))
+        }
+        let response: RecommendationsResponse = try await send(
+            path: "/api/v1/recommendations", method: "GET", queryItems: items
+        )
+        return response.recommendations
+    }
+
+    // MARK: - Gauntlet & boards (GauntletService/BoardService, B8)
+
+    func gauntlet() async throws -> Gauntlet {
+        try await send(path: "/api/v1/drills/gauntlet", method: "GET")
+    }
+
+    func groupBoard() async throws -> GroupBoard {
+        try await send(
+            path: "/api/v1/drills/boards", method: "GET",
+            queryItems: [URLQueryItem(name: "scope", value: "group")]
+        )
     }
 
     // MARK: - Devices

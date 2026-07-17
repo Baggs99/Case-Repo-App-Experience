@@ -528,6 +528,314 @@ final class APIClientTests: XCTestCase {
         let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
         XCTAssertEqual(body["free_now"] as? Bool, false)
     }
+
+    // MARK: - Dashboard extensions (B4/B7, Task 2)
+
+    // Pastes the extended /api/v1/dashboard shape (webapp/routes/api_v1.py:372-396)
+    // verbatim and asserts every new field, including the diagnostic
+    // strengths/weaknesses dimension-score rows (dashboard.py:317-339 — not
+    // plain strings, confirmed against source).
+    func testDashboardDecodesExtendedFields() async throws {
+        stubJSON(#"""
+        {"sessions_finalized": 4, "streak_weeks": 2, "next_session": null,
+         "streak_days": 6, "drill_done_today": true,
+         "dimension_averages": [{"dimension": "quant", "avg_score": 3.2, "samples": 8}],
+         "recommendations": [{"case_id": 11, "title": "Widget Co", "case_type": "Profitability",
+           "difficulty": "Medium", "why": "Your weakest dimension is quant.", "rule": "weak-dimension"}],
+         "diagnostic": {"cases_done_60d": 5,
+           "dimensions": [{"dimension": "quant", "avg_score": 3.2, "samples": 8},
+                           {"dimension": "structure", "avg_score": 4.1, "samples": 8}],
+           "strengths": [{"dimension": "structure", "avg_score": 4.1, "samples": 8}],
+           "weaknesses": [{"dimension": "quant", "avg_score": 3.2, "samples": 8}],
+           "focus_dimension": "quant",
+           "trend": {"recent_avg": 4.0, "previous_avg": 3.5, "delta": 0.5, "direction": "up"}},
+         "timeline": {"tracked_count": 2, "next_deadline": {"firm_id": 3, "name": "McKinsey",
+           "slug": "mckinsey", "cycle_label": "Fall", "deadline_date": "2026-09-12",
+           "days_remaining": 58, "readiness_tag": "on_track"}}}
+        """#)
+
+        let stats = try await client.dashboard()
+
+        XCTAssertEqual(stats.sessionsFinalized, 4)
+        XCTAssertEqual(stats.streakDays, 6)
+        XCTAssertEqual(stats.dimensionAverages?.first?.dimension, "quant")
+        XCTAssertEqual(stats.dimensionAverages?.first?.avgScore, 3.2)
+        XCTAssertEqual(stats.recommendations?.first?.title, "Widget Co")
+        XCTAssertEqual(stats.recommendations?.first?.caseId, 11)
+        XCTAssertEqual(stats.diagnostic?.casesDone60D, 5)
+        XCTAssertEqual(stats.diagnostic?.dimensions.count, 2)
+        XCTAssertEqual(stats.diagnostic?.strengths.first?.dimension, "structure")
+        XCTAssertEqual(stats.diagnostic?.weaknesses.first?.dimension, "quant")
+        XCTAssertEqual(stats.diagnostic?.focusDimension, "quant")
+        XCTAssertEqual(stats.diagnostic?.trend.direction, "up")
+        XCTAssertEqual(stats.timeline?.trackedCount, 2)
+        XCTAssertEqual(stats.timeline?.nextDeadline?.name, "McKinsey")
+        XCTAssertEqual(stats.timeline?.nextDeadline?.daysRemaining, 58)
+    }
+
+    // Legacy payload (no B4/B7 keys at all) must still decode — proves the
+    // extension is additive/back-compat, not just optional-when-present.
+    func testDashboardLegacyPayloadWithoutHomeFieldsStillDecodes() async throws {
+        stubJSON(#"""
+        {"sessions_finalized": 1, "streak_weeks": 1, "next_session": null}
+        """#)
+
+        let stats = try await client.dashboard()
+
+        XCTAssertEqual(stats.sessionsFinalized, 1)
+        XCTAssertNil(stats.streakDays)
+        XCTAssertNil(stats.dimensionAverages)
+        XCTAssertNil(stats.recommendations)
+        XCTAssertNil(stats.diagnostic)
+        XCTAssertNil(stats.timeline)
+    }
+
+    // MARK: - Timeline detail (B7, Task 2)
+
+    func testTimelineRequestAndDecode() async throws {
+        stubJSON(#"""
+        {"as_of": "2026-07-17", "readiness": {"label": "on_track", "ready": true,
+          "focus_dimension": "quant", "recent_case_count": 6, "threshold": 3.5, "min_cases": 5},
+         "firms": [{"firm_id": 3, "name": "McKinsey", "slug": "mckinsey", "status": "tracking",
+           "added_at": "2026-06-01T10:00:00+00:00",
+           "deadline": {"cycle_label": "Fall", "deadline_date": "2026-09-12", "region": "Americas",
+             "is_estimate": false, "days_remaining": 58, "passed": false},
+           "readiness_tag": "on_track", "prompt": {"show": false}}]}
+        """#)
+
+        let detail = try await client.timeline()
+
+        XCTAssertEqual(detail.asOf, "2026-07-17")
+        XCTAssertEqual(detail.readiness.label, "on_track")
+        XCTAssertTrue(detail.readiness.ready)
+        XCTAssertEqual(detail.readiness.focusDimension, "quant")
+        XCTAssertEqual(detail.firms.count, 1)
+        XCTAssertEqual(detail.firms[0].name, "McKinsey")
+        XCTAssertEqual(detail.firms[0].deadline?.daysRemaining, 58)
+        XCTAssertFalse(detail.firms[0].deadline?.passed ?? true)
+        XCTAssertFalse(detail.firms[0].prompt.show)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/timeline")
+        XCTAssertEqual(request.httpMethod, "GET")
+    }
+
+    func testTimelineFirmsCatalogRequestAndDecode() async throws {
+        stubJSON(#"""
+        {"firms": [{"firm_id": 3, "name": "McKinsey", "slug": "mckinsey", "tracked": true,
+           "next_deadline": {"cycle_label": "Fall", "deadline_date": "2026-09-12", "region": "Americas",
+             "is_estimate": false, "days_remaining": 58, "passed": false}},
+          {"firm_id": 4, "name": "BCG", "slug": "bcg", "tracked": false, "next_deadline": null}]}
+        """#)
+
+        let firms = try await client.timelineFirms()
+
+        XCTAssertEqual(firms.count, 2)
+        XCTAssertEqual(firms[0].name, "McKinsey")
+        XCTAssertTrue(firms[0].tracked)
+        XCTAssertEqual(firms[1].name, "BCG")
+        XCTAssertFalse(firms[1].tracked)
+        XCTAssertNil(firms[1].nextDeadline)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/timeline/firms")
+        XCTAssertEqual(request.httpMethod, "GET")
+    }
+
+    func testTrackFirmPostsBody() async throws {
+        stubJSON("", status: 204)
+
+        try await client.trackFirm(firmId: 4)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/timeline/firms")
+        XCTAssertEqual(request.httpMethod, "POST")
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertEqual(body["firm_id"] as? Int, 4)
+    }
+
+    func testUntrackFirmSendsDelete() async throws {
+        stubJSON("", status: 204)
+
+        try await client.untrackFirm(firmId: 4)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/timeline/firms/4")
+        XCTAssertEqual(request.httpMethod, "DELETE")
+    }
+
+    // Four firm-result outcomes (webapp/routes/timeline.py:71-96) — every
+    // outcome shares one FirmResult shape but populates different fields.
+
+    func testFirmResultOfferOutcomeDecodes() async throws {
+        stubJSON(#"{"outcome": "offer", "status": "offer", "result_recorded_at": "2026-07-17T09:00:00+00:00"}"#)
+
+        let result = try await client.firmResult(firmId: 3, outcome: "offer")
+
+        XCTAssertEqual(result.outcome, "offer")
+        XCTAssertEqual(result.status, "offer")
+        XCTAssertEqual(result.resultRecordedAt, "2026-07-17T09:00:00+00:00")
+        XCTAssertNil(result.reweight)
+        XCTAssertNil(result.snoozeUntil)
+        XCTAssertNil(result.dropped)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/timeline/firms/3/result")
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertEqual(body["outcome"] as? String, "offer")
+    }
+
+    func testFirmResultNoOfferOutcomeDecodesReweight() async throws {
+        stubJSON(#"""
+        {"outcome": "no_offer", "status": "rejected",
+         "reweight": {"focus_dimension": "quant", "suggested_drill_type": "mental_math",
+           "extra_cases": [12, 19]}}
+        """#)
+
+        let result = try await client.firmResult(firmId: 3, outcome: "no_offer")
+
+        XCTAssertEqual(result.outcome, "no_offer")
+        XCTAssertEqual(result.status, "rejected")
+        XCTAssertEqual(result.reweight?.focusDimension, "quant")
+        XCTAssertEqual(result.reweight?.suggestedDrillType, "mental_math")
+        XCTAssertEqual(result.reweight?.extraCases, [12, 19])
+    }
+
+    func testFirmResultWaitingOutcomeDecodesSnoozeUntil() async throws {
+        stubJSON(#"{"outcome": "waiting", "status": "interviewed", "snooze_until": "2026-07-24"}"#)
+
+        let result = try await client.firmResult(firmId: 3, outcome: "waiting")
+
+        XCTAssertEqual(result.outcome, "waiting")
+        XCTAssertEqual(result.status, "interviewed")
+        XCTAssertEqual(result.snoozeUntil, "2026-07-24")
+    }
+
+    func testFirmResultDidntInterviewOutcomeDecodesDropped() async throws {
+        stubJSON(#"{"outcome": "didnt_interview", "dropped": true}"#)
+
+        let result = try await client.firmResult(firmId: 3, outcome: "didnt_interview")
+
+        XCTAssertEqual(result.outcome, "didnt_interview")
+        XCTAssertEqual(result.dropped, true)
+        XCTAssertNil(result.status)
+    }
+
+    // MARK: - Recommendations (B4, Task 2)
+
+    func testRecommendationsRequestOmitsExcludeWhenEmpty() async throws {
+        stubJSON(#"{"recommendations": []}"#)
+
+        let recs = try await client.recommendations(exclude: [])
+
+        XCTAssertTrue(recs.isEmpty)
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/recommendations")
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems ?? []
+        XCTAssertTrue(query.isEmpty)
+    }
+
+    func testRecommendationsRequestJoinsExcludeIdsWithCommas() async throws {
+        stubJSON(#"""
+        {"recommendations": [{"case_id": 22, "title": "Beta Corp", "case_type": "Market Sizing",
+          "difficulty": "Hard", "why": "Coverage gap.", "rule": "coverage-gap"}]}
+        """#)
+
+        let recs = try await client.recommendations(exclude: [11, 12, 13])
+
+        XCTAssertEqual(recs.count, 1)
+        XCTAssertEqual(recs[0].caseId, 22)
+        XCTAssertEqual(recs[0].title, "Beta Corp")
+        let request = StubURLProtocol.recordedRequests.first!
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        XCTAssertTrue(query.contains(URLQueryItem(name: "exclude", value: "11,12,13")))
+    }
+
+    // MARK: - Gauntlet (B8, Task 2)
+
+    func testGauntletUnsubmittedDecodesNilResult() async throws {
+        stubJSON(#"""
+        {"date": "2026-07-17", "set_key": "2026-07-17", "provisional": true,
+         "slots": [{"slot": 0, "drill_type": "mental_math", "key": "mm-1",
+           "prompt": "12% of 480?", "numbers": ["12", "480"]},
+          {"slot": 1, "drill_type": "framework_recall", "key": "fr-1",
+           "prompt": "Which framework?", "numbers": [], "choices": ["4Ps", "Porter's Five"]}],
+         "streak": 3, "submitted": false, "result": null}
+        """#)
+
+        let gauntlet = try await client.gauntlet()
+
+        XCTAssertEqual(gauntlet.setKey, "2026-07-17")
+        XCTAssertEqual(gauntlet.slots.count, 2)
+        XCTAssertEqual(gauntlet.slots[0].drillType, "mental_math")
+        XCTAssertNil(gauntlet.slots[0].choices)
+        XCTAssertEqual(gauntlet.slots[1].choices, ["4Ps", "Porter's Five"])
+        XCTAssertFalse(gauntlet.submitted)
+        XCTAssertNil(gauntlet.result)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/drills/gauntlet")
+    }
+
+    func testGauntletSubmittedDecodesResult() async throws {
+        stubJSON(#"""
+        {"date": "2026-07-17", "set_key": "2026-07-17", "provisional": true,
+         "slots": [{"slot": 0, "drill_type": "mental_math", "key": "mm-1",
+           "prompt": "12% of 480?", "numbers": ["12", "480"]}],
+         "streak": 4, "submitted": true,
+         "result": {"score": 0.83, "slots_correct": 5, "slots": 6, "points_awarded": 50,
+           "daily_percentile": 72.5,
+           "group": {"group_id": 9, "name": "Yale SOM 26", "rank": 2, "points": 340, "points_behind_next": 15},
+           "school_percentile": 60.0, "vs_peers_delta": 15,
+           "weak_section": {"drill_type": "market_sizing", "label": "market sizing"},
+           "streak": 4, "set_key": "2026-07-17"}}
+        """#)
+
+        let gauntlet = try await client.gauntlet()
+
+        XCTAssertTrue(gauntlet.submitted)
+        XCTAssertEqual(gauntlet.result?.score, 0.83)
+        XCTAssertEqual(gauntlet.result?.slotsCorrect, 5)
+        XCTAssertEqual(gauntlet.result?.group?.name, "Yale SOM 26")
+        XCTAssertEqual(gauntlet.result?.group?.rank, 2)
+        XCTAssertEqual(gauntlet.result?.group?.pointsBehindNext, 15)
+        XCTAssertEqual(gauntlet.result?.weakSection?.drillType, "market_sizing")
+        XCTAssertEqual(gauntlet.result?.vsPeersDelta, 15)
+    }
+
+    // MARK: - Group board (B8, Task 2)
+
+    func testGroupBoardRequestAndDecode() async throws {
+        stubJSON(#"""
+        {"scope": "group", "group": {"id": 9, "name": "Yale SOM 26"},
+         "entries": [{"user_id": 1, "display_name": "Alice Dev", "photo_key": "avatars/1.jpg",
+            "points": 340, "rank": 1, "streak": 6},
+           {"user_id": 2, "display_name": "Bob Dev", "photo_key": null,
+            "points": 300, "rank": 2, "streak": 3}]}
+        """#)
+
+        let board = try await client.groupBoard()
+
+        XCTAssertEqual(board.scope, "group")
+        XCTAssertEqual(board.group?.name, "Yale SOM 26")
+        XCTAssertEqual(board.entries.count, 2)
+        XCTAssertEqual(board.entries[0].displayName, "Alice Dev")
+        XCTAssertEqual(board.entries[1].photoKey, nil)
+
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/drills/boards")
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+        XCTAssertTrue(query.contains(URLQueryItem(name: "scope", value: "group")))
+    }
+
+    func testGroupBoardEmptyGroupDecodesNilGroupAndEntries() async throws {
+        stubJSON(#"{"scope": "group", "group": null, "entries": []}"#)
+
+        let board = try await client.groupBoard()
+
+        XCTAssertNil(board.group)
+        XCTAssertTrue(board.entries.isEmpty)
+    }
 }
 
 // Not private: reused by SessionServiceTests.swift (same test target).

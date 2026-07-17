@@ -77,6 +77,32 @@ struct DashboardStats: Codable, Equatable {
     // responses (without these keys) still decode.
     let streakDays: Int?
     let drillDoneToday: Bool?
+    // B4/B7 Home card additions (task 2): additive + optional so the original
+    // 5-field decode above still passes against legacy/back-compat payloads
+    // that predate these keys. Types defined in HomeModels.swift. Default nil
+    // so existing memberwise-init call sites (fixtures/tests) built before
+    // this task still compile unchanged.
+    let dimensionAverages: [DimensionAverage]?
+    let recommendations: [Recommendation]?
+    let diagnostic: DiagnosticStats?
+    let timeline: DashboardTimeline?
+
+    init(
+        sessionsFinalized: Int, streakWeeks: Int, nextSession: SessionSummary?,
+        streakDays: Int? = nil, drillDoneToday: Bool? = nil,
+        dimensionAverages: [DimensionAverage]? = nil, recommendations: [Recommendation]? = nil,
+        diagnostic: DiagnosticStats? = nil, timeline: DashboardTimeline? = nil
+    ) {
+        self.sessionsFinalized = sessionsFinalized
+        self.streakWeeks = streakWeeks
+        self.nextSession = nextSession
+        self.streakDays = streakDays
+        self.drillDoneToday = drillDoneToday
+        self.dimensionAverages = dimensionAverages
+        self.recommendations = recommendations
+        self.diagnostic = diagnostic
+        self.timeline = timeline
+    }
 }
 
 struct AcceptedSession: Codable, Equatable {
