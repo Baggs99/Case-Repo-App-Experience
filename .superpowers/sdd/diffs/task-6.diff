@@ -1,0 +1,346 @@
+=== diff --stat ===
+ tests/test_b1_expiry_missed.py           | 140 +++++++++++++++++++++++++++++++
+ tests/test_queues_proposals.py           |  21 ++++-
+ webapp/repositories/practice_sessions.py |  20 +++++
+ webapp/repositories/proposals.py         |  29 +++++--
+ 4 files changed, 200 insertions(+), 10 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b1_expiry_missed.py b/tests/test_b1_expiry_missed.py
+new file mode 100644
+index 0000000..3307151
+--- /dev/null
++++ b/tests/test_b1_expiry_missed.py
+@@ -0,0 +1,140 @@
++"""
++B1 Task 6: A3 expiry (now/scheduled/countered proposals) and missed sessions.
++Needs seeded dev Postgres. Seeds rows directly, calls the sweep repo fns, and
++asserts state — no push/network involved.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++class TestExpiryAndMissed(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()  # init pool
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Expiry Case', 'b1 expiry case',"
++                    " 'DevSchool', 2091, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid = ids["a@yale.edu"], ids["b@yale.edu"]
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        from webapp.repositories.rooms import get_or_create_room
++        cls.room_id = get_or_create_room(cls.aid)["id"]
++        cls.template_id = get_default_rubric_template_id(cls.case_id, cls.aid)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _proposal(self, *, proposed=None, countered=None, state="pending", created_sql="NOW()"):
++        import json
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO proposals (from_user_id, to_user_id, case_id, from_role,"
++                    " proposed_times_json, counter_times_json, state, created_at)"
++                    f" VALUES (%s, %s, %s, 'interviewer', %s, %s, %s, {created_sql})"
++                    " RETURNING id;",
++                    (self.aid, self.bid, self.case_id,
++                     json.dumps(proposed) if proposed is not None else None,
++                     json.dumps(countered) if countered is not None else None,
++                     state))
++                return cur.fetchone()[0]
++
++    def _state(self, table, pid):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(f"SELECT state FROM {table} WHERE id = %s;", (pid,))
++                return cur.fetchone()[0]
++
++    def test_now_proposal_expires_after_window(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(proposed=[], created_sql="NOW() - INTERVAL '3 hours'")
++        sweep_expired(now_expiry_min=120)
++        self.assertEqual(self._state("proposals", pid), "expired")
++
++    def test_fresh_now_proposal_survives(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(proposed=[])
++        sweep_expired(now_expiry_min=120)
++        self.assertEqual(self._state("proposals", pid), "pending")
++
++    def test_scheduled_proposal_expires_at_earliest_start(self):
++        from webapp.repositories.proposals import sweep_expired
++        past = (datetime.now(timezone.utc).replace(microsecond=0)).isoformat()
++        # earliest proposed time already elapsed
++        pid = self._proposal(proposed=["2000-01-01T00:00:00+00:00", past])
++        sweep_expired()
++        self.assertEqual(self._state("proposals", pid), "expired")
++
++    def test_future_scheduled_survives(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(proposed=["2999-01-01T00:00:00+00:00"])
++        sweep_expired()
++        self.assertEqual(self._state("proposals", pid), "pending")
++
++    def test_countered_proposal_expires_at_earliest_counter(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(state="countered", countered=["2000-01-01T00:00:00+00:00"])
++        sweep_expired()
++        self.assertEqual(self._state("proposals", pid), "expired")
++
++    def _session(self, *, state, scheduled_sql):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++                    " case_id, rubric_template_id, state, scheduled_at, state_changed_at)"
++                    f" VALUES (%s, %s, %s, %s, %s, %s, {scheduled_sql}, NOW())"
++                    " RETURNING id;",
++                    (self.room_id, self.aid, self.bid, self.case_id, self.template_id, state))
++                return cur.fetchone()[0]
++
++    def test_session_missed_past_start_plus_window(self):
++        from webapp.repositories.practice_sessions import sweep_missed
++        sid = self._session(state="scheduled", scheduled_sql="NOW() - INTERVAL '2 hours'")
++        n = sweep_missed(missed_after_min=60)
++        self.assertGreaterEqual(n, 1)
++        self.assertEqual(self._state("practice_sessions", sid), "missed")
++
++    def test_session_not_missed_before_window(self):
++        from webapp.repositories.practice_sessions import sweep_missed
++        sid = self._session(state="scheduled", scheduled_sql="NOW() + INTERVAL '10 minutes'")
++        sweep_missed(missed_after_min=60)
++        self.assertEqual(self._state("practice_sessions", sid), "scheduled")
++
++    def test_now_session_without_scheduled_at_not_missed(self):
++        from webapp.repositories.practice_sessions import sweep_missed
++        sid = self._session(state="scheduled", scheduled_sql="NULL")
++        sweep_missed(missed_after_min=60)
++        self.assertEqual(self._state("practice_sessions", sid), "scheduled")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_queues_proposals.py b/tests/test_queues_proposals.py
+index 97870c9..a16afc6 100644
+--- a/tests/test_queues_proposals.py
++++ b/tests/test_queues_proposals.py
+@@ -179,36 +179,49 @@ class TestQueuesAndProposals(unittest.TestCase):
+         r = self.bob.get("/api/proposals/inbox")
+         self.assertIn(pid, [p["id"] for p in r.json()["proposals"]])
+         self.assertNotIn(pid, [p["id"] for p in
+                                self.cara.get("/api/proposals/inbox").json()["proposals"]])
+ 
+         # Only the recipient may respond; existence undisclosed to others.
+         self.assertEqual(
+             self.alice.post(f"/api/proposals/{pid}/decline").status_code, 404)
+         self.assertEqual(
+             self.cara.post(f"/api/proposals/{pid}/decline").status_code, 404)
+ 
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/decline").status_code, 200)
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/decline").status_code, 409)
+ 
+-    def test_expiry_sweep(self):
+-        pid = self._propose().json()["id"]
++    def test_expiry_sweep_scheduled_past_start(self):
++        # A3: a scheduled proposal whose earliest proposed start has passed
++        # expires on the next sweep (accept must expire it, not accept it).
++        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
++        pid = self._propose(proposed_times=[past]).json()["id"]
++        r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
++        self.assertEqual(r.status_code, 409)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT state FROM proposals WHERE id = %s;", (pid,))
++                self.assertEqual(cur.fetchone()[0], "expired")
++
++    def test_expiry_sweep_now_proposal(self):
++        # A3: a now-proposal (no proposed_times) older than the 2-h window expires.
++        pid = self._propose(proposed_times=[]).json()["id"]
+         import psycopg
+         with psycopg.connect(_DB_URL) as conn:
+             with conn.cursor() as cur:
+                 cur.execute("UPDATE proposals SET created_at = NOW() - INTERVAL"
+-                            " '8 days' WHERE id = %s;", (pid,))
+-        # Accept must expire it first, not accept it.
++                            " '3 hours' WHERE id = %s;", (pid,))
+         r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
+         self.assertEqual(r.status_code, 409)
+         with psycopg.connect(_DB_URL) as conn:
+             with conn.cursor() as cur:
+                 cur.execute("SELECT state FROM proposals WHERE id = %s;", (pid,))
+                 self.assertEqual(cur.fetchone()[0], "expired")
+ 
+     # ── accept → session + .ics (T8.4) ───────────────────────────────────────
+ 
+     def test_accept_creates_session_and_ics(self):
+         when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+         pid = self._propose(from_role="candidate",
+                             proposed_times=[when.isoformat()]).json()["id"]
+ 
+diff --git a/webapp/repositories/practice_sessions.py b/webapp/repositories/practice_sessions.py
+index d426f98..3d608b7 100644
+--- a/webapp/repositories/practice_sessions.py
++++ b/webapp/repositories/practice_sessions.py
+@@ -272,14 +272,34 @@ def sweep_stale_sessions() -> int:
+     6 h of creation, is dead — otherwise it sits in Upcoming forever.
+     Future-scheduled sessions are untouched."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "UPDATE practice_sessions"
+                 " SET state = 'aborted', ended_at = NOW(), state_changed_at = NOW()"
+                 " WHERE (state IN ('lobby', 'live')"
+                 "        AND state_changed_at < NOW() - INTERVAL '6 hours')"
+                 "    OR (state = 'scheduled'"
+                 "        AND COALESCE(scheduled_at, created_at)"
+                 "            < NOW() - INTERVAL '6 hours');"
+             )
+             return cur.rowcount
++
++
++def sweep_missed(missed_after_min: int = 60) -> int:
++    """A3: an accepted session never joined (still 'scheduled'/'lobby')
++    missed_after_min past its scheduled start becomes 'missed' — distinct from
++    the 6-h 'aborted' backstop (sweep_stale_sessions). Only scheduled sessions
++    (scheduled_at set) qualify; unscheduled "now" sessions fall to the backstop.
++    Run this BEFORE sweep_stale_sessions so a past-start scheduled session is
++    marked 'missed', not 'aborted'. Returns rows swept."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE practice_sessions"
++                " SET state = 'missed', ended_at = NOW(), state_changed_at = NOW()"
++                " WHERE state IN ('scheduled', 'lobby')"
++                "   AND scheduled_at IS NOT NULL"
++                "   AND scheduled_at < NOW() - make_interval(mins => %s);",
++                (missed_after_min,),
++            )
++            return cur.rowcount
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index 29a7b14..e3dc61d 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -16,29 +16,28 @@ import secrets
+ 
+ from datetime import datetime
+ from typing import Optional
+ 
+ from psycopg.rows import dict_row
+ from psycopg.types.json import Jsonb
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+ from webapp.repositories.feedback import is_burned
+ from webapp.repositories.practice_sessions import get_default_rubric_template_id
+ from webapp.repositories.rooms import get_or_create_room
+ 
+ MAX_PROPOSED_TIMES = 3
+-EXPIRY_DAYS = 7
+ 
+ _COLS = """
+     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
+     p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at,
+     p.claim_token, p.counter_times_json, p.counter_by, p.countered_at
+ """
+ 
+ 
+ def candidate_of(from_user_id: int, to_user_id: int, from_role: str) -> int:
+     """Who would sit as candidate if this proposal became a session."""
+     return to_user_id if from_role == "interviewer" else from_user_id
+ 
+ 
+ def _resolve_roles(prop: dict) -> tuple[int, int]:
+@@ -163,37 +162,55 @@ def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
+     claim_token = secrets.token_urlsafe(24) if to_user_id is None else None
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 "INSERT INTO proposals (from_user_id, to_user_id, case_id,"
+                 " from_role, message, proposed_times_json, claim_token)"
+                 " VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                 f" RETURNING {_COLS.replace('p.', '')};",
+                 (from_user_id, to_user_id, case_id, from_role, message,
+                  Jsonb(times), claim_token),
+             )
+             return cur.fetchone()
+ 
+ 
+-def sweep_expired() -> int:
+-    """T8.3: pending proposals older than 7 days flip to 'expired' on page
+-    load — no cron dependency. Returns rows swept."""
++def sweep_expired(now_expiry_min: int = 120) -> int:
++    """Spec A3 expiry (tunable via PROPOSAL_NOW_EXPIRY_MIN):
++      - now-proposals (no proposed_times) expire now_expiry_min after creation
++      - scheduled proposals expire once their earliest proposed start passes
++      - countered proposals expire once their earliest counter time passes
++    Returns rows swept. Runs from the 60-s maintenance loop (Task 7)."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "UPDATE proposals SET state = 'expired', responded_at = NOW()"
+-                " WHERE state = 'pending'"
+-                f"  AND created_at < NOW() - INTERVAL '{EXPIRY_DAYS} days';"
++                " WHERE (state = 'pending'"
++                "        AND (proposed_times_json IS NULL"
++                "             OR jsonb_array_length(proposed_times_json) = 0)"
++                "        AND created_at < NOW() - make_interval(mins => %s))"
++                "    OR (state = 'pending'"
++                "        AND proposed_times_json IS NOT NULL"
++                "        AND jsonb_array_length(proposed_times_json) > 0"
++                "        AND (SELECT MIN((e)::timestamptz)"
++                "               FROM jsonb_array_elements_text(proposed_times_json) e)"
++                "            < NOW())"
++                "    OR (state = 'countered'"
++                "        AND counter_times_json IS NOT NULL"
++                "        AND jsonb_array_length(counter_times_json) > 0"
++                "        AND (SELECT MIN((e)::timestamptz)"
++                "               FROM jsonb_array_elements_text(counter_times_json) e)"
++                "            < NOW());",
++                (now_expiry_min,),
+             )
+             return cur.rowcount
+ 
+ 
+ def inbox(user_id: int) -> list[dict]:
+     """Pending proposals RECEIVED by the user, with proposer and case info."""
+     sql = f"""
+         SELECT {_COLS},
+                COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS from_name,
+                c.case_title, c.case_type, c.difficulty
+         FROM proposals p
+         JOIN users u ON u.id = p.from_user_id
+         JOIN cases c ON c.id = p.case_id
+         WHERE p.to_user_id = %s AND p.state = 'pending'
