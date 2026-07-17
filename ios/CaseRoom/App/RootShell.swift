@@ -15,6 +15,7 @@ import SwiftUI
 struct RootShell: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(PushCoordinator.self) private var pushCoordinator
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var router = AppRouter.shared
     // The shell owns the drill sheet so the caseroom://drill widget + StartDrillIntent
     // open it reliably regardless of which tab (or a cold launch) is mounted.
@@ -53,18 +54,26 @@ struct RootShell: View {
                 .contentMargins(.top, 64, for: .scrollContent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            DSTabBar(selection: $router.selection)
-                .padding(.bottom, 12)
+            DSTabBar(selection: $router.selection, maxWidth: hSize == .regular ? 560 : nil)
+                .padding(.bottom, hSize == .regular ? 14 : 12)
+        }
+        .overlay(alignment: .top) {
+            if hSize == .regular {
+                HStack {
+                    WordmarkChip()
+                    Spacer()
+                    Text(router.selection.label.capitalized).dsText(.h1Tab)
+                    Spacer()
+                    avatarButton
+                }
+                .padding(.horizontal, 28).padding(.top, 8)
+            }
         }
         .overlay(alignment: .topLeading) {
-            WordmarkChip().padding(.leading, 16).padding(.top, 8)
+            if hSize != .regular { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
         }
         .overlay(alignment: .topTrailing) {
-            Button { router.avatarSheet = true } label: {
-                AvatarPill(initials: initials)
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 16).padding(.top, 8)
+            if hSize != .regular { avatarButton.padding(.trailing, 16).padding(.top, 8) }
         }
         .task {
             #if DEBUG
@@ -126,6 +135,11 @@ struct RootShell: View {
         case .drills:
             DrillsTabStub()
         }
+    }
+
+    private var avatarButton: some View {
+        Button { router.avatarSheet = true } label: { AvatarPill(initials: initials) }
+            .buttonStyle(.plain)
     }
 
     private var initials: String {
