@@ -212,13 +212,35 @@ def inbox(user_id: int) -> list[dict]:
                c.case_title, c.case_type, c.difficulty
         FROM proposals p
         JOIN users u ON u.id = p.from_user_id
-        JOIN cases c ON c.id = p.case_id
+        LEFT JOIN cases c ON c.id = p.case_id
         WHERE p.to_user_id = %s AND p.state = 'pending'
         ORDER BY p.created_at DESC;
     """
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(sql, (user_id,))
+            return cur.fetchall()
+
+
+def list_for_api(user_id: int) -> list[dict]:
+    """Actionable proposals for the native app: pending proposals RECEIVED by
+    the user (accept/counter/decline) plus countered proposals the user SENT
+    (accept the counter / decline). Carries claim_token + counter fields."""
+    sql = f"""
+        SELECT {_COLS},
+               COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS from_name,
+               c.case_title, c.case_type, c.difficulty,
+               CASE WHEN p.to_user_id = %(u)s THEN 'received' ELSE 'sent' END AS direction
+        FROM proposals p
+        JOIN users u ON u.id = p.from_user_id
+        LEFT JOIN cases c ON c.id = p.case_id
+        WHERE (p.to_user_id = %(u)s AND p.state = 'pending')
+           OR (p.from_user_id = %(u)s AND p.state = 'countered')
+        ORDER BY p.created_at DESC;
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, {"u": user_id})
             return cur.fetchall()
 
 
