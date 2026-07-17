@@ -98,6 +98,21 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   **BACKEND GAP COMPLETE: 8/8 phases, 360 → 655 tests, migrations
   020–035 (019+032 vacant by design).** Front-end track FW1 (F0) begins.
 
+## Front-end merge log
+
+- 2026-07-17 F0 → feature/backend-gap (phase head 19e9ce1). Zero conflicts;
+  merged tree byte-identical to phase head and diff scope = ios/+docs only,
+  so the phase's verified 289-green iOS run stands for the base (backend
+  suite untouched). OPERATIONAL (every fe lead): fresh sims need
+  `xcrun simctl privacy <sim> grant microphone study.mycase
+  study.mycase.CaseRoomTests com.apple.dt.xctest.tool` or the suite hangs
+  at the Live Activity test; macOS has no `timeout` — perl alarm pattern.
+  F0 process deviation (direct Opus-lead implementation w/ Opus review
+  gates, no per-task subagents) accepted — documented in fe-f0-report,
+  whole-branch review APPROVE. Deferred to F2: SteppedTimeline label
+  hierarchy inversion + flat chip glass variant (explicit actions in
+  report). FW2 (F1 shell) dispatched.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
