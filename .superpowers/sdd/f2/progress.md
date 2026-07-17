@@ -19,7 +19,10 @@ Order: T1 DS primitives → T2 API → T4 Timeline detail → T3 Home phone → 
 - Plan-review (Opus): REQUEST_CHANGES → 2 IMPORTANT (I-1 add profile() for identity/cohort rank; I-2 T4-before-T3 ordering, no stub) + 6 MINOR all fixed in plan. Re-commit pending.
 
 ## Tasks
-- (T1..T6 pending)
+- Task 1 (DS primitives, opus): COMPLETE — commits 76e26e1..0435129, review PASS (0 crit/imp). SteppedTimeline hierarchy inverted to pixel-truth + TODAY label/dot + flat glass-key variant (glassKey/glassChipFlat). Suite 313→315. Gallery shot task1-gallery-bottom.png verified vs canvas 3a/7b.
+  - Banked MINOR (final triage): glass-key reuses panel top-inset highlight (.85/1.5px) vs §1 recipe (.9/1px). Subtle, shared w/ panel.
+- Task 2 (API models, sonnet): IN PROGRESS. BASE=0435129.
+- (T4, T3, T5, T6 pending)
 
 ## Blocked / decisions needed
 - (none yet)

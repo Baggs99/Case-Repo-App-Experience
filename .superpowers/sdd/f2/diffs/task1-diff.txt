@@ -1,0 +1,450 @@
+diff --git a/ios/CaseRoom/DesignSystem/DesignSystemGallery.swift b/ios/CaseRoom/DesignSystem/DesignSystemGallery.swift
+index ac1d505..2d9acfb 100644
+--- a/ios/CaseRoom/DesignSystem/DesignSystemGallery.swift
++++ b/ios/CaseRoom/DesignSystem/DesignSystemGallery.swift
+@@ -27,20 +27,21 @@ struct DesignSystemGallery: View {
+         ZStack(alignment: .bottom) {
+             DSBackground()
+ 
+             ScrollView {
+                 VStack(alignment: .leading, spacing: 22) {
+                     header
+                     HStack { WordmarkChip(); Spacer(); AvatarPill(initials: "AO") }
+                     section("PALETTE") { swatches }
+                     section("TYPE SCALE") { typeSamples }
+                     section("GLASS") { glassSamples }
++                    section("FLAT GLASS · KEY / CHIP") { flatGlassSamples }
+                     section("THE MARK") {
+                         HStack(spacing: 28) {
+                             StaircaseMarkView().frame(width: 48, height: 40)
+                             StaircaseMarkView(animated: true).frame(width: 48, height: 40)
+                             BlinkDot(diameter: 8)
+                             Spacer()
+                         }
+                     }
+                     section("STEPPED TIMELINE") { SteppedTimeline(firms: PreviewFixtures.phone.timeline) }
+                     section("SCORE CELLS") {
+@@ -123,14 +124,24 @@ struct DesignSystemGallery: View {
+     }
+ 
+     private var glassSamples: some View {
+         HStack(spacing: 12) {
+             Text("Panel").dsText(.rowTitle).foregroundStyle(palette.ink)
+                 .frame(maxWidth: .infinity).padding(20).glassPanel()
+             Text("Chip").dsText(.rowTitle).foregroundStyle(palette.ink)
+                 .padding(.horizontal, 16).padding(.vertical, 10).glassChip()
+         }
+     }
++
++    // The flat key/chip variant (Canon §1 line 29) — solid white .55, top-only highlight.
++    private var flatGlassSamples: some View {
++        HStack(spacing: 12) {
++            Text("Key · r16").dsText(.rowTitle).foregroundStyle(palette.ink)
++                .frame(maxWidth: .infinity).padding(20).glassKey()
++            Text("Add a firm").dsText(.rowTitle).foregroundStyle(palette.ink)
++                .padding(.horizontal, 16).padding(.vertical, 10).glassChipFlat()
++        }
++    }
+ }
+ 
+ #Preview("Gallery — Light") { DesignSystemGallery() }
+ #endif
+diff --git a/ios/CaseRoom/DesignSystem/Glass.swift b/ios/CaseRoom/DesignSystem/Glass.swift
+index 9e07acc..583f4de 100644
+--- a/ios/CaseRoom/DesignSystem/Glass.swift
++++ b/ios/CaseRoom/DesignSystem/Glass.swift
+@@ -1,101 +1,118 @@
+ /*
+  * Purpose: The glass chrome layer — panels, chips, sheets — reproducing the §1
+  *          recipes over .ultraThinMaterial (the JUDGMENT call: hand-built for
+  *          canvas fidelity vs iOS 26 .glassEffect, which the deployment target
+  *          and owner-locked recipe rule out). Includes the dark-takeover recipe,
+  *          a scrim, the rise transition, and a solid-white fallback under Reduce
+  *          Transparency (the body.solid analog).
+  * Inputs: \.dsPalette, \.accessibilityReduceTransparency.
+- * Outputs: .glassPanel/.glassChip/.glassSheet, DSScrim, AnyTransition.dsRise.
++ * Outputs: .glassPanel/.glassChip/.glassSheet/.glassKey/.glassChipFlat, DSScrim, AnyTransition.dsRise.
+  * Run: `SomeView().glassPanel()`; sheets `.transition(.dsRise)`.
+  */
+ 
+ import SwiftUI
+ 
+-enum GlassKind { case panel, chip, sheet }
++// `.key` is the flat secondary surface (Canon §1 line 29): a solid white .55 fill
++// over the material blur (NOT the panel's .66→.4 gradient) with only the top inset
++// highlight — used for keys/cells (radius 16) and secondary chips/buttons (capsule).
++enum GlassKind { case panel, chip, sheet, key }
+ 
+ /// The glass surface engine. Layers the §1 recipe: blur (ultraThinMaterial),
+ /// the 135° white gradient (or the dark rgba fill), a white hairline border, and
+ /// a top inset highlight. Under Reduce Transparency it collapses to a solid fill.
+ struct GlassSurface<S: InsettableShape>: View {
+     @Environment(\.dsPalette) private var palette
+     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+     let shape: S
+     let kind: GlassKind
+ 
+     var body: some View {
+         ZStack {
+             if reduceTransparency {
+                 shape.fill(palette.surface)                       // --gbg:#FFFFFF; --gblur:0
+             } else if palette.isDark {
+                 shape.fill(.ultraThinMaterial)
+                 shape.fill(palette.surface.opacity(0.6))          // rgba(16,30,54,.6)
++            } else if kind == .key {
++                shape.fill(.ultraThinMaterial)
++                shape.fill(Color.white.opacity(0.55))             // flat solid fill (no gradient)
+             } else {
+                 shape.fill(.ultraThinMaterial)
+                 shape.fill(gbg)                                   // white gradient .66 → .4
+             }
+         }
+         .overlay(shape.strokeBorder(border, lineWidth: 1))
+         .overlay(topInsetHighlight)                               // inset 0 1.5px 0 rgba(255,255,255,.85)
+-        .overlay(bottomInsetHighlight)                            // inset 0 -1px 0 rgba(255,255,255,.3)
++        .overlay(bottomHighlight)                                 // key has top-only; others also bottom
+         .compositingGroup()
+         .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowY)
+     }
+ 
+     private var gbg: LinearGradient {
+         LinearGradient(colors: [.white.opacity(0.66), .white.opacity(0.40)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing)
+     }
+ 
+     private var border: Color {
+-        palette.isDark ? palette.ink.opacity(0.14) : .white.opacity(kind == .chip ? 0.75 : 0.72)
++        palette.isDark ? palette.ink.opacity(0.14) : .white.opacity(kind == .chip || kind == .key ? 0.75 : 0.72)
+     }
+ 
+     private var topInsetHighlight: some View {
+         shape.strokeBorder(
+             LinearGradient(colors: [.white.opacity(palette.isDark ? 0.12 : 0.85), .clear],
+                            startPoint: .top, endPoint: .center),
+             lineWidth: 1.5)
+         .blendMode(.plusLighter)
+         .allowsHitTesting(false)
+     }
+ 
+-    private var bottomInsetHighlight: some View {
+-        shape.strokeBorder(
+-            LinearGradient(colors: [.clear, .white.opacity(palette.isDark ? 0.06 : 0.3)],
+-                           startPoint: .center, endPoint: .bottom),
+-            lineWidth: 1)
+-        .blendMode(.plusLighter)
+-        .allowsHitTesting(false)
++    /// The bottom inset highlight — omitted for `.key` (flat: top highlight only).
++    @ViewBuilder private var bottomHighlight: some View {
++        if kind != .key {
++            shape.strokeBorder(
++                LinearGradient(colors: [.clear, .white.opacity(palette.isDark ? 0.06 : 0.3)],
++                               startPoint: .center, endPoint: .bottom),
++                lineWidth: 1)
++            .blendMode(.plusLighter)
++            .allowsHitTesting(false)
++        }
+     }
+ 
+     private var shadowColor: Color {
+-        palette.isDark ? .black.opacity(0.35) : Color.dsShadowInk.opacity(kind == .chip ? 0.07 : 0.16)
++        palette.isDark ? .black.opacity(0.35) : Color.dsShadowInk.opacity(kind == .chip || kind == .key ? 0.07 : 0.16)
+     }
+-    private var shadowRadius: CGFloat { kind == .chip ? 8 : (kind == .sheet ? 30 : 22) }
+-    private var shadowY: CGFloat { kind == .chip ? 2 : (kind == .sheet ? 24 : 18) }
++    private var shadowRadius: CGFloat { (kind == .chip || kind == .key) ? 8 : (kind == .sheet ? 30 : 22) }
++    private var shadowY: CGFloat { (kind == .chip || kind == .key) ? 2 : (kind == .sheet ? 24 : 18) }
+ }
+ 
+ extension View {
+     /// Glass card/panel. Corners 26–30 per §1 (default 28).
+     func glassPanel(cornerRadius: CGFloat = 28) -> some View {
+         background(GlassSurface(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), kind: .panel))
+     }
+     /// Glass chip/pill/tab bar (capsule).
+     func glassChip() -> some View {
+         background(GlassSurface(shape: Capsule(), kind: .chip))
+     }
+     /// Glass sheet. Corners 32–34 per §1 (default 32).
+     func glassSheet(cornerRadius: CGFloat = 32) -> some View {
+         background(GlassSurface(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), kind: .sheet))
+     }
++    /// Flat key/cell glass (§1 line 29): solid white .55 fill, top-only highlight. Radius 16.
++    func glassKey(cornerRadius: CGFloat = 16) -> some View {
++        background(GlassSurface(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous), kind: .key))
++    }
++    /// Flat secondary chip/button glass (§1 line 29): the `.key` recipe on a capsule.
++    func glassChipFlat() -> some View {
++        background(GlassSurface(shape: Capsule(), kind: .key))
++    }
+ }
+ 
+ /// Scrim under sheets: rgba(13,28,49,.34) + blur(5). Solid-ish under Reduce Transparency.
+ struct DSScrim: View {
+     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+     var body: some View {
+         ZStack {
+             if !reduceTransparency {
+                 Rectangle().fill(.ultraThinMaterial)
+             }
+diff --git a/ios/CaseRoom/DesignSystem/PreviewFixtures.swift b/ios/CaseRoom/DesignSystem/PreviewFixtures.swift
+index 020256d..71ad052 100644
+--- a/ios/CaseRoom/DesignSystem/PreviewFixtures.swift
++++ b/ios/CaseRoom/DesignSystem/PreviewFixtures.swift
+@@ -89,23 +89,23 @@ enum PreviewFixtures {
+         recommendation: PreviewRecommendation(
+             title: "EV charging — size the German market", provenance: "Stern 2024 · D3"),
+         recap: PreviewRecap(
+             caseTitle: "Ski resort profitability", interviewer: "T. Becker", rating: 4.1,
+             note: "Structure held. The quant went soft in the middle — drill it before Thursday."),
+         pending: [
+             PreviewPending(interviewer: "T. Becker", time: "Thu 18:00", caseTitle: "Dental roll-up"),
+             PreviewPending(interviewer: "S. Park", time: "Tonight 21:30", caseTitle: "asks you to interview"),
+         ],
+         timeline: [
+-            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "58 days", readiness: "ON PACE", onPace: true),
+-            TimelineFirm(name: "BCG", date: "Sep 30", days: "76 days", readiness: "PUSH QUANT", onPace: false),
+-            TimelineFirm(name: "Bain", date: "Oct 08", days: "84 days", readiness: "EARLY", onPace: false),
++            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "58d", readiness: "ON PACE", onPace: true),
++            TimelineFirm(name: "BCG", date: "Sep 30", days: "76d", readiness: "PUSH QUANT", onPace: false),
++            TimelineFirm(name: "Bain", date: "Oct 08", days: "84d", readiness: "EARLY", onPace: false),
+         ],
+         standing: PreviewCohortStanding(schoolPercentile: 91)
+     )
+ 
+     // Decisions §7 — July 17 (tablet canvas state, one day advanced).
+     static let tablet = PreviewDay(
+         profile: PreviewProfile(
+             name: "Amara Osei", initials: "AO", school: "Wharton MBA '27",
+             cohort: "C-14", cohortLead: "R. Vance", streakDays: 13,
+             rankInCohort: 6, cohortSize: 10, behindNext: 4, points: 335),
+@@ -117,17 +117,17 @@ enum PreviewFixtures {
+             caseTitle: "Dental roll-up", provenance: "T-9H", time: "Today 18:00"),
+         recommendation: PreviewRecommendation(
+             title: "EV charging — size the German market", provenance: "Stern 2024 · D3"),
+         recap: PreviewRecap(
+             caseTitle: "Low-cost carrier enters the Nordic market", interviewer: "M. Lindqvist",
+             rating: 5.0, note: "Jul 16 · M. Lindqvist · 7.2 avg"),
+         pending: [
+             PreviewPending(interviewer: "T. Becker", time: "Today 18:00", caseTitle: "Dental roll-up"),
+         ],
+         timeline: [
+-            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "57 days", readiness: "ON PACE", onPace: true),
+-            TimelineFirm(name: "BCG", date: "Sep 30", days: "75 days", readiness: "PUSH QUANT", onPace: false),
+-            TimelineFirm(name: "Bain", date: "Oct 08", days: "83 days", readiness: "EARLY", onPace: false),
++            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "57d", readiness: "ON PACE", onPace: true),
++            TimelineFirm(name: "BCG", date: "Sep 30", days: "75d", readiness: "PUSH QUANT", onPace: false),
++            TimelineFirm(name: "Bain", date: "Oct 08", days: "83d", readiness: "EARLY", onPace: false),
+         ],
+         standing: PreviewCohortStanding(schoolPercentile: 88)
+     )
+ }
+diff --git a/ios/CaseRoom/DesignSystem/SteppedTimeline.swift b/ios/CaseRoom/DesignSystem/SteppedTimeline.swift
+index 62f9b01..506ff4a 100644
+--- a/ios/CaseRoom/DesignSystem/SteppedTimeline.swift
++++ b/ios/CaseRoom/DesignSystem/SteppedTimeline.swift
+@@ -1,26 +1,27 @@
+ /*
+  * Purpose: The literal stepped timeline — a non-scaling 2px stepped line
+  *          (path M2 58 H96 V42 H192 V24 H276 V8 H318, viewBox 320×64) with a green
+- *          TODAY dot at the origin and a 3-column firm-label grid beneath.
++ *          TODAY dot + "TODAY" label at the origin and a 3-column firm-label grid
++ *          beneath (days count is the hero; firm·date and tag are muted kickers).
+  * Inputs: firms (name/date/days/readiness/onPace), \.dsPalette.
+  * Outputs: StepPath (Shape), SteppedTimeline (View), TimelineFirm.
+  * Run: `SteppedTimeline(firms: PreviewFixtures.phone.timeline)`.
+  */
+ 
+ import SwiftUI
+ 
+ struct TimelineFirm: Identifiable {
+     let id = UUID()
+     let name: String
+     let date: String       // "Sep 12"
+-    let days: String       // "58 days"
++    let days: String       // "58d"
+     let readiness: String  // "ON PACE" / "PUSH QUANT" / "EARLY"
+     let onPace: Bool       // green only when true (owner: only McKinsey's ON PACE)
+ }
+ 
+ /// The stepped line, scaled non-uniformly to fill its rect (preserveAspectRatio:none).
+ struct StepPath: Shape {
+     func path(in rect: CGRect) -> Path {
+         let sx = rect.width / 320, sy = rect.height / 64
+         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+             CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
+@@ -34,34 +35,43 @@ struct StepPath: Shape {
+         return path
+     }
+ }
+ 
+ struct SteppedTimeline: View {
+     let firms: [TimelineFirm]
+     @Environment(\.dsPalette) private var palette
+ 
+     var body: some View {
+         VStack(alignment: .leading, spacing: 14) {
+-            GeometryReader { geo in
+-                StepPath()
+-                    .stroke(palette.ink, lineWidth: 2)   // 2px stays 2px (points, non-scaling)
+-                Circle()
+-                    .fill(palette.green)
+-                    .frame(width: 7, height: 7)
+-                    .position(x: 2, y: geo.size.height / 64 * 58)   // TODAY dot at origin (2,58)
++            ZStack(alignment: .topLeading) {
++                GeometryReader { geo in
++                    StepPath()
++                        .stroke(palette.ink, lineWidth: 2)   // 2px stays 2px (points, non-scaling)
++                    Circle()
++                        .fill(palette.green)
++                        .frame(width: 7, height: 7)
++                        // Canvas dot cx=4,cy=58 in the 320×64 viewBox — scale x, seat y at the origin.
++                        .position(x: geo.size.width / 320 * 4, y: geo.size.height / 64 * 58)
++                }
++                .frame(height: 64)
++
++                Text("TODAY").dsText(.timelineTodayLabel).foregroundStyle(palette.green)  // above the line, top-left
+             }
+-            .frame(height: 64)
+ 
+             HStack(alignment: .top, spacing: 8) {
+                 ForEach(firms) { firm in
+-                    VStack(alignment: .leading, spacing: 2) {
+-                        Text("\(firm.name) · \(firm.date)").dsText(.rowTitle).foregroundStyle(palette.ink)
+-                        Text(firm.days).dsText(.meta).foregroundStyle(palette.muted)
+-                        Text(firm.readiness).dsText(.kicker)
+-                            .foregroundStyle(firm.onPace ? palette.green : palette.muted)
++                    VStack(alignment: .leading, spacing: 3) {
++                        // Firm·date is the muted kicker; model stays mixed-case, uppercased at render.
++                        Text("\(firm.name) · \(firm.date)".uppercased())
++                            .dsText(.timelineFirmKicker).foregroundStyle(palette.muted)
++                        HStack(alignment: .firstTextBaseline, spacing: 7) {
++                            Text(firm.days).dsText(.timelineDays).tabularNumbers().foregroundStyle(palette.ink)
++                            Text(firm.readiness.uppercased()).dsText(.timelineTag)
++                                .foregroundStyle(firm.onPace ? palette.green : palette.muted)
++                        }
+                     }
+                     .frame(maxWidth: .infinity, alignment: .leading)
+                 }
+             }
+         }
+     }
+ }
+diff --git a/ios/CaseRoom/DesignSystem/Typography.swift b/ios/CaseRoom/DesignSystem/Typography.swift
+index 4ee210c..1714a99 100644
+--- a/ios/CaseRoom/DesignSystem/Typography.swift
++++ b/ios/CaseRoom/DesignSystem/Typography.swift
+@@ -71,20 +71,28 @@ struct DSTextStyle {
+     // §1 phone type scale.
+     static let h1Tab           = DSTextStyle(font: .archivo(28, weight: 800), tracking: -0.84, lineSpacing: 0)  // -.03em
+     static let takeoverDisplay = DSTextStyle(font: .archivo(32, weight: 800), tracking: -1.12, lineSpacing: 0)  // -.035em
+     static let cardTitle       = DSTextStyle(font: .archivo(20, weight: 700), tracking: -0.2,  lineSpacing: 0)
+     static let rowTitle        = DSTextStyle(font: .archivo(14, weight: 600), tracking: 0,     lineSpacing: 0)
+     static let rowTitleStrong  = DSTextStyle(font: .archivo(14.5, weight: 700), tracking: 0,   lineSpacing: 0)
+     static let kicker          = DSTextStyle(font: .archivo(10, weight: 600), tracking: 1.6,   lineSpacing: 0)  // .16em caps
+     static let meta            = DSTextStyle(font: .archivo(11.5, weight: 400), tracking: 0,   lineSpacing: 0)
+     static let timerLarge      = DSTextStyle(font: .archivo(34, weight: 700), tracking: 0,     lineSpacing: 0)
+ 
++    // Stepped-timeline label grid (canvas 3a 1484-1497 / 7b 365-377). The days
++    // count is the hero (14/700 tabular ink); firm·date and the readiness tag are
++    // muted small-caps kickers — inverted from the pre-F0 hierarchy.
++    static let timelineFirmKicker  = DSTextStyle(font: .archivo(9, weight: 600),  tracking: 0.9, lineSpacing: 0)  // 9 × .1em caps
++    static let timelineDays        = DSTextStyle(font: .archivo(14, weight: 700), tracking: 0,   lineSpacing: 0)  // tabular hero
++    static let timelineTag         = DSTextStyle(font: .archivo(8, weight: 600),  tracking: 0.8, lineSpacing: 0)  // 8 × .1em caps
++    static let timelineTodayLabel  = DSTextStyle(font: .archivo(8.5, weight: 600), tracking: 1.19, lineSpacing: 0) // 8.5 × .14em caps
++
+     static func serif(_ size: CGFloat, italic: Bool = false, weight: CGFloat = 400) -> DSTextStyle {
+         DSTextStyle(font: .serifVoice(size, weight: weight, italic: italic), tracking: 0, lineSpacing: size * 0.5)
+     }
+ }
+ 
+ extension View {
+     /// Apply a DSTextStyle (font + tracking + line spacing; color left to caller).
+     func dsText(_ style: DSTextStyle) -> some View {
+         self.font(style.font).tracking(style.tracking).lineSpacing(style.lineSpacing)
+     }
+diff --git a/ios/CaseRoomTests/DesignSystem/GlassTests.swift b/ios/CaseRoomTests/DesignSystem/GlassTests.swift
+index 55d68c9..1cf4236 100644
+--- a/ios/CaseRoomTests/DesignSystem/GlassTests.swift
++++ b/ios/CaseRoomTests/DesignSystem/GlassTests.swift
+@@ -10,14 +10,21 @@ import SwiftUI
+ @testable import CaseRoom
+ 
+ final class GlassTests: XCTestCase {
+     func testGlassModifiersProduceViews() {
+         _ = AnyView(Text("x").glassPanel())
+         _ = AnyView(Text("x").glassChip())
+         _ = AnyView(Text("x").glassSheet(cornerRadius: 34))
+         _ = AnyView(DSScrim())
+     }
+ 
++    // Flat key/chip glass (Canon §1 line 29): keys radius 16, chips capsule.
++    func testFlatGlassKeyModifiersProduceViews() {
++        _ = AnyView(Text("x").glassKey())
++        _ = AnyView(Text("x").glassKey(cornerRadius: 999))
++        _ = AnyView(Text("x").glassChipFlat())
++    }
++
+     func testRiseTransitionExists() {
+         _ = AnyTransition.dsRise
+     }
+ }
+diff --git a/ios/CaseRoomTests/DesignSystem/PreviewFixturesTests.swift b/ios/CaseRoomTests/DesignSystem/PreviewFixturesTests.swift
+index 45e58b5..e1bf9da 100644
+--- a/ios/CaseRoomTests/DesignSystem/PreviewFixturesTests.swift
++++ b/ios/CaseRoomTests/DesignSystem/PreviewFixturesTests.swift
+@@ -15,28 +15,29 @@ final class PreviewFixturesTests: XCTestCase {
+         XCTAssertEqual(d.profile.initials, "AO")
+         XCTAssertEqual(d.profile.cohort, "C-14")
+         XCTAssertEqual(d.profile.streakDays, 12)
+         XCTAssertEqual(d.profile.points, 331)
+         XCTAssertEqual(d.diagnostic.marketSizing, 5.1, accuracy: 0.001)
+         XCTAssertEqual(d.diagnostic.focus, "Market sizing")
+         XCTAssertEqual(d.tonight.opponent, "M. Lindqvist")
+         XCTAssertEqual(d.tonight.time, "19:00")
+         XCTAssertEqual(d.recap.interviewer, "T. Becker")
+         XCTAssertEqual(d.timeline.first?.readiness, "ON PACE")
++        XCTAssertEqual(d.timeline.first?.days, "58d")   // "Nd" hero form (days now the 14/700 lead)
+         XCTAssertTrue(d.timeline.first!.onPace)
+         XCTAssertFalse(d.timeline[1].onPace)   // only McKinsey is green
+         XCTAssertEqual(d.standing.schoolPercentile, 91)
+     }
+ 
+     func testTabletIsOneDayAdvanced() {
+         let d = PreviewFixtures.tablet
+         XCTAssertEqual(d.profile.streakDays, 13)
+         XCTAssertEqual(d.profile.points, 335)
+         XCTAssertEqual(d.profile.behindNext, 4)
+         XCTAssertEqual(d.diagnostic.quant, 6.6, accuracy: 0.001)
+         XCTAssertEqual(d.diagnostic.marketSizing, 5.3, accuracy: 0.001)
+         XCTAssertEqual(d.diagnostic.casesLogged, 15)
+         XCTAssertEqual(d.tonight.caseTitle, "Dental roll-up")
+         XCTAssertEqual(d.standing.schoolPercentile, 88)
+-        XCTAssertEqual(d.timeline.first?.days, "57 days")
++        XCTAssertEqual(d.timeline.first?.days, "57d")
+     }
+ }
+diff --git a/ios/CaseRoomTests/DesignSystem/TypographyTests.swift b/ios/CaseRoomTests/DesignSystem/TypographyTests.swift
+index 5cd99cd..b964b3f 100644
+--- a/ios/CaseRoomTests/DesignSystem/TypographyTests.swift
++++ b/ios/CaseRoomTests/DesignSystem/TypographyTests.swift
+@@ -37,11 +37,20 @@ final class TypographyTests: XCTestCase {
+         let f = UIFont(descriptor: desc ?? UIFontDescriptor(), size: 15)
+         XCTAssertEqual(f.familyName, "Source Serif 4")
+     }
+ 
+     func testTypeScaleTrackingValues() {
+         XCTAssertEqual(DSTextStyle.h1Tab.tracking, -0.84, accuracy: 0.001)       // 28 × -.03em
+         XCTAssertEqual(DSTextStyle.takeoverDisplay.tracking, -1.12, accuracy: 0.001) // 32 × -.035em
+         XCTAssertEqual(DSTextStyle.kicker.tracking, 1.6, accuracy: 0.001)        // 10 × .16em
+         XCTAssertEqual(DSTextStyle.rowTitle.tracking, 0, accuracy: 0.001)
+     }
++
++    // Timeline label statics = canvas pixel-truth (3a 1484-1497 / 7b 365-377):
++    // firm·date 9px/.1em, days 14px tabular no-tracking, tag 8px/.1em, TODAY 8.5px/.14em.
++    func testTimelineTypeScaleTrackingValues() {
++        XCTAssertEqual(DSTextStyle.timelineFirmKicker.tracking, 0.9, accuracy: 0.001)   // 9 × .1em
++        XCTAssertEqual(DSTextStyle.timelineDays.tracking, 0, accuracy: 0.001)           // 14 tabular
++        XCTAssertEqual(DSTextStyle.timelineTag.tracking, 0.8, accuracy: 0.001)          // 8 × .1em
++        XCTAssertEqual(DSTextStyle.timelineTodayLabel.tracking, 1.19, accuracy: 0.001)  // 8.5 × .14em
++    }
+ }
