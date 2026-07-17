@@ -24,6 +24,15 @@ Run suite: DATABASE_URL=postgresql://localhost/caserepo_bgap_b8 $PY -m pytest te
 - Task 4 (leaderboards.py ACTIVITY_POINTS_SQL +gauntlet score): complete (commit e0fc323, review SPEC PASS/CODE PASS; B6 PROVABLY SAFE — logical proof + 0 set_key rows + 28/28 green; scope confined to 3 intended regions; guest-exclusion intact). Test new 3 + all B6 green. Minors (triaged, no change — minimize churn on shared file): 0-score gauntlet-only user excluded from population [defensible; POINTS=0 either way; streak still counts], points widens to REAL [order-invariant].
 - Task 5 (webapp/gauntlet.py service submit/results_for/trends): complete (commit 8e8e506, review SPEC PASS/CODE PASS; grouped-user rank math proven on live DB — board[rank-2] delta correct; design-delta compliant, no forbidden keys). Test 5/5. Minors → FINAL FIX BATCH: M1 add school_percentile code comment, M2 raise InvalidSubmission (not TypeError) on a slot-less answer + covering test, M3 _group_block docstring wording ("most recently created group you belong to").
 - Task 6 (webapp/routes/drills.py 4 endpoints + main.py registration): complete (commit 403b255, review SPEC PASS/CODE PASS; answer-redaction [whitelist public_drill, no answer on wire] + IDOR group gate [is_member before data, session-only id] both verified; auth/same-origin/no-counts/409/422/additive-registration confirmed). Test 9/9. Confirms Task 2 provisional-flag minor resolved (stamped on GET). Minors → FINAL FIX BATCH (test polish): M1 positive-path group-board test through route, M2 populated school/global no-counts test, M3 same-origin-403 POST test.
+- Task 7 (docs/superpowers/notes/2026-07-17-drills-bank-integration.md + structural guard test): complete (commit b426cae, review SPEC PASS/CODE PASS; all 5 mandated elements, 13 file:symbol refs resolve, 019 confirmed absent). Test 2/2. Minor → FINAL BATCH: §4 wording "missing submitted answer scores False".
+
+## Final-review fix-batch candidates (triaged Minors to hand the whole-branch reviewer)
+- T5-M1: add school_percentile code comment in webapp/gauntlet.py.
+- T5-M2: webapp/gauntlet.py submit() — guard non-int/missing slot → raise InvalidSubmission (not TypeError) + covering test.
+- T5-M3 / plan already fixed: _group_block docstring → "most recently created group you belong to".
+- T2-M2: drills.py header docblock — mention new daily_set/public_drill/score_slot surface.
+- T6-M1/M2/M3: route-level positive-path group board test, populated school/global no-counts test, same-origin-403 POST test.
+- T7 §4: "missing submitted answer scores False" wording.
 
 ## Assumptions
 - school_percentile in the gauntlet results = user_global_percentile (the value B6's my_school_standing.your_percentile surfaces on the school card). A distinct within-school population is a future refinement; brief only says "school percentile".
