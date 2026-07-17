@@ -26,8 +26,12 @@ Order: T1 DS primitives → T2 API → T4 Timeline detail → T3 Home phone → 
   - Plan patched (lines 226/295/315) so T3 inherits "MMM dd" + focus-firm derivation.
   - NOTE (screenshot tooling): stale DerivedData (brssf) caused false "Login" shots; deleted it, fzihnr is the working build. Cold-launch needs ~8s render wait (perl select; `sleep` binary blocked).
   - Deferred/flagged: "Set date" tap is inert (B7 has no set-deadline endpoint) — backend follow-up.
-- Task 3 (Home phone, sonnet): IN PROGRESS. BASE=30d87cd.
-- (T5, T6 pending)
+- Task 3 (Home phone, sonnet): COMPLETE — commit 80f3d36 (impl agent stopped pre-finalization; lead finished: fixed testDateKickerFormat which hardcoded the canvas's FICTIONAL weekday "WEDNESDAY, JULY 16" [2026-07-16 is really Thursday] → code correct, test wrong; ran suite, captured shot, committed). HomeView + HomeViewModel + NumberWords + 13 tests; RootShell .home NavigationStack(homePath) + AppRouter .timelineDetail→homePath. Review: PASS (0 crit/imp). Suite 345→358. Shot home-phone.png matches canvas 3a.
+  - I-1 identity fix verified (cohort rank by entry.userId==profile.id, hidden if absent; greeting firstName from profile).
+  - Banked MINORs (Task 6 triage): (a) dateKicker uses "MMMM dd" → single-digit days show "JULY 06"; plan spec wants "MONTH D" — one-char dd→d fix; (b) cohort found-case test fixture has id-order == rank-order (not ordering-adversarial); code correct, test-robustness nit.
+  - Infra note: 3 DerivedData dirs exist (fzihnr active); Task 5 must select app by NEWEST mtime + verify shot >1MB to avoid the stale-install trap. Sim wedge (Live Activity test) cleared by orchestrator reboot+mic-regrant; suite now runs clean foreground (~fast, warm DD).
+- Task 5 (tablet Home canvas 2a, sonnet): IN PROGRESS. BASE=80f3d36.
+- (T6 pending)
 
 ## Blocked / decisions needed
 - (none yet)

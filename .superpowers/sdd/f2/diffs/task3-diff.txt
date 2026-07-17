@@ -1,0 +1,1153 @@
+diff --git a/.superpowers/sdd/f2/shots/home-phone.png b/.superpowers/sdd/f2/shots/home-phone.png
+new file mode 100644
+index 0000000..00cd9ad
+Binary files /dev/null and b/.superpowers/sdd/f2/shots/home-phone.png differ
+diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
+index c07877f..6205324 100644
+--- a/ios/CaseRoom/App/CaseRoomApp.swift
++++ b/ios/CaseRoom/App/CaseRoomApp.swift
+@@ -1,15 +1,15 @@
+ /*
+  * Purpose: App entry point; launches RootShell (the 5-slot floating-glass tab
+  *          shell) and wires the UIKit app delegate needed for APNs device-token
+  *          registration.
+  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
+- *         -F2TimelinePromptNoOffer, -DevLogin, -startTab <tab>, -avatarOpen —
+- *         see the #if DEBUG blocks).
++ *         -F2TimelinePromptNoOffer, -F2Home, -DevLogin, -startTab <tab>,
++ *         -avatarOpen — see the #if DEBUG blocks).
+  * Outputs: none.
+  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
+  */
+ 
+ import SwiftUI
+ import UIKit
+ import UserNotifications
+ 
+@@ -51,16 +51,24 @@ struct CaseRoomApp: App {
+                 }
+             } else if ProcessInfo.processInfo.arguments.contains("-F2TimelinePromptNoOffer") {
+                 // Same fixture, prompt pre-set to the no_offer result card.
+                 NavigationStack {
+                     TimelineDetailView(viewModel: .init(fixtureDetail: PreviewTimelineFixture.detail,
+                                                           fixtureCatalog: PreviewTimelineFixture.catalog,
+                                                           promptStage: .result(PreviewTimelineFixture.noOfferResult)))
+                 }
++            } else if ProcessInfo.processInfo.arguments.contains("-F2Home") {
++                // Home (canvas 3a) fixture hatch: the July-16 persona, fixture-backed.
++                NavigationStack {
++                    HomeView(viewModel: .init(
++                        fixtureDashboard: PreviewHomeFixture.dashboard, fixtureGauntlet: PreviewHomeFixture.gauntlet,
++                        fixtureBoard: PreviewHomeFixture.board, fixtureProfile: PreviewHomeFixture.profile,
++                        fixtureTimeline: PreviewHomeFixture.timelineDetail))
++                }
+             } else {
+                 rootView
+             }
+             #else
+             rootView
+             #endif
+         }
+     }
+diff --git a/ios/CaseRoom/App/RootShell.swift b/ios/CaseRoom/App/RootShell.swift
+index 5e568e1..0436ef1 100644
+--- a/ios/CaseRoom/App/RootShell.swift
++++ b/ios/CaseRoom/App/RootShell.swift
+@@ -120,17 +120,24 @@ struct RootShell: View {
+             recorder: AttemptRecorder(service: APIClient.shared)
+         )
+     }
+ 
+     @ViewBuilder
+     private var selectedTab: some View {
+         switch router.selection {
+         case .home:
+-            TodayView(selectedTab: $router.selection)
++            NavigationStack(path: $router.homePath) {
++                HomeView()
++                    .navigationDestination(for: AppRoute.self) { route in
++                        if case .timelineDetail = route {
++                            TimelineDetailView()
++                        }
++                    }
++            }
+         case .library:
+             CasesListView()
+         case .caseTab:
+             SessionsView()
+         case .community:
+             CommunityTabStub()
+         case .drills:
+             DrillsTabStub()
+diff --git a/ios/CaseRoom/Intents/CaseRoomIntents.swift b/ios/CaseRoom/Intents/CaseRoomIntents.swift
+index b855202..74cd7b5 100644
+--- a/ios/CaseRoom/Intents/CaseRoomIntents.swift
++++ b/ios/CaseRoom/Intents/CaseRoomIntents.swift
+@@ -80,17 +80,18 @@ final class AppRouter {
+             sessionTakeoverID = id
+         case .drillRun:
+             selection = .home
+             drillRun = true       // RootShell observes this and presents DrillView
+         case .caseDetail(let id):
+             selection = .library
+             libraryPath.append(.caseDetail(id))
+         case .timelineDetail:
+-            selection = .home    // F2 wires the detail push onto homePath
++            selection = .home
++            homePath.append(.timelineDetail)
+         case .recap:
+             selection = .caseTab // F5 wires the recap presentation
+         case .groupPage:
+             selection = .community // F8 wires the group-page push onto communityPath
+         }
+     }
+ 
+     /// Remap a parsed caseroom:// / push-fold steering source onto the router.
+diff --git a/ios/CaseRoom/Shared/NumberWords.swift b/ios/CaseRoom/Shared/NumberWords.swift
+new file mode 100644
+index 0000000..120cee3
+--- /dev/null
++++ b/ios/CaseRoom/Shared/NumberWords.swift
+@@ -0,0 +1,26 @@
++/*
++ * Purpose: Shared 0–99 number-to-words helper ("Fifty-eight") for screens that
++ *          spell out small counts in prose — Timeline's day-count headline and
++ *          Home's drills/minutes hero both spell counts the same way.
++ * Inputs: none.
++ * Outputs: NumberWords.spellOut(_:).
++ * Run: `NumberWords.spellOut(58) == "Fifty-eight"`.
++ */
++
++import Foundation
++
++enum NumberWords {
++    /// 0–99 spelled out, first letter capitalized ("Fifty-eight"); >=100 falls
++    /// back to digits. Callers needing a mid-sentence (lowercase-leading) form
++    /// should call `.lowercased()` on the result.
++    static func spellOut(_ n: Int) -> String {
++        guard n >= 0, n < 100 else { return "\(n)" }
++        let ones = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
++                    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
++                    "Eighteen", "Nineteen"]
++        if n < 20 { return ones[n] }
++        let tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
++        let ten = n / 10, rem = n % 10
++        return rem == 0 ? tens[ten] : "\(tens[ten])-\(ones[rem].lowercased())"
++    }
++}
+diff --git a/ios/CaseRoom/State/HomeViewModel.swift b/ios/CaseRoom/State/HomeViewModel.swift
+new file mode 100644
+index 0000000..ce04e03
+--- /dev/null
++++ b/ios/CaseRoom/State/HomeViewModel.swift
+@@ -0,0 +1,318 @@
++/*
++ * Purpose: Backing state for the phone Home screen (canvas 3a) — concurrently
++ *          loads dashboard/gauntlet/groupBoard/profile/timeline, and derives
++ *          the greeting, today's-set hero (streak strip + cohort footer),
++ *          tonight strip, diagnostic bars + recommendation swap, and the
++ *          timeline block's firm rows.
++ * Inputs: DashboardService/GauntletService/BoardService/ProfileService/
++ *         RecommendationService/TimelineService (default APIClient.shared).
++ * Outputs: POST-free reads only; recommendation Swap re-queries `exclude:`.
++ * Run: owned by HomeView; call load() from .task.
++ */
++
++import Foundation
++import Observation
++
++protocol DashboardService {
++    func dashboard() async throws -> DashboardStats
++}
++extension APIClient: DashboardService {}
++
++@Observable
++@MainActor
++final class HomeViewModel {
++    /// One streak-strip cell's fill state (14 cells: filled up to the streak,
++    /// one "today" cell, the rest empty).
++    enum StreakCellState { case filled, today, empty }
++
++    struct DiagnosticBar: Identifiable {
++        let id = UUID()
++        let label: String
++        let width: Double       // 0...1, avgScore/10
++        let valueText: String   // "8.2"
++        let isFocus: Bool
++    }
++
++    private(set) var dashboard: DashboardStats?
++    private(set) var gauntlet: Gauntlet?
++    private(set) var board: GroupBoard?
++    private(set) var profile: ProfileDetail?
++    private(set) var timelineDetail: TimelineDetail?
++    private(set) var currentRecommendation: Recommendation?
++    private(set) var shownRecommendationIds: [Int] = []
++    var errorMessage: String?
++
++    private let dashboardService: DashboardService
++    private let gauntletService: GauntletService
++    private let boardService: BoardService
++    private let profileService: ProfileService
++    private let recommendationService: RecommendationService
++    private let timelineService: TimelineService
++    private let isFixtureBacked: Bool
++
++    init(dashboardService: DashboardService = APIClient.shared,
++         gauntletService: GauntletService = APIClient.shared,
++         boardService: BoardService = APIClient.shared,
++         profileService: ProfileService = APIClient.shared,
++         recommendationService: RecommendationService = APIClient.shared,
++         timelineService: TimelineService = APIClient.shared) {
++        self.dashboardService = dashboardService
++        self.gauntletService = gauntletService
++        self.boardService = boardService
++        self.profileService = profileService
++        self.recommendationService = recommendationService
++        self.timelineService = timelineService
++        self.isFixtureBacked = false
++    }
++
++    #if DEBUG
++    /// Screenshot-only: injects fixture data instead of hitting the network.
++    /// `load()` is a deliberate no-op on this instance (mirrors
++    /// TimelineDetailViewModel's fixture init) — a fixture-backed VM must
++    /// never be silently overwritten by a live response.
++    init(fixtureDashboard: DashboardStats, fixtureGauntlet: Gauntlet, fixtureBoard: GroupBoard,
++         fixtureProfile: ProfileDetail, fixtureTimeline: TimelineDetail) {
++        let never = NeverCalledHomeService()
++        self.dashboardService = never
++        self.gauntletService = never
++        self.boardService = never
++        self.profileService = never
++        self.recommendationService = never
++        self.timelineService = never
++        self.isFixtureBacked = true
++        self.dashboard = fixtureDashboard
++        self.gauntlet = fixtureGauntlet
++        self.board = fixtureBoard
++        self.profile = fixtureProfile
++        self.timelineDetail = fixtureTimeline
++        self.currentRecommendation = fixtureDashboard.recommendations?.first
++    }
++    #endif
++
++    func load() async {
++        guard !isFixtureBacked else { return }
++        errorMessage = nil
++        do {
++            async let d = dashboardService.dashboard()
++            async let g = gauntletService.gauntlet()
++            async let b = boardService.groupBoard()
++            async let p = profileService.profile()
++            async let t = timelineService.timeline()
++            let dashboard = try await d
++            let gauntlet = try await g
++            let board = try await b
++            let profile = try await p
++            let timelineDetail = try await t
++            self.dashboard = dashboard
++            self.gauntlet = gauntlet
++            self.board = board
++            self.profile = profile
++            self.timelineDetail = timelineDetail
++            self.currentRecommendation = dashboard.recommendations?.first
++        } catch {
++            errorMessage = "Couldn't load your Home."
++        }
++    }
++
++    // MARK: - Header
++
++    var dateKicker: String { Self.dateKicker(for: Date()) }
++
++    static func dateKicker(for date: Date) -> String {
++        let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: "en_US_POSIX")
++        formatter.dateFormat = "EEEE, MMMM dd"
++        return formatter.string(from: date).uppercased()
++    }
++
++    var greeting: String {
++        Self.greeting(hour: Calendar.current.component(.hour, from: Date()), displayName: profile?.displayName)
++    }
++
++    /// "{Morning|Afternoon|Evening}, {firstName}." — an empty/nil name greets
++    /// without a name (never "Morning, .").
++    static func greeting(hour: Int, displayName: String?) -> String {
++        let period: String
++        switch hour {
++        case ..<12: period = "Morning"
++        case ..<17: period = "Afternoon"
++        default: period = "Evening"
++        }
++        let firstName = displayName?.split(separator: " ").first.map(String.init) ?? ""
++        return firstName.isEmpty ? "\(period)." : "\(period), \(firstName)."
++    }
++
++    // MARK: - Hero (today's set)
++
++    var streakDay: Int { gauntlet?.streak ?? 0 }
++    var drillsCount: Int { gauntlet?.slots.count ?? 0 }
++    var submitted: Bool { gauntlet?.submitted ?? false }
++    /// DOCUMENTED estimate — minutes isn't in the gauntlet payload.
++    var estMinutes: Int { drillsCount * 2 }
++
++    /// "Six drills, twelve minutes." — sentence-leading count keeps spellOut's
++    /// capital; the mid-sentence minutes count is lowercased.
++    var heroTitle: String {
++        "\(NumberWords.spellOut(drillsCount)) drills, \(NumberWords.spellOut(estMinutes).lowercased()) minutes."
++    }
++
++    var streakCells: [StreakCellState] {
++        let filled = min(streakDay, 13)
++        return (0..<14).map { i in
++            if i < filled { return .filled }
++            if i == filled { return .today }
++            return .empty
++        }
++    }
++
++    private var myBoardEntry: BoardEntry? {
++        guard let profile else { return nil }
++        return board?.entries.first { $0.userId == profile.id }
++    }
++
++    var cohortFooterHidden: Bool {
++        myBoardEntry == nil || board?.group?.name == nil
++    }
++
++    var cohortLine: String {
++        guard let entry = myBoardEntry, let name = board?.group?.name else { return "" }
++        return "COHORT \(name) · \(Self.ordinal(entry.rank)) OF \(board?.entries.count ?? 0)"
++    }
++
++    var behindLine: String {
++        guard let entry = myBoardEntry, let board,
++              let ahead = board.entries.first(where: { $0.rank == entry.rank - 1 }) else { return "" }
++        let gap = abs(ahead.points - entry.points)
++        return "\(gap) BEHIND №\(entry.rank - 1)"
++    }
++
++    /// "1ST".."10TH" (uppercase suffix, canvas 3a "6TH OF 10").
++    static func ordinal(_ n: Int) -> String {
++        let mod100 = n % 100
++        let suffix: String
++        if (11...13).contains(mod100) {
++            suffix = "TH"
++        } else {
++            switch n % 10 {
++            case 1: suffix = "ST"
++            case 2: suffix = "ND"
++            case 3: suffix = "RD"
++            default: suffix = "TH"
++            }
++        }
++        return "\(n)\(suffix)"
++    }
++
++    // MARK: - Tonight strip
++
++    var tonightHidden: Bool { dashboard?.nextSession == nil }
++
++    var tonightKicker: String {
++        guard let session = dashboard?.nextSession, let at = session.scheduledAt else { return "" }
++        let dayLabel = Calendar.current.isDateInToday(at) ? "TONIGHT" : Self.weekdayFormatter.string(from: at).uppercased()
++        return "\(dayLabel) \(Self.timeFormatter.string(from: at)) · \(session.role.uppercased())"
++    }
++
++    var tonightLine: String {
++        guard let session = dashboard?.nextSession else { return "" }
++        return "vs \(session.otherUser) · \(session.caseTitle)"
++    }
++
++    private static let weekdayFormatter: DateFormatter = {
++        let f = DateFormatter()
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.dateFormat = "EEEE"
++        return f
++    }()
++
++    private static let timeFormatter: DateFormatter = {
++        let f = DateFormatter()
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.dateFormat = "HH:mm"
++        return f
++    }()
++
++    // MARK: - Diagnostic
++
++    var casesLine: String { "\(dashboard?.diagnostic?.casesDone60D ?? 0) CASES" }
++
++    var diagnosticBars: [DiagnosticBar] {
++        let diagnostic = dashboard?.diagnostic
++        let focus = diagnostic?.focusDimension
++        return (diagnostic?.dimensions ?? []).map { dim in
++            DiagnosticBar(
++                label: Self.dimensionLabel(dim.dimension),
++                width: min(max(dim.avgScore / 10, 0), 1),
++                valueText: String(format: "%.1f", dim.avgScore),
++                isFocus: dim.dimension == focus)
++        }
++    }
++
++    /// "market_sizing" -> "Market sizing" (title-case the first word only).
++    static func dimensionLabel(_ raw: String) -> String {
++        let words = raw.replacingOccurrences(of: "_", with: " ").lowercased()
++        guard let first = words.first else { return words }
++        return first.uppercased() + words.dropFirst()
++    }
++
++    var recTitle: String { currentRecommendation?.title ?? "" }
++
++    /// "{case_type} · {difficulty}" — provenance ("Stern 2024") isn't in the payload.
++    var recMeta: String {
++        [currentRecommendation?.caseType, currentRecommendation?.difficulty]
++            .compactMap { $0 }
++            .joined(separator: " · ")
++    }
++
++    func swap() async {
++        guard let current = currentRecommendation else { return }
++        var shown = shownRecommendationIds
++        shown.append(current.caseId)
++        do {
++            let recs = try await recommendationService.recommendations(exclude: shown)
++            shownRecommendationIds = shown
++            currentRecommendation = recs.first
++        } catch {
++            errorMessage = "Couldn't load another case."
++        }
++    }
++
++    // MARK: - Timeline block
++
++    var timelineFirms: [TimelineFirm] {
++        (timelineDetail?.firms ?? [])
++            .filter { $0.deadline != nil && $0.deadline?.passed != true }
++            .compactMap { firm in
++                guard let deadline = firm.deadline else { return nil }
++                return TimelineFirm(
++                    name: firm.name,
++                    date: TimelineDetailViewModel.formattedDate(deadline.deadlineDate),
++                    days: "\(deadline.daysRemaining)d",
++                    readiness: TimelineDetailViewModel.tagLabel(firm.readinessTag),
++                    onPace: firm.readinessTag == "on_track")
++            }
++    }
++}
++
++#if DEBUG
++/// Backs the fixture-init VM. The screenshot hatch is documented non-
++/// interactive (simctl can't tap/type), so any call here is a misuse — fail
++/// loudly instead of silently hitting the network.
++private struct NeverCalledHomeService: DashboardService, GauntletService, BoardService,
++    ProfileService, RecommendationService, TimelineService {
++    func dashboard() async throws -> DashboardStats { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func profile() async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func uploadProfilePhoto(data: Data, mime: String) async throws -> String { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func notificationSettings() async throws -> NotificationSettings { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func recommendations(exclude: [Int]) async throws -> [Recommendation] { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func timeline() async throws -> TimelineDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func timelineFirms() async throws -> [FirmCatalogEntry] { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func trackFirm(firmId: Int) async throws { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func untrackFirm(firmId: Int) async throws { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func firmResult(firmId: Int, outcome: String) async throws -> FirmResult { fatalError("fixture-backed HomeViewModel must not call the network") }
++}
++#endif
+diff --git a/ios/CaseRoom/State/TimelineDetailViewModel.swift b/ios/CaseRoom/State/TimelineDetailViewModel.swift
+index eed742f..e2a6c98 100644
+--- a/ios/CaseRoom/State/TimelineDetailViewModel.swift
++++ b/ios/CaseRoom/State/TimelineDetailViewModel.swift
+@@ -196,27 +196,18 @@ final class TimelineDetailViewModel {
+         } catch {
+             errorMessage = "Couldn't record that."
+         }
+     }
+ 
+     // MARK: - Pure helpers (static so tests can call them directly)
+ 
+     /// 0–99 spelled out, first letter capitalized ("Fifty-eight"); >=100 falls
+-    /// back to digits.
+-    static func spellOut(_ n: Int) -> String {
+-        guard n >= 0, n < 100 else { return "\(n)" }
+-        let ones = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+-                    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
+-                    "Eighteen", "Nineteen"]
+-        if n < 20 { return ones[n] }
+-        let tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+-        let ten = n / 10, rem = n % 10
+-        return rem == 0 ? tens[ten] : "\(tens[ten])-\(ones[rem].lowercased())"
+-    }
++    /// back to digits. Delegates to the shared helper (Home's hero reuses it).
++    static func spellOut(_ n: Int) -> String { NumberWords.spellOut(n) }
+ 
+     /// Timeline 3-col summary label (canvas 7b line 372: focus → "PUSH QUANT").
+     static func tagLabel(_ tag: String) -> String {
+         switch tag {
+         case "on_track": return "ON PACE"
+         case "focus": return "PUSH QUANT"
+         case "early": return "EARLY"
+         default: return tag.uppercased()
+diff --git a/ios/CaseRoom/Views/HomeView.swift b/ios/CaseRoom/Views/HomeView.swift
+new file mode 100644
+index 0000000..0d7ea0f
+--- /dev/null
++++ b/ios/CaseRoom/Views/HomeView.swift
+@@ -0,0 +1,316 @@
++/*
++ * Purpose: Home screen (canvas 3a, phone) — the date/greeting header, the ONE
++ *          glass hero ("today's set" + streak strip + cohort footer), a light
++ *          elevated "tonight" strip, and flat editorial DIAGNOSTIC + TIMELINE
++ *          blocks. The whole timeline block and "Add a firm" push Timeline
++ *          detail; the hero's "Begin" opens F1's legacy drill sheet (F7 seam).
++ * Inputs: HomeViewModel (injectable; DEBUG fixture init for shots).
++ * Outputs: none (navigation via AppRouter.shared; writes live in the VM).
++ * Run: mounted by RootShell inside `NavigationStack(path: $router.homePath)`.
++ */
++
++import SwiftUI
++
++struct HomeView: View {
++    @Environment(\.dsPalette) private var palette
++    @State private var viewModel: HomeViewModel
++
++    // Injectable VM (default = live). The DEBUG -F2Home hatch injects a
++    // fixture-backed VM so simctl can capture a populated screen.
++    @MainActor
++    init(viewModel: HomeViewModel? = nil) {
++        _viewModel = State(initialValue: viewModel ?? HomeViewModel())
++    }
++
++    var body: some View {
++        ZStack {
++            DSBackground()
++            if viewModel.dashboard == nil {
++                Text("Loading your day…").dsText(.meta).foregroundStyle(palette.muted)
++            } else {
++                content
++            }
++        }
++        .task { await viewModel.load() }
++    }
++
++    private var content: some View {
++        ScrollView {
++            VStack(alignment: .leading, spacing: 22) {
++                header
++                if let errorMessage = viewModel.errorMessage {
++                    errorBanner(errorMessage)
++                }
++                heroCard
++                if !viewModel.tonightHidden {
++                    tonightStrip
++                }
++                diagnosticBlock
++                timelineBlock
++                Color.clear.frame(height: 120)   // room behind the tab bar
++            }
++            .padding(22)
++        }
++        .scrollIndicators(.hidden)
++        .dsHeaderFade()
++    }
++
++    private func errorBanner(_ message: String) -> some View {
++        HStack(spacing: 12) {
++            Text(message).dsText(.meta).foregroundStyle(palette.muted)
++            Button { Task { await viewModel.load() } } label: {
++                Text("Retry").dsText(.meta).underline().foregroundStyle(palette.ink)
++            }
++            .buttonStyle(.plain)
++        }
++    }
++
++    // MARK: - 1. Header
++
++    private var header: some View {
++        VStack(alignment: .leading, spacing: 6) {
++            Text(viewModel.dateKicker).dsText(.kicker).foregroundStyle(palette.muted)
++            Text(viewModel.greeting).dsText(.h1Tab).foregroundStyle(palette.ink)
++        }
++    }
++
++    // MARK: - 2. The glass hero — the ONLY glass hero on this screen
++
++    private var heroCard: some View {
++        VStack(alignment: .leading, spacing: 10) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("TODAY'S SET — CLOSES 23:59").dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                Text("DAY \(viewModel.streakDay)").dsText(.kicker).foregroundStyle(palette.green)
++            }
++            Text(viewModel.heroTitle).dsText(.cardTitle).foregroundStyle(palette.ink)
++            Text("A set now is the warm-up for tonight's case.")
++                .dsText(.serif(13.5, italic: true)).foregroundStyle(palette.muted)
++                .padding(.bottom, 6)
++            streakStrip
++            beginButton
++            if !viewModel.cohortFooterHidden {
++                HStack(alignment: .firstTextBaseline) {
++                    Text(viewModel.cohortLine).dsText(.kicker).foregroundStyle(palette.muted)
++                    Spacer()
++                    Text(viewModel.behindLine).dsText(.kicker).foregroundStyle(palette.muted)
++                }
++                .padding(.top, 3)
++            }
++        }
++        .padding(.horizontal, 22).padding(.top, 22).padding(.bottom, 18)
++        .glassPanel(cornerRadius: 30)
++    }
++
++    private var streakStrip: some View {
++        HStack(spacing: 3) {
++            ForEach(Array(viewModel.streakCells.enumerated()), id: \.offset) { _, state in
++                RoundedRectangle(cornerRadius: 3)
++                    .fill(streakCellColor(state))
++                    .frame(height: 6)
++            }
++        }
++        .padding(.bottom, 4)
++    }
++
++    private func streakCellColor(_ state: HomeViewModel.StreakCellState) -> Color {
++        switch state {
++        case .filled: return palette.green
++        case .today: return viewModel.submitted ? palette.green : palette.ink.opacity(0.25)
++        case .empty: return palette.ink.opacity(0.12)
++        }
++    }
++
++    private var beginButton: some View {
++        Button {
++            AppRouter.shared.go(to: .drillRun)
++        } label: {
++            Text("Begin today's set")
++                .dsText(.rowTitle)
++                .foregroundStyle(palette.onInk)
++                .frame(maxWidth: .infinity)
++                .frame(height: 50)
++        }
++        .buttonStyle(DSPressStyle())
++        .background(Capsule().fill(palette.ink))
++    }
++
++    // MARK: - 3. Tonight strip — light elevated card (deviation #1: canvas
++    // 3a is a light near-white surface, not the dark session-takeover theme).
++
++    private var tonightStrip: some View {
++        Button {
++            AppRouter.shared.selection = .caseTab
++        } label: {
++            HStack(spacing: 14) {
++                BlinkDot(diameter: 7).environment(\.dsPalette, DSPalette.dark)
++                VStack(alignment: .leading, spacing: 2) {
++                    Text(viewModel.tonightKicker).dsText(.kicker).foregroundStyle(DSPalette.dark.muted)
++                    Text(viewModel.tonightLine).dsText(.rowTitleStrong).foregroundStyle(palette.ink)
++                        .lineLimit(1).truncationMode(.tail)
++                }
++                Spacer(minLength: 12)
++                Text("Details").dsText(.meta).underline().foregroundStyle(palette.ink)
++            }
++            .padding(.horizontal, 20).padding(.vertical, 15)
++        }
++        .buttonStyle(.plain)
++        .background(
++            RoundedRectangle(cornerRadius: 24, style: .continuous)
++                .fill(palette.surface)
++                .shadow(color: Color.dsShadowInk.opacity(0.2), radius: 26, x: 0, y: 10)
++        )
++    }
++
++    // MARK: - 4. Flat DIAGNOSTIC block
++
++    private var diagnosticBlock: some View {
++        VStack(alignment: .leading, spacing: 14) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("DIAGNOSTIC — LAST 2 MONTHS").dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                Text(viewModel.casesLine).dsText(.kicker).foregroundStyle(palette.muted)
++            }
++            VStack(spacing: 9) {
++                ForEach(viewModel.diagnosticBars) { bar in
++                    diagnosticRow(bar)
++                }
++            }
++            Rectangle().fill(palette.hairline).frame(height: 1)
++            VStack(alignment: .leading, spacing: 2) {
++                Text("Next case for the gap:")
++                    .dsText(.serif(13, italic: true)).foregroundStyle(palette.muted)
++                Text(viewModel.recTitle)
++                    .font(.archivo(15.5, weight: 700)).tracking(-0.015 * 15.5)
++                    .foregroundStyle(palette.ink)
++                Text(viewModel.recMeta).dsText(.meta).foregroundStyle(palette.muted)
++            }
++            HStack(spacing: 18) {
++                Button {
++                    AppRouter.shared.selection = .caseTab
++                } label: {
++                    Text("Get cased on this").dsText(.rowTitle).underline().foregroundStyle(palette.ink)
++                }
++                .buttonStyle(.plain)
++                Button {
++                    Task { await viewModel.swap() }
++                } label: {
++                    Text("Swap").dsText(.rowTitle).underline().foregroundStyle(palette.muted)
++                }
++                .buttonStyle(.plain)
++            }
++        }
++        .padding(.top, 14)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++
++    private func diagnosticRow(_ bar: HomeViewModel.DiagnosticBar) -> some View {
++        HStack(spacing: 10) {
++            HStack(spacing: 4) {
++                Text(bar.label).dsText(.meta).foregroundStyle(palette.ink)
++                if bar.isFocus {
++                    Text("FOCUS").dsText(.timelineTag).foregroundStyle(palette.green)
++                }
++            }
++            .frame(width: 104, alignment: .leading)
++            GeometryReader { geo in
++                ZStack(alignment: .leading) {
++                    Rectangle().fill(palette.ink.opacity(0.1))
++                    Rectangle().fill(palette.ink).frame(width: geo.size.width * bar.width)
++                }
++            }
++            .frame(height: 2)
++            Text(bar.valueText).dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
++                .frame(width: 28, alignment: .trailing)
++        }
++    }
++
++    // MARK: - 5. Flat TIMELINE block — whole block + "Add a firm" both push .timelineDetail
++
++    private var timelineBlock: some View {
++        Button {
++            AppRouter.shared.go(to: .timelineDetail)
++        } label: {
++            VStack(alignment: .leading, spacing: 10) {
++                HStack(alignment: .firstTextBaseline) {
++                    Text("TIMELINE — FIRM DEADLINES").dsText(.kicker).foregroundStyle(palette.muted)
++                    Spacer()
++                    Text("Add a firm").dsText(.meta).underline().foregroundStyle(palette.muted)
++                }
++                SteppedTimeline(firms: viewModel.timelineFirms)
++            }
++        }
++        .buttonStyle(.plain)
++        .padding(.top, 14)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++}
++
++#if DEBUG
++/// Screenshot/preview-only fixture in the live API model shapes (the July-16
++/// phone persona, Decisions §3): streak 12, 6 gauntlet slots, cohort C-14
++/// 6th of 10 / 8 behind, diagnostic Structure 8.2/Comm 7.4/Quant 6.8/Market
++/// sizing 5.1 FOCUS with 14 cases, rec "EV charging — size the German
++/// market", tonight M. Lindqvist 19:00 candidate, firms McKinsey/BCG/Bain.
++enum PreviewHomeFixture {
++    static let profile = ProfileDetail(
++        id: 1, email: "amara.osei@wharton.upenn.edu", displayName: "Amara Osei",
++        bio: "MBA '27", linkedinUrl: "https://linkedin.com/in/amara-osei", school: "Wharton", photoUrl: nil)
++
++    static let gauntlet = Gauntlet(
++        date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++        slots: (1...6).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
++        streak: 12, submitted: false, result: nil)
++
++    static let board = GroupBoard(
++        scope: "group", group: GroupRef(id: 14, name: "C-14"),
++        entries: [
++            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
++            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
++            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
++            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
++            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 339, rank: 5, streak: 13),
++            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
++            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
++            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
++            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
++            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
++        ])
++
++    static let dashboard = DashboardStats(
++        sessionsFinalized: 9, streakWeeks: 3,
++        nextSession: SessionSummary(
++            id: 42, role: "candidate", otherUser: "M. Lindqvist",
++            caseTitle: "Low-cost carrier enters the Nordic market",
++            scheduledAt: Calendar.current.date(bySettingHour: 19, minute: 0, second: 0, of: Date()),
++            state: nil, endedAt: nil, grade: nil),
++        streakDays: 12, drillDoneToday: false,
++        dimensionAverages: nil,
++        recommendations: [
++            Recommendation(caseId: 301, title: "EV charging — size the German market",
++                            caseType: "Market sizing", difficulty: "D3", why: nil, rule: nil),
++        ],
++        diagnostic: DiagnosticStats(
++            casesDone60D: 14,
++            dimensions: [
++                DimensionScore(dimension: "structure", avgScore: 8.2, samples: 14),
++                DimensionScore(dimension: "communication", avgScore: 7.4, samples: 14),
++                DimensionScore(dimension: "quant", avgScore: 6.8, samples: 14),
++                DimensionScore(dimension: "market_sizing", avgScore: 5.1, samples: 14),
++            ],
++            strengths: [], weaknesses: [], focusDimension: "market_sizing",
++            trend: DiagnosticTrend(recentAvg: nil, previousAvg: nil, delta: nil, direction: nil)),
++        timeline: nil)
++
++    // McKinsey/BCG/Bain (+ passed Roland Berger) — the same July-16 persona
++    // TimelineDetailView's own fixture already carries (canvas 3a + 7b agree).
++    static let timelineDetail = PreviewTimelineFixture.detail
++}
++
++#Preview {
++    HomeView(viewModel: .init(
++        fixtureDashboard: PreviewHomeFixture.dashboard, fixtureGauntlet: PreviewHomeFixture.gauntlet,
++        fixtureBoard: PreviewHomeFixture.board, fixtureProfile: PreviewHomeFixture.profile,
++        fixtureTimeline: PreviewHomeFixture.timelineDetail))
++}
++#endif
+diff --git a/ios/CaseRoomTests/HomeViewModelTests.swift b/ios/CaseRoomTests/HomeViewModelTests.swift
+new file mode 100644
+index 0000000..e45d13f
+--- /dev/null
++++ b/ios/CaseRoomTests/HomeViewModelTests.swift
+@@ -0,0 +1,330 @@
++/*
++ * Purpose: Unit tests for HomeViewModel — greeting-by-hour + empty-name,
++ *          ordinal, heroTitle spellOut, cohort-footer derivation (found/not-
++ *          found), Swap advances + excludes shown ids, diagnostic bar width +
++ *          FOCUS match, timeline tag-label mapping, and dateKicker format.
++ * Inputs: fake Dashboard/Gauntlet/Board/Profile/Recommendation/Timeline services.
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++@MainActor
++final class HomeViewModelTests: XCTestCase {
++
++    // MARK: - Pure helpers
++
++    func testDateKickerFormat() {
++        // Local noon so the formatted day is timezone-independent. The canvas
++        // kicker reads "WEDNESDAY, JULY 16" but that's persona fiction — the
++        // live kicker computes the REAL weekday, and 2026-07-16 is a Thursday.
++        var comps = DateComponents()
++        comps.year = 2026; comps.month = 7; comps.day = 16; comps.hour = 12
++        let date = Calendar.current.date(from: comps)!
++        XCTAssertEqual(HomeViewModel.dateKicker(for: date), "THURSDAY, JULY 16")
++    }
++
++    func testGreetingByHour() {
++        XCTAssertEqual(HomeViewModel.greeting(hour: 6, displayName: "Amara Osei"), "Morning, Amara.")
++        XCTAssertEqual(HomeViewModel.greeting(hour: 11, displayName: "Amara Osei"), "Morning, Amara.")
++        XCTAssertEqual(HomeViewModel.greeting(hour: 12, displayName: "Amara Osei"), "Afternoon, Amara.")
++        XCTAssertEqual(HomeViewModel.greeting(hour: 16, displayName: "Amara Osei"), "Afternoon, Amara.")
++        XCTAssertEqual(HomeViewModel.greeting(hour: 17, displayName: "Amara Osei"), "Evening, Amara.")
++        XCTAssertEqual(HomeViewModel.greeting(hour: 23, displayName: "Amara Osei"), "Evening, Amara.")
++    }
++
++    func testGreetingEmptyOrNilNameOmitsComma() {
++        XCTAssertEqual(HomeViewModel.greeting(hour: 9, displayName: nil), "Morning.")
++        XCTAssertEqual(HomeViewModel.greeting(hour: 9, displayName: ""), "Morning.")
++    }
++
++    func testOrdinal1Through10() {
++        let expected = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH", "9TH", "10TH"]
++        for (i, exp) in expected.enumerated() {
++            XCTAssertEqual(HomeViewModel.ordinal(i + 1), exp)
++        }
++    }
++
++    func testDimensionLabelTitleCasesFirstWordOnly() {
++        XCTAssertEqual(HomeViewModel.dimensionLabel("market_sizing"), "Market sizing")
++        XCTAssertEqual(HomeViewModel.dimensionLabel("structure"), "Structure")
++        XCTAssertEqual(HomeViewModel.dimensionLabel("communication"), "Communication")
++    }
++
++    // MARK: - Hero
++
++    func testHeroTitleSpellsOutDrillsAndMinutes() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertEqual(vm.heroTitle, "Six drills, twelve minutes.")
++        XCTAssertEqual(vm.streakDay, 12)
++        XCTAssertFalse(vm.submitted)
++    }
++
++    // MARK: - Cohort footer
++
++    func testCohortFooterDerivationFromBoardFixture() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertFalse(vm.cohortFooterHidden)
++        XCTAssertEqual(vm.cohortLine, "COHORT C-14 · 6TH OF 10")
++        XCTAssertEqual(vm.behindLine, "8 BEHIND №5")
++    }
++
++    func testCohortFooterHiddenWhenMyEntryNotFound() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(ProfileDetail(
++                id: 999, email: "nobody@x.com", displayName: "Nobody", bio: nil, linkedinUrl: nil, school: nil, photoUrl: nil)),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertTrue(vm.cohortFooterHidden)
++    }
++
++    func testCohortFooterHiddenWhenNoGroup() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(GroupBoard(scope: "group", group: nil, entries: [])),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertTrue(vm.cohortFooterHidden)
++    }
++
++    // MARK: - Diagnostic
++
++    func testDiagnosticBarWidthAndFocusMatch() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        let bars = vm.diagnosticBars
++        XCTAssertEqual(bars.map(\.label), ["Structure", "Communication", "Quant", "Market sizing"])
++        XCTAssertEqual(bars[0].width, 0.82, accuracy: 0.001)
++        XCTAssertEqual(bars[0].valueText, "8.2")
++        XCTAssertFalse(bars[0].isFocus)
++        XCTAssertTrue(bars[3].isFocus)
++        XCTAssertEqual(vm.casesLine, "14 CASES")
++    }
++
++    // MARK: - Swap
++
++    func testSwapAdvancesAndExcludesShownIds() async {
++        let recSvc = FakeRecommendationService([.fixture2])
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: recSvc,
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertEqual(vm.currentRecommendation?.caseId, Recommendation.fixture1.caseId)
++        await vm.swap()
++        XCTAssertEqual(recSvc.lastExclude, [Recommendation.fixture1.caseId])
++        XCTAssertEqual(vm.currentRecommendation?.caseId, Recommendation.fixture2.caseId)
++    }
++
++    // MARK: - Timeline block
++
++    func testTimelineFirmsTagLabelMapping() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(.fixture),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertEqual(vm.timelineFirms.map(\.name), ["McKinsey", "BCG", "Bain"])
++        XCTAssertEqual(vm.timelineFirms.map(\.readiness), ["ON PACE", "PUSH QUANT", "EARLY"])
++        XCTAssertEqual(vm.timelineFirms.map(\.onPace), [true, false, false])
++        // Roland Berger is passed -> excluded from the Home timeline block.
++        XCTAssertFalse(vm.timelineFirms.contains { $0.name == "Roland Berger" })
++    }
++
++    // MARK: - Tonight
++
++    func testTonightHiddenWhenNoNextSession() async {
++        let vm = HomeViewModel(
++            dashboardService: FakeDashboardService(DashboardStats(
++                sessionsFinalized: 0, streakWeeks: 0, nextSession: nil)),
++            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
++            boardService: FakeBoardService(.fixture),
++            profileService: FakeProfileService(.fixture),
++            recommendationService: FakeRecommendationService([]),
++            timelineService: FakeTimelineServiceForHome(.fixture))
++        await vm.load()
++        XCTAssertTrue(vm.tonightHidden)
++    }
++}
++
++// MARK: - Fixtures + fakes
++
++private extension DashboardStats {
++    static let fixture = DashboardStats(
++        sessionsFinalized: 3, streakWeeks: 2,
++        nextSession: SessionSummary(
++            id: 1, role: "candidate", otherUser: "M. Lindqvist",
++            caseTitle: "Low-cost carrier enters the Nordic market",
++            scheduledAt: Date(), state: nil, endedAt: nil, grade: nil),
++        streakDays: 12, drillDoneToday: false,
++        dimensionAverages: nil,
++        recommendations: [.fixture1, .fixture2],
++        diagnostic: DiagnosticStats(
++            casesDone60D: 14,
++            dimensions: [
++                DimensionScore(dimension: "structure", avgScore: 8.2, samples: 14),
++                DimensionScore(dimension: "communication", avgScore: 7.4, samples: 14),
++                DimensionScore(dimension: "quant", avgScore: 6.8, samples: 14),
++                DimensionScore(dimension: "market_sizing", avgScore: 5.1, samples: 14),
++            ],
++            strengths: [], weaknesses: [], focusDimension: "market_sizing",
++            trend: DiagnosticTrend(recentAvg: nil, previousAvg: nil, delta: nil, direction: nil)),
++        timeline: nil)
++}
++
++private extension Recommendation {
++    static let fixture1 = Recommendation(
++        caseId: 101, title: "EV charging — size the German market",
++        caseType: "Market sizing", difficulty: "D3", why: nil, rule: nil)
++    static let fixture2 = Recommendation(
++        caseId: 205, title: "Airline loyalty program overhaul",
++        caseType: "Profitability", difficulty: "D2", why: nil, rule: nil)
++}
++
++private extension Gauntlet {
++    static func fixture(slots: Int, streak: Int) -> Gauntlet {
++        Gauntlet(
++            date: "2026-07-16", setKey: "k1", provisional: false,
++            slots: (1...slots).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
++            streak: streak, submitted: false, result: nil)
++    }
++}
++
++private extension GroupBoard {
++    static let fixture = GroupBoard(
++        scope: "group", group: GroupRef(id: 14, name: "C-14"),
++        entries: [
++            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
++            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
++            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
++            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
++            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 339, rank: 5, streak: 13),
++            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
++            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
++            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
++            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
++            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
++        ])
++}
++
++private extension ProfileDetail {
++    static let fixture = ProfileDetail(
++        id: 1, email: "amara.osei@wharton.upenn.edu", displayName: "Amara Osei",
++        bio: "MBA '27", linkedinUrl: nil, school: "Wharton", photoUrl: nil)
++}
++
++private extension TimelineDetail {
++    static let fixture = TimelineDetail(
++        asOf: "2026-07-16",
++        readiness: TimelineReadiness(label: "needs_work", ready: false, focusDimension: "Market sizing",
++                                      recentCaseCount: 5, threshold: 6.0, minCases: 3),
++        firms: [
++            TimelineFirmDetail(
++                firmId: 1, name: "McKinsey", slug: "mckinsey", status: "tracked", addedAt: "2026-06-01",
++                deadline: FirmDeadline(cycleLabel: "Fall", deadlineDate: "2026-09-12", region: "Americas",
++                                        isEstimate: false, daysRemaining: 58, passed: false),
++                readinessTag: "on_track", prompt: FirmPrompt(show: false)),
++            TimelineFirmDetail(
++                firmId: 2, name: "BCG", slug: "bcg", status: "tracked", addedAt: "2026-06-01",
++                deadline: FirmDeadline(cycleLabel: "Fall", deadlineDate: "2026-09-30", region: "Americas",
++                                        isEstimate: false, daysRemaining: 76, passed: false),
++                readinessTag: "focus", prompt: FirmPrompt(show: false)),
++            TimelineFirmDetail(
++                firmId: 3, name: "Bain", slug: "bain", status: "tracked", addedAt: "2026-06-01",
++                deadline: FirmDeadline(cycleLabel: "Fall", deadlineDate: "2026-10-08", region: "Americas",
++                                        isEstimate: true, daysRemaining: 84, passed: false),
++                readinessTag: "early", prompt: FirmPrompt(show: false)),
++            TimelineFirmDetail(
++                firmId: 4, name: "Roland Berger", slug: "roland-berger", status: "tracked", addedAt: "2026-05-01",
++                deadline: FirmDeadline(cycleLabel: "Summer", deadlineDate: "2026-07-02", region: "Americas",
++                                        isEstimate: false, daysRemaining: -14, passed: true),
++                readinessTag: "on_track", prompt: FirmPrompt(show: true)),
++        ])
++}
++
++private final class FakeDashboardService: DashboardService, @unchecked Sendable {
++    var value: DashboardStats
++    init(_ value: DashboardStats) { self.value = value }
++    func dashboard() async throws -> DashboardStats { value }
++}
++
++private final class FakeGauntletService: GauntletService, @unchecked Sendable {
++    var value: Gauntlet
++    init(_ value: Gauntlet) { self.value = value }
++    func gauntlet() async throws -> Gauntlet { value }
++}
++
++private final class FakeBoardService: BoardService, @unchecked Sendable {
++    var value: GroupBoard
++    init(_ value: GroupBoard) { self.value = value }
++    func groupBoard() async throws -> GroupBoard { value }
++}
++
++private final class FakeProfileService: ProfileService, @unchecked Sendable {
++    var value: ProfileDetail
++    init(_ value: ProfileDetail) { self.value = value }
++    func profile() async throws -> ProfileDetail { value }
++    func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail { value }
++    func uploadProfilePhoto(data: Data, mime: String) async throws -> String { "" }
++    func notificationSettings() async throws -> NotificationSettings {
++        NotificationSettings(proposals: true, sessionReminders: true, feedback: true, freeNow: true, community: true)
++    }
++    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { settings }
++}
++
++private final class FakeRecommendationService: RecommendationService, @unchecked Sendable {
++    var recs: [Recommendation]
++    var lastExclude: [Int]?
++    init(_ recs: [Recommendation]) { self.recs = recs }
++    func recommendations(exclude: [Int]) async throws -> [Recommendation] {
++        lastExclude = exclude
++        return recs
++    }
++}
++
++private final class FakeTimelineServiceForHome: TimelineService, @unchecked Sendable {
++    var value: TimelineDetail
++    init(_ value: TimelineDetail) { self.value = value }
++    func timeline() async throws -> TimelineDetail { value }
++    func timelineFirms() async throws -> [FirmCatalogEntry] { [] }
++    func trackFirm(firmId: Int) async throws {}
++    func untrackFirm(firmId: Int) async throws {}
++    func firmResult(firmId: Int, outcome: String) async throws -> FirmResult {
++        FirmResult(outcome: outcome, status: nil, reweight: nil, snoozeUntil: nil, resultRecordedAt: nil, dropped: nil)
++    }
++}

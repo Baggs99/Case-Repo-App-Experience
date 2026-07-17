@@ -1,0 +1,11 @@
+80f3d36 Add Home screen (canvas 3a) + HomeViewModel + mount home NavigationStack
+ .superpowers/sdd/f2/shots/home-phone.png         | Bin 0 -> 2078901 bytes
+ ios/CaseRoom/App/CaseRoomApp.swift               |  12 +-
+ ios/CaseRoom/App/RootShell.swift                 |   9 +-
+ ios/CaseRoom/Intents/CaseRoomIntents.swift       |   3 +-
+ ios/CaseRoom/Shared/NumberWords.swift            |  26 ++
+ ios/CaseRoom/State/HomeViewModel.swift           | 318 ++++++++++++++++++++++
+ ios/CaseRoom/State/TimelineDetailViewModel.swift |  13 +-
+ ios/CaseRoom/Views/HomeView.swift                | 316 ++++++++++++++++++++++
+ ios/CaseRoomTests/HomeViewModelTests.swift       | 330 +++++++++++++++++++++++
+ 9 files changed, 1012 insertions(+), 15 deletions(-)
