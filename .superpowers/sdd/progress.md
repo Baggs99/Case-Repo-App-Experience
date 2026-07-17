@@ -17,3 +17,4 @@ Branch: bgap/b1-scheduling · DB: caserepo_bgap_b1 · Interpreter: /Users/thomas
 ## Tasks
 - Task 1: complete (commits f1721cf..6a72e75, review CLEAN — migrations 020/021 idempotent, spec-compliant)
 - Task 2: complete (commit ab30892, review CLEAN — env-tunable expiry settings, suite 362 green)
+- Task 3: complete (commit 62fb963, review CLEAN — nullable case/recipient + claim_token, suite 366 green)
