@@ -56,14 +56,23 @@ class TestGuestUsersSchema(unittest.TestCase):
                         "INSERT INTO users (email, password_hash, is_guest)"
                         " VALUES (NULL, 'x', FALSE) RETURNING id;")
 
-    def test_non_guest_with_bad_domain_still_rejected(self):
+    def test_schema_leaves_domain_policy_to_application(self):
+        # B2xB5 merge decision: migration 022 dropped the hardcoded domain
+        # CHECK - domain policy is enforced by the application against the
+        # schools registry (B5 signup gate), NOT the schema. A hardcoded
+        # CHECK here would break registry expansion by row insert.
         import psycopg
-        with self.assertRaises(psycopg.errors.CheckViolation):
-            with psycopg.connect(_DB_URL) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO users (email, password_hash, is_guest)"
-                        " VALUES ('nope@gmail.com', 'x', FALSE) RETURNING id;")
+        import uuid
+        email = f"offreg-{uuid.uuid4().hex[:10]}@gmail.com"
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (email, password_hash, is_guest)"
+                    " VALUES (%s, 'x', FALSE) RETURNING id;", (email,))
+                uid = cur.fetchone()[0]
+                self.assertIsNotNone(uid)
+                cur.execute("DELETE FROM users WHERE id = %s;", (uid,))
+            conn.commit()
 
     def test_user_dataclass_exposes_is_guest(self):
         import psycopg

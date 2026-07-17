@@ -11,9 +11,9 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | B1 scheduling | bgap/b1-scheduling | ~/dev/bgap-b1 | MERGED e315b68 | 350d069 | 402 phase / 418 integration |
 | B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | MERGED c0f26ca | 27a2e2a | 376 pass (phase + integration) |
 | B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | MERGED 7b119ec | 0e978d5 | 420 phase / 478 integration |
-| B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | DISPATCHED w2 | — | — |
+| B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | MERGED | 55d0f55 | 451 phase / 545 integration |
 | B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | MERGED | c1df02c | 452 phase / 512 integration |
-| B3 sessionflow | bgap/b3-sessionflow | — | WAITING w3 (needs B1,B2,B4) | — | — |
+| B3 sessionflow | bgap/b3-sessionflow | ~/dev/bgap-b3 | DISPATCHED w3 | — | — |
 | B6 community | bgap/b6-community | ~/dev/bgap-b6 | DISPATCHED w3 | — | — |
 | B8 drills-agg | bgap/b8-drills-agg | — | WAITING w4 (needs B6 + OD-B8-1) | — | — |
 
@@ -70,6 +70,14 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
 - 2026-07-17 B7 → feature/backend-gap (phase head c1df02c). ZERO conflicts
   (per-phase sdd subdir rule working). Integration 512 passed (478+34).
   Deadline-prompt push maps to notification category session_reminders.
+
+- 2026-07-17 B2 → feature/backend-gap (phase head 55d0f55). Textually
+  clean; ONE semantic conflict fixed forward: B2's migration 025 re-created
+  the hardcoded email-domain CHECK that B5's 022 had dropped (B2 built
+  pre-B5). Resolution: 025 rewritten — constraint users_guest_email_shape
+  (is_guest OR email IS NOT NULL); domain policy stays application-level
+  (schools registry). Obsolete B2 domain test converted to guard the new
+  contract + made hermetic. Integration 545 passed (512+33). WAVE 2 DONE.
 
 ## Escalations queued for Thomas
 
