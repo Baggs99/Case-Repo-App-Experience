@@ -9,10 +9,18 @@ Run suite: DATABASE_URL=postgresql://localhost/caserepo_bgap_b8 $PY -m pytest te
 - Baseline suite: **585 passed, 0 failed** (evidence: pytest tail "585 passed, 630 warnings in 8.69s"). Finish line = 585 + N new.
 
 ## Now
-- Writing plan: docs/superpowers/plans/2026-07-17-bgap-b8-plan.md
+- Executing tasks. Plan APPROVED (fresh Opus review: 0 Critical / 0 Important, 6 Minor).
+
+## Plan review
+- Verdict APPROVE. Applied M2 (flaky -1 sentinel → regenerate provably-wrong answers), M3 (score_slot tolerance_factor sorted() guard), M4 (group comment: most-recently-created not "first joined"). Not changed (documented): M1 school_percentile==global (matches B6 my_school_standing.your_percentile — owner nod deferred), M5 cold-start lone submitter reads 0th percentile (percent_rank convention, matches B6), M6 private _TYPES import (mirrors internal use).
 
 ## Done
-- (none yet)
+- Plan + plan-review fixes.
+
+## Task ledger
+- (appended as tasks complete)
 
 ## Assumptions
-- (recorded as they arise)
+- school_percentile in the gauntlet results = user_global_percentile (the value B6's my_school_standing.your_percentile surfaces on the school card). A distinct within-school population is a future refinement; brief only says "school percentile".
+- Gauntlet results "primary group" = most-recently-created joined group (list_my_groups DESC). Persona has one group, so deterministic in practice.
+- Trends/percentile scoped to gauntlet rows (set_key IS NOT NULL); the unscored per-user practice drills (/drills/attempts) have no score and stay out of the scored trend.
