@@ -1,0 +1,433 @@
+diff --git a/tests/test_recommendations.py b/tests/test_recommendations.py
+new file mode 100644
+index 0000000..ae28dcc
+--- /dev/null
++++ b/tests/test_recommendations.py
+@@ -0,0 +1,180 @@
++"""
++B4 Task 1-3 tests: the recommendation engine's human-readable `why`, the
++exclude/limit affordances and canonical item shape (Task 1), the native
++`GET /api/v1/recommendations` mouth (Task 2), and the `/api/v1/dashboard`
++Home card (Task 3).
++
++Reuses the proven §4.8 fixture idiom from tests/test_dashboard.py: three
++finalized sessions with a hand-tuned rubric make all three rules fire for
++one candidate (Cara). Skips cleanly without the seeded dev Postgres.
++"""
++
++from __future__ import annotations
++
++import json
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++# points per dimension per session: (structure, quant, insight, comm, synth)
++_SESSIONS = [
++    {"grade": 4.5, "pts": {"structure": 4, "quant": 2, "insight": 3,
++                           "communication": 5, "synthesis": 1}},
++    {"grade": 4.0, "pts": {"structure": 3, "quant": 0, "insight": 4,
++                           "communication": 4, "synthesis": 2}},
++    {"grade": 4.2, "pts": {"structure": 5, "quant": 1, "insight": 4,
++                           "communication": 4, "synthesis": 3}},
++]
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestRecommendationSurfaces(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.cara = cls._ctx.__enter__()          # enters app lifespan → pool live
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++        cls.aid, cls.cid = ids["a@yale.edu"], ids["c@yale.edu"]
++        s = create_session(cls.cid, user_agent="b4-test", ip_address=None)
++        cls.cara.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++        def new_case(cur, title, ctype, difficulty, score):
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path)"
++                " VALUES (%s, %s, 'DevSchool', 2095, 'Technology', %s, %s, %s,"
++                " 2, 'output/none.pdf') RETURNING id;",
++                (title, title.lower(), ctype, difficulty, score))
++            return cur.fetchone()[0]
++
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        from webapp.repositories.rooms import get_or_create_room
++        room_id = get_or_create_room(cls.aid)["id"]
++
++        cls.case_ids = []
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cls.a1 = new_case(cur, "B4 Trend Case 1", "B4-TypeA", "Easy", 2)
++                cls.a2 = new_case(cur, "B4 Trend Case 2", "B4-TypeA", "Easy", 3)
++                cls.a3 = new_case(cur, "B4 Trend Case 3", "B4-TypeA", "Easy", 4)
++                cls.a4 = new_case(cur, "B4 Ladder Target", "B4-TypeA", "Medium", 5)
++                # Coverage-gap type: '00-…' wins the zero-count alphabetical tie.
++                # B1 outrates B2 (DV-6); with B1 excluded, B2 is the runner-up.
++                cls.b1 = new_case(cur, "B4 Gap Rated", "00-B4-GapType", "Easy", 3)
++                cls.b2 = new_case(cur, "B4 Gap Unrated", "00-B4-GapType", "Easy", 3)
++                cls.w1 = new_case(cur, "B4 Quant Heavy", "B4-TypeA", "Easy", 3)
++                cls.case_ids = [cls.a1, cls.a2, cls.a3, cls.a4, cls.b1, cls.b2, cls.w1]
++
++                cur.execute(
++                    "INSERT INTO case_votes (case_id, user_id, vote_type)"
++                    " VALUES (%s, %s, 'useful');", (cls.b1, cls.aid))
++                cur.execute(
++                    "INSERT INTO rubric_templates (case_id, name, items_json,"
++                    " created_by) VALUES (%s, 'Quant heavy', %s, %s);",
++                    (cls.w1, json.dumps([
++                        {"id": "quant", "label": "Quant", "dimension": "quant",
++                         "max_points": 8},
++                        {"id": "structure", "label": "Structure",
++                         "dimension": "structure", "max_points": 2},
++                    ]), cls.aid))
++
++                template_id = get_default_rubric_template_id(cls.a1, cls.aid)
++                cls.session_ids = []
++                for i, (case_id, spec) in enumerate(
++                        zip((cls.a1, cls.a2, cls.a3), _SESSIONS)):
++                    cur.execute(
++                        "INSERT INTO practice_sessions (room_id, interviewer_id,"
++                        " candidate_id, case_id, rubric_template_id, state,"
++                        " consent_interviewer, consent_candidate, started_at,"
++                        " ended_at, state_changed_at)"
++                        " VALUES (%s, %s, %s, %s, %s, 'finalized', TRUE, TRUE,"
++                        " NOW() - (%s + 1) * INTERVAL '1 day',"
++                        " NOW() - (%s + 1) * INTERVAL '1 day' + INTERVAL '45 min',"
++                        " NOW()) RETURNING id;",
++                        (room_id, cls.aid, cls.cid, case_id, template_id, i, i))
++                    sid = cur.fetchone()[0]
++                    cls.session_ids.append(sid)
++                    items = {dim: {"points": pts, "note": ""}
++                             for dim, pts in spec["pts"].items()}
++                    cur.execute(
++                        "INSERT INTO feedback (session_id, rubric_json, notes_md,"
++                        " grade, finalized_at)"
++                        " VALUES (%s, %s, 'fixture', %s, NOW());",
++                        (sid, json.dumps({"items": items}), spec["grade"]))
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM practice_sessions WHERE id = ANY(%s);",
++                            (cls.session_ids,))
++                cur.execute("DELETE FROM case_votes WHERE case_id = ANY(%s);",
++                            (cls.case_ids,))
++                cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls.case_ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    # ── Task 1: engine (repo-direct) ────────────────────────────────────────
++
++    def test_item_shape_is_canonical(self):
++        from webapp.repositories import dashboard as repo
++        recs = repo.recommendations(self.cid)
++        self.assertTrue(recs)
++        for rec in recs:
++            self.assertEqual(set(rec), {"case_id", "title", "case_type",
++                                        "difficulty", "why", "rule"})
++            self.assertIsInstance(rec["title"], str)
++            self.assertIsInstance(rec["why"], str)
++            self.assertTrue(rec["why"])
++
++    def test_why_strings_per_rule(self):
++        from webapp.repositories import dashboard as repo
++        by_rule = {r["rule"]: r for r in repo.recommendations(self.cid)}
++        self.assertIn("least-practiced", by_rule["coverage-gap"]["why"])
++        self.assertIn(by_rule["coverage-gap"]["case_type"],
++                      by_rule["coverage-gap"]["why"])
++        self.assertIn("step up", by_rule["difficulty-ladder"]["why"])
++        self.assertIn("Medium", by_rule["difficulty-ladder"]["why"])
++        self.assertIn("weakest dimension is quant",
++                      by_rule["weak-dimension"]["why"])
++
++    def test_exclude_drops_case_and_backfills(self):
++        from webapp.repositories import dashboard as repo
++        base = {r["rule"]: r["case_id"] for r in repo.recommendations(self.cid)}
++        self.assertEqual(base["coverage-gap"], self.b1)
++        excluded = repo.recommendations(self.cid, exclude_case_ids=[self.b1])
++        ids = {r["case_id"] for r in excluded}
++        self.assertNotIn(self.b1, ids)
++        # B2 is the same-type runner-up once B1 is excluded (DV-6 tie-break).
++        self.assertEqual({r["rule"]: r["case_id"]
++                          for r in excluded}["coverage-gap"], self.b2)
++
++    def test_limit_caps_results(self):
++        from webapp.repositories import dashboard as repo
++        self.assertLessEqual(len(repo.recommendations(self.cid, limit=1)), 1)
++        self.assertLessEqual(len(repo.recommendations(self.cid, limit=2)), 2)
++
++    def test_web_engine_selection_unchanged(self):
++        # Byte-compat guard: the three rules still select b1/a4/w1 (as
++        # test_dashboard.py asserts) — only the item key label changed.
++        from webapp.repositories import dashboard as repo
++        by_rule = {r["rule"]: r["case_id"] for r in repo.recommendations(self.cid)}
++        self.assertEqual(by_rule["coverage-gap"], self.b1)
++        self.assertEqual(by_rule["difficulty-ladder"], self.a4)
++        self.assertEqual(by_rule["weak-dimension"], self.w1)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/repositories/dashboard.py b/webapp/repositories/dashboard.py
+index 092aaf8..b4c3d85 100644
+--- a/webapp/repositories/dashboard.py
++++ b/webapp/repositories/dashboard.py
+@@ -11,21 +11,20 @@ difficulty_score (DV-7).
+ 
+ from __future__ import annotations
+ 
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ 
+ HISTORY_LIMIT = 50
+ TREND_WINDOW = 10          # last N finalized-as-candidate sessions
+ LADDER_MIN_GRADE = 4.0     # §4.8 rule 2 threshold over the last 3 grades
+-RECOMMEND_CAP = 5
+ 
+ _LADDER = {"Easy": "Medium", "Medium": "Hard"}   # DV-7; Hard has no +1
+ 
+ 
+ def history(user_id: int, limit: int = HISTORY_LIMIT) -> list[dict]:
+     """Finalized sessions the user took part in, newest first. The grade is
+     session-scoped and both participants already see it post-finalize (P7),
+     so it appears for interviewer rows too."""
+     sql = """
+         SELECT ps.id, ps.ended_at, c.case_title, c.id AS case_id,
+@@ -95,31 +94,32 @@ def dimension_averages(user_id: int, window: int = TREND_WINDOW) -> list[dict]:
+ 
+ _ELIGIBLE = """
+     c.pdf_path IS NOT NULL
+     AND NOT COALESCE(c.is_duplicate_case, FALSE)
+     AND NOT EXISTS (SELECT 1 FROM burned b
+                     WHERE b.user_id = %(u)s AND b.case_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM queue_want qw
+                     WHERE qw.user_id = %(u)s AND qw.case_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM queue_give qg
+                     WHERE qg.user_id = %(u)s AND qg.case_id = c.id)
++    AND c.id <> ALL(%(exclude)s::int[])
+ """
+ 
+ _RATING = """
+     (SELECT COALESCE(
+         100.0 * COUNT(*) FILTER (WHERE cv.vote_type = 'useful')
+               / NULLIF(COUNT(*), 0), 0)
+      FROM case_votes cv WHERE cv.case_id = c.id)
+ """
+ 
+ 
+-def _rule_coverage_gap(cur, user_id: int) -> dict | None:
++def _rule_coverage_gap(cur, user_id: int, exclude_case_ids: list[int]) -> dict | None:
+     """Rule 1: the case type with the fewest finalized candidate-sessions →
+     highest-usefulness eligible case of that type."""
+     cur.execute(
+         f"""
+         WITH counts AS (
+             SELECT ct.case_type,
+                    COUNT(ps.id) FILTER (WHERE ps.candidate_id = %(u)s
+                                         AND ps.state = 'finalized') AS n
+             FROM (SELECT DISTINCT case_type FROM cases
+                   WHERE case_type IS NOT NULL) ct
+@@ -131,45 +131,51 @@ def _rule_coverage_gap(cur, user_id: int) -> dict | None:
+             ORDER BY n, ct.case_type
+             LIMIT 1
+         )
+         SELECT c.id, c.case_title, c.case_type, c.difficulty,
+                {_RATING} AS rating
+         FROM cases c JOIN counts ON c.case_type = counts.case_type
+         WHERE {_ELIGIBLE}
+         ORDER BY rating DESC, c.difficulty_score, c.id
+         LIMIT 1;
+         """,
+-        {"u": user_id},
++        {"u": user_id, "exclude": exclude_case_ids},
+     )
+-    return cur.fetchone()
++    row = cur.fetchone()
++    if row:
++        row["why"] = (f"{row['case_type']} is your least-practiced case type "
++                      f"— this is a top-rated one to start with.")
++    return row
+ 
+ 
+-def _rule_difficulty_ladder(cur, user_id: int) -> dict | None:
++def _rule_difficulty_ladder(cur, user_id: int,
++                            exclude_case_ids: list[int]) -> dict | None:
+     """Rule 2: mean grade over the last 3 finalized-as-candidate sessions
+     ≥ 4.0 → suggest the next difficulty up in their most-practiced type."""
+     cur.execute(
+         """
+         SELECT AVG(g.grade) AS mean_grade, COUNT(*) AS n FROM (
+             SELECT f.grade
+             FROM practice_sessions ps
+             JOIN feedback f ON f.session_id = ps.id
+             WHERE ps.state = 'finalized' AND ps.candidate_id = %(u)s
+               AND f.grade IS NOT NULL
+             ORDER BY ps.ended_at DESC LIMIT 3
+         ) g;
+         """,
+         {"u": user_id},
+     )
+     row = cur.fetchone()
+     if not row or row["n"] < 3 or row["mean_grade"] is None \
+             or float(row["mean_grade"]) < LADDER_MIN_GRADE:
+         return None
++    mean_grade = float(row["mean_grade"])
+ 
+     cur.execute(
+         """
+         SELECT c.case_type, c.difficulty, COUNT(*) AS n
+         FROM practice_sessions ps JOIN cases c ON c.id = ps.case_id
+         WHERE ps.state = 'finalized' AND ps.candidate_id = %(u)s
+           AND c.case_type IS NOT NULL AND c.difficulty IS NOT NULL
+         GROUP BY c.case_type, c.difficulty
+         ORDER BY n DESC, c.case_type LIMIT 1;
+         """,
+@@ -184,26 +190,33 @@ def _rule_difficulty_ladder(cur, user_id: int) -> dict | None:
+ 
+     cur.execute(
+         f"""
+         SELECT c.id, c.case_title, c.case_type, c.difficulty,
+                {_RATING} AS rating
+         FROM cases c
+         WHERE c.case_type = %(ct)s AND c.difficulty = %(d)s AND {_ELIGIBLE}
+         ORDER BY rating DESC, c.difficulty_score, c.id
+         LIMIT 1;
+         """,
+-        {"u": user_id, "ct": practiced["case_type"], "d": next_difficulty},
++        {"u": user_id, "ct": practiced["case_type"], "d": next_difficulty,
++         "exclude": exclude_case_ids},
+     )
+-    return cur.fetchone()
++    row = cur.fetchone()
++    if row:
++        row["why"] = (f"You're averaging {mean_grade:.1f} on recent cases "
++                      f"— ready to step up to {row['difficulty']} "
++                      f"{row['case_type']}.")
++    return row
+ 
+ 
+-def _rule_weak_dimension(cur, user_id: int, weakest: str | None) -> dict | None:
++def _rule_weak_dimension(cur, user_id: int, weakest: str | None,
++                         exclude_case_ids: list[int]) -> dict | None:
+     """Rule 3: suggest a case whose rubric template weights the user's
+     lowest-averaging dimension heaviest (share of total max_points)."""
+     if weakest is None:
+         return None
+     cur.execute(
+         f"""
+         WITH weighted AS (
+             SELECT rt.case_id,
+                    SUM((item->>'max_points')::numeric)
+                        FILTER (WHERE item->>'dimension' = %(dim)s)
+@@ -213,41 +226,57 @@ def _rule_weak_dimension(cur, user_id: int, weakest: str | None) -> dict | None:
+             WHERE rt.case_id IS NOT NULL
+             GROUP BY rt.case_id
+         )
+         SELECT c.id, c.case_title, c.case_type, c.difficulty,
+                {_RATING} AS rating, weighted.share
+         FROM weighted JOIN cases c ON c.id = weighted.case_id
+         WHERE weighted.share > 0.2 AND {_ELIGIBLE}
+         ORDER BY weighted.share DESC, rating DESC, c.id
+         LIMIT 1;
+         """,
+-        {"u": user_id, "dim": weakest},
++        {"u": user_id, "dim": weakest, "exclude": exclude_case_ids},
+     )
+-    return cur.fetchone()
++    row = cur.fetchone()
++    if row:
++        row["why"] = (f"Your weakest dimension is {weakest.replace('_', ' ')} "
++                      f"— this case weights it heavily.")
++    return row
++
+ 
++def recommendations(user_id: int, exclude_case_ids: list[int] = [],
++                    limit: int = 5) -> list[dict]:
++    """§4.8: run the rules in order, union + dedupe, cap at `limit`, each entry
++    tagged with the rule that produced it and a human-readable `why`.
+ 
+-def recommendations(user_id: int) -> list[dict]:
+-    """§4.8: run the rules in order, union + dedupe, cap at 5, each entry
+-    tagged with the rule that produced it."""
++    `exclude_case_ids` drops those cases from every rule (the "Swap
++    recommendation" affordance re-calls with the swapped id excluded). It is
++    read-only here, so the shared-default empty list is safe."""
+     trends = dimension_averages(user_id)
+     weakest = trends[0]["dimension"] if trends else None
+ 
+     out: list[dict] = []
+     seen: set[int] = set()
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             for rule, fetch in (
+-                ("coverage-gap", lambda: _rule_coverage_gap(cur, user_id)),
+-                ("difficulty-ladder", lambda: _rule_difficulty_ladder(cur, user_id)),
+-                ("weak-dimension", lambda: _rule_weak_dimension(cur, user_id, weakest)),
++                ("coverage-gap",
++                 lambda: _rule_coverage_gap(cur, user_id, exclude_case_ids)),
++                ("difficulty-ladder",
++                 lambda: _rule_difficulty_ladder(cur, user_id, exclude_case_ids)),
++                ("weak-dimension",
++                 lambda: _rule_weak_dimension(cur, user_id, weakest,
++                                              exclude_case_ids)),
+             ):
++                if len(out) >= limit:
++                    break
+                 row = fetch()
+-                if row and row["id"] not in seen and len(out) < RECOMMEND_CAP:
++                if row and row["id"] not in seen:
+                     seen.add(row["id"])
+                     out.append({
+                         "case_id": row["id"],
+-                        "case_title": row["case_title"],
++                        "title": row["case_title"],
+                         "case_type": row["case_type"],
+                         "difficulty": row["difficulty"],
++                        "why": row["why"],
+                         "rule": rule,
+                     })
+     return out
+diff --git a/webapp/templates/room.html b/webapp/templates/room.html
+index a5ec2b7..13d8f7f 100644
+--- a/webapp/templates/room.html
++++ b/webapp/templates/room.html
+@@ -105,21 +105,21 @@
+     {# ── Dashboard (spec §4.8, T9.1/T9.2) ─────────────────────────────── #}
+     <div class="grid gap-4 sm:grid-cols-2 mt-4">
+         <div class="surface p-6">
+             <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Recommended next</h2>
+             <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-3">From your history — coverage gaps, the next rung, weak spots.</p>
+             {% if recommended %}
+             <ul class="space-y-2.5">
+                 {% for rec in recommended %}
+                 <li class="text-sm flex items-center justify-between gap-2">
+                     <span class="truncate">
+-                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.case_title }}</a>
++                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.title }}</a>
+                         <span class="text-[12px] text-slate-500 dark:text-slate-500">· {{ rec.difficulty }}</span>
+                     </span>
+                     <span class="badge badge-easy shrink-0">{{ rec.rule }}</span>
+                 </li>
+                 {% endfor %}
+             </ul>
+             {% else %}
+             <p class="text-sm text-slate-500 dark:text-slate-400">Nothing yet — finish a few sessions and this fills in.</p>
+             {% endif %}
+         </div>
