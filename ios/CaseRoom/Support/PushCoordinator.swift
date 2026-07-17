@@ -3,7 +3,7 @@
  *          maps notification taps to an in-app route.
  * Inputs: UNUserNotificationCenter delegate callbacks; push payload `data`
  *         keys from the backend (`kind`, `proposal_id`/`session_id`/`user_id`).
- * Outputs: sets `pendingRoute` for RootTabView to consume; device-token
+ * Outputs: sets `pendingRoute` for RootShell to consume; device-token
  *          registration itself happens in CaseRoomApp's AppDelegate.
  * Run: one instance created by CaseRoomApp's AppDelegate, shared via
  *      SwiftUI environment; authorize+register triggered post-login.

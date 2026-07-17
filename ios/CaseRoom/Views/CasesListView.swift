@@ -3,7 +3,7 @@
  *          summaries backed by CasesViewModel.
  * Inputs: CasesViewModel (default APIClient.shared via CasesService).
  * Outputs: none.
- * Run: shown as a tab by RootTabView.
+ * Run: shown by RootShell for DSTab.library.
  */
 
 import SwiftUI
@@ -20,6 +20,7 @@ struct CasesListView: View {
         NavigationStack {
             content
                 .navigationTitle("Cases")
+                .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: Int.self) { caseId in
                     CaseDetailView(caseId: caseId)
                 }

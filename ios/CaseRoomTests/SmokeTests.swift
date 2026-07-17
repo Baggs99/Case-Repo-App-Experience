@@ -9,7 +9,7 @@ import XCTest
 @testable import CaseRoom
 
 final class SmokeTests: XCTestCase {
-    func testRootTabViewInitializes() {
-        _ = RootTabView()
+    func testRootShellInitializes() {
+        _ = RootShell()
     }
 }

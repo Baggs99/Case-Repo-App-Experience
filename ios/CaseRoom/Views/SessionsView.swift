@@ -4,7 +4,7 @@
  *          upcoming scheduled sessions.
  * Inputs: SessionsViewModel (default APIClient.shared + EventKitCalendarWriter()).
  * Outputs: none.
- * Run: shown as a tab by RootTabView.
+ * Run: shown by RootShell for DSTab.caseTab.
  */
 
 import SwiftUI
@@ -17,6 +17,7 @@ struct SessionsView: View {
         NavigationStack {
             content
                 .navigationTitle("Sessions")
+                .toolbar(.hidden, for: .navigationBar)
                 .task { await viewModel.load() }
                 .refreshable { await viewModel.load() }
                 .alert(
