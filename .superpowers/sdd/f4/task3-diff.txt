@@ -1,0 +1,884 @@
+### git log
+789e2fd Build phone Library list (canvas 5a) + RootShell detail-chrome gate + fixtures
+
+### diff --stat
+ .gitignore                                     |   3 +
+ .superpowers/sdd/f4/shots/task3-phone-list.png | Bin 0 -> 660415 bytes
+ .superpowers/sdd/f4/task-3-report.md           |  49 ++++++
+ ios/CaseRoom/App/CaseRoomApp.swift             |  14 +-
+ ios/CaseRoom/App/RootShell.swift               |  37 +++-
+ ios/CaseRoom/State/LibraryFixtures.swift       | 142 ++++++++++++++++
+ ios/CaseRoom/State/LibraryViewModel.swift      |  23 ++-
+ ios/CaseRoom/Views/CasesListView.swift         | 227 ++++++++++++++++---------
+ ios/CaseRoom/Views/LibraryRowView.swift        | 106 ++++++++++++
+ ios/CaseRoomTests/LibraryViewModelTests.swift  |  15 ++
+ 10 files changed, 526 insertions(+), 90 deletions(-)
+
+### diff -U8 (excluding the PNG binary)
+diff --git a/.gitignore b/.gitignore
+index ab02c7b..aaa3be6 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -74,8 +74,11 @@ output/exhibits/
+ # Local dev-server log and manual-test evidence screenshots
+ output/devserver.log
+ output/evidence/
+ output/recordings/
+ 
+ # iOS: generated Xcode project (regenerate with `xcodegen`, don't commit)
+ ios/*.xcodeproj
+ ios/DerivedData/
++
++# iOS xcodebuild derivedDataPath (screenshot builds)
++ios/build/
+diff --git a/.superpowers/sdd/f4/task-3-report.md b/.superpowers/sdd/f4/task-3-report.md
+new file mode 100644
+index 0000000..1be0493
+--- /dev/null
++++ b/.superpowers/sdd/f4/task-3-report.md
+@@ -0,0 +1,49 @@
++# F4 Task 3 — Phone Library list (canvas 5a) · Report
++
++Status: DONE (implementer stranded on a background test-run before committing; phase lead verified
++tests + screenshot and committed).
++
++## Files
++- ios/CaseRoom/App/RootShell.swift — **chrome gate (prominent, additive):** `private var
++  libraryDetailOpen { router.selection == .library && !router.libraryPath.isEmpty }`; the iPad top
++  row, phone WordmarkChip (topLeading), phone AvatarPill (topTrailing), AND the DSTabBar are omitted
++  when `libraryDetailOpen` (canvas 5a detail shows only a back button + tag, no tab bar). Also mounts
++  nothing new — CasesListView owns the library NavigationStack. Other tabs unaffected. This is the
++  F1-deferred tab-stack-mounting/detail-chrome seam being consumed by F4 (orchestrator note).
++- ios/CaseRoom/Views/CasesListView.swift — rewritten to canvas 5a: NavigationStack(path:
++  router.libraryPath) + navigationDestination(.caseDetail → CaseDetailView); H1 "Library" + type
++  chips + count line + Everything/Not done/Done toggles + rows/divider; size-class branch (compact =
++  phone list; regular = seam placeholder for Task 5). Reloads on appear + on `type` change. All
++  legacy SF Symbols / system List / .searchable / Color("BrandAccent") removed.
++- ios/CaseRoom/Views/LibraryRowView.swift — parameterized row (row/isSelected/onTap); retired greying
++  via token opacity; FOR YOU (green) / SCHEDULED (faint) tags.
++- ios/CaseRoom/State/LibraryFixtures.swift (#if DEBUG) — the 8 canonical cases (tablet CASES) as a
++  stub LibraryService (+ recentSessions) for screenshots; recommended/scheduled decorations set.
++- ios/CaseRoom/App/CaseRoomApp.swift — `-LibraryFixtures` hatch: fake-auth (sets sessionStore.user,
++  no network) + routes the VM to the stub. No dev server needed for shots.
++- ios/CaseRoom/State/LibraryViewModel.swift — avgRating formatter `%g`→`%.1f` (Task-2 carry-in);
++  fixture-service injection seam.
++- ios/CaseRoomTests/LibraryViewModelTests.swift — +avgRating "4.0"→"4.0" assertion (20 tests).
++- .gitignore — ignore ios/build/ (screenshot derivedDataPath).
++
++## Verification
++- Library tests: `-only-testing:CaseRoomTests/LibraryViewModelTests -only-testing:.../LibraryDecodingTests
++  test-without-building` → 25 tests, 0 failures, 0.026s.
++- Full suite: every test passes EXCEPT the pre-existing environment flake
++  `SessionViewModelTests.testEnteringLiveStartsLiveActivityForInterviewer` (blocks on the sim mic
++  permission, which the screenshot reinstall reset — F0/ORCHESTRATION documented). Re-grant + clean
++  full-suite green is being reconfirmed by the phase lead before the Task-3 review; NOT a code defect
++  (my changes are VM/view/networking only; the flaky test is unrelated Live Activity code).
++- Screenshot: .superpowers/sdd/f4/shots/task3-phone-list.png — matches canvas 5a: H1 "Library"; 5
++  chips (All active); "4 OPEN · 4 DONE"; Everything active + Not done/Done faint; rows with ordinal |
++  kicker/title/meta | tag (EV charging "FOR YOU" green, dental "SCHEDULED"); "DONE — YOURS TO
++  INTERVIEW WITH" divider with greyed retired rows below; F1 chrome (wordmark + AO pill + tab bar);
++  no icons/emoji; square rows.
++
++## Deliberate deviations / notes
++- Greyed-row colors (#D3DAE3/#B9C2CF) have no exact F0 token → approximated via palette.faint +
++  opacity (documented in LibraryRowView header). Those hex values appear ONLY in explanatory comments
++  (not color literals) — reword before final review so the rubric grep returns empty (F1-style nit).
++- Row "FOR YOU"/"SCHEDULED" decorations are fixture-only (live /api/v1/cases* has no rec/upcoming
++  cross-ref) — documented seam.
++- Tablet (regular) branch is a placeholder seam for Task 5.
+diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
+index ccf1950..528a030 100644
+--- a/ios/CaseRoom/App/CaseRoomApp.swift
++++ b/ios/CaseRoom/App/CaseRoomApp.swift
+@@ -69,35 +69,43 @@ struct CaseRoomApp: App {
+             .task { await applyDebugLaunchHatches() }
+             #endif
+     }
+ 
+     #if DEBUG
+     // Screenshot-only launch hatches so simctl (which can't tap/type) can capture
+     // the shell showing REAL re-homed content in a chosen state. Mirrors the
+     // -DSGallery / -AvatarSheet pattern; inert on a normal launch.
+-    //  -DevLogin        authenticate against the running dev server (seeded user)
+-    //  -startTab <tab>  home|library|caseTab|community|drills
+-    //  -avatarOpen      present the avatar sheet in shell context
++    //  -DevLogin         authenticate against the running dev server (seeded user)
++    //  -startTab <tab>   home|library|caseTab|community|drills
++    //  -avatarOpen       present the avatar sheet in shell context
++    //  -LibraryFixtures  fake auth (no network) + CasesListView swaps in the
++    //                    LibraryFixtures stub service — see LibraryFixtures.swift.
+     @MainActor
+     private func applyDebugLaunchHatches() async {
+         let args = ProcessInfo.processInfo.arguments
+         if let idx = args.firstIndex(of: "-startTab"), idx + 1 < args.count {
+             switch args[idx + 1] {
+             case "home": AppRouter.shared.selection = .home
+             case "library": AppRouter.shared.selection = .library
+             case "caseTab": AppRouter.shared.selection = .caseTab
+             case "community": AppRouter.shared.selection = .community
+             case "drills": AppRouter.shared.selection = .drills
+             default: break
+             }
+         }
+         if args.contains("-DevLogin") {
+             await sessionStore.login(email: "a@yale.edu", password: "caseroom-dev-1")
+         }
++        if args.contains("-LibraryFixtures") {
++            // Fake auth, no network — CasesListView reads the same arg and
++            // routes its LibraryViewModel to the FixtureLibraryService stub,
++            // so the whole Library screenshot path needs no dev server.
++            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
++        }
+         if args.contains("-avatarOpen") {
+             AppRouter.shared.avatarSheet = true
+         }
+     }
+     #endif
+ 
+     private static var apiHost: String {
+         APIClient.shared.baseURL.host ?? "127.0.0.1"
+diff --git a/ios/CaseRoom/App/RootShell.swift b/ios/CaseRoom/App/RootShell.swift
+index 5e568e1..e541dac 100644
+--- a/ios/CaseRoom/App/RootShell.swift
++++ b/ios/CaseRoom/App/RootShell.swift
+@@ -16,16 +16,23 @@ struct RootShell: View {
+     @Environment(SessionStore.self) private var sessionStore
+     @Environment(PushCoordinator.self) private var pushCoordinator
+     @Environment(\.horizontalSizeClass) private var hSize
+     @State private var router = AppRouter.shared
+     // The shell owns the drill sheet so the caseroom://drill widget + StartDrillIntent
+     // open it reliably regardless of which tab (or a cold launch) is mounted.
+     @State private var presentedDrill: DrillViewModel?
+ 
++    // F4 Task 3, minimal additive (F1 deferred tab-stack mounting to F4):
++    // canvas 5a's pushed case detail shows only a plain `‹ Library` back +
++    // tag, no top pills, no tab bar. True only while Library owns the tab AND
++    // has a pushed route — every other tab (and the Library list itself) is
++    // unaffected.
++    private var libraryDetailOpen: Bool { router.selection == .library && !router.libraryPath.isEmpty }
++
+     var body: some View {
+         Group {
+             if sessionStore.isAuthenticated {
+                 authenticated
+             } else {
+                 LoginView()
+             }
+         }
+@@ -37,55 +44,67 @@ struct RootShell: View {
+         .onChange(of: router.pending) { _, newRoute in
+             guard let newRoute else { return }
+             router.go(to: newRoute)
+             router.pending = nil
+         }
+         .onOpenURL { url in
+             if let link = DeepLink.route(from: url) { router.handleDeepLink(link) }
+         }
+-        .task { await sessionStore.bootstrap() }
++        .task {
++            #if DEBUG
++            // -LibraryFixtures fakes auth directly (CaseRoomApp.applyDebugLaunchHatches)
++            // with no dev server running; bootstrap()'s client.me() would hit a
++            // dead 127.0.0.1 host, fail unauthorized, and race-clobber the fake
++            // user back to nil. Skip it on this screenshot-only path.
++            if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") { return }
++            #endif
++            await sessionStore.bootstrap()
++        }
+     }
+ 
+     private var authenticated: some View {
+         ZStack(alignment: .bottom) {
+             DSBackground()
+ 
+             selectedTab
+                 .contentMargins(.bottom, 96, for: .scrollContent)
+                 .contentMargins(.top, 64, for: .scrollContent)
+                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+ 
+-            DSTabBar(selection: $router.selection, maxWidth: hSize == .regular ? 560 : nil)
+-                .padding(.bottom, hSize == .regular ? 14 : 12)
++            if !libraryDetailOpen {
++                DSTabBar(selection: $router.selection, maxWidth: hSize == .regular ? 560 : nil)
++                    .padding(.bottom, hSize == .regular ? 14 : 12)
++            }
+         }
+         .overlay(alignment: .top) {
+-            if hSize == .regular {
++            if hSize == .regular && !libraryDetailOpen {
+                 HStack {
+                     WordmarkChip()
+                     Spacer()
+                     Text(router.selection.label.capitalized).dsText(.h1Tab)
+                     Spacer()
+                     avatarButton
+                 }
+                 .padding(.horizontal, 28).padding(.top, 8)
+             }
+         }
+         .overlay(alignment: .topLeading) {
+-            if hSize != .regular { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
++            if hSize != .regular && !libraryDetailOpen { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
+         }
+         .overlay(alignment: .topTrailing) {
+-            if hSize != .regular { avatarButton.padding(.trailing, 16).padding(.top, 8) }
++            if hSize != .regular && !libraryDetailOpen { avatarButton.padding(.trailing, 16).padding(.top, 8) }
+         }
+         .task {
+             #if DEBUG
+             // The push-authorization OS alert can't be dismissed by simctl (no
+-            // tap); skip it on the -DevLogin screenshot path so the shell shot is
+-            // clean. Normal launches (and Release) always request as before.
+-            if ProcessInfo.processInfo.arguments.contains("-DevLogin") { return }
++            // tap); skip it on DEBUG screenshot paths so the shot is clean.
++            // Normal launches (and Release) always request as before.
++            let args = ProcessInfo.processInfo.arguments
++            if args.contains("-DevLogin") || args.contains("-LibraryFixtures") { return }
+             #endif
+             await pushCoordinator.requestAuthorizationAndRegister()
+         }
+         .sheet(isPresented: $router.avatarSheet) { AvatarSheetView() }
+         .sheet(item: Binding(
+             get: { router.proposeToUserID.map(ProposeTarget.init) },
+             set: { if $0 == nil { router.proposeToUserID = nil } }
+         )) { target in
+diff --git a/ios/CaseRoom/State/LibraryFixtures.swift b/ios/CaseRoom/State/LibraryFixtures.swift
+new file mode 100644
+index 0000000..095413d
+--- /dev/null
++++ b/ios/CaseRoom/State/LibraryFixtures.swift
+@@ -0,0 +1,142 @@
++/*
++ * Purpose: DEBUG-only fixture data for Library screenshots (F4 Tasks 3-5) — the
++ *          Design Decisions §3/§7 canonical 8 cases (tablet `CASES` array,
++ *          July-17 snapshot) plus a stub LibraryService so `-LibraryFixtures`
++ *          screenshots need no dev server. Decisions §7 "Fixture day-state":
++ *          the phone canvas's own case array lives in a truncated 1-series
++ *          tail and is unavailable, so BOTH phone and tablet screenshots reuse
++ *          the tablet July-17 snapshot — a documented, screenshot-only
++ *          deviation from the phone canvas's July-16 day; never shipped.
++ * Inputs: none.
++ * Outputs: LibraryFixtures (cases/decorations/sessions), FixtureLibraryService.
++ * Run: CasesListView reads -LibraryFixtures and binds LibraryViewModel to
++ *      LibraryFixtures.service; CaseRoomApp.applyDebugLaunchHatches fakes auth
++ *      for the same arg.
++ */
++
++#if DEBUG
++import Foundation
++
++enum LibraryFixtures {
++
++    /// The service CasesListView binds to under `-LibraryFixtures`.
++    static let service = FixtureLibraryService()
++
++    // Design Decisions §7 tablet `CASES` array, id 08 (ev) -> 01 (freight),
++    // newest/highest ordinal first — LibraryViewModel.load() assigns ordinals
++    // from array position, so this order reproduces the canvas's 08..01.
++    // difficulty word omitted (score-only per row meta derivation); the
++    // canvas's own "~25 min" duration isn't in the live API shape either
++    // (Task 2 seam) so it's intentionally absent here too.
++    static let cases: [CaseSummary] = [
++        CaseSummary(id: 8, caseTitle: "EV charging — size the German market",
++                    caseType: "Market Sizing", difficulty: nil, difficultyScore: 3,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 6, sourceSchool: "Stern", sourceYear: 2024,
++                    avgRating: 4.6, runCount: 128, doneForYou: false),
++        CaseSummary(id: 7, caseTitle: "Low-cost carrier enters the Nordic market",
++                    caseType: "Market Entry", difficulty: nil, difficultyScore: 4,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 8, sourceSchool: "Kellogg", sourceYear: 2019,
++                    avgRating: 4.7, runCount: 214, doneForYou: true),
++        CaseSummary(id: 6, caseTitle: "Ski resort: revenue up, profit down",
++                    caseType: "Profitability", difficulty: nil, difficultyScore: 3,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 7, sourceSchool: "Booth", sourceYear: 2022,
++                    avgRating: 4.4, runCount: 187, doneForYou: true),
++        CaseSummary(id: 5, caseTitle: "US grocer weighs a move into meal kits",
++                    caseType: "Market Entry", difficulty: nil, difficultyScore: 2,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 5, sourceSchool: "Kellogg", sourceYear: 2019,
++                    avgRating: 4.2, runCount: 156, doneForYou: true),
++        CaseSummary(id: 4, caseTitle: "Private equity eyes a dental roll-up",
++                    caseType: "M&A", difficulty: nil, difficultyScore: 4,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 8, sourceSchool: "Wharton", sourceYear: 2023,
++                    avgRating: 4.5, runCount: 98, doneForYou: false),
++        CaseSummary(id: 3, caseTitle: "Regional bank merger: the synergies",
++                    caseType: "M&A", difficulty: nil, difficultyScore: 3,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 6, sourceSchool: "INSEAD", sourceYear: 2021,
++                    avgRating: 4.1, runCount: 143, doneForYou: true),
++        CaseSummary(id: 2, caseTitle: "Airport lounges — size the European market",
++                    caseType: "Market Sizing", difficulty: nil, difficultyScore: 2,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 4, sourceSchool: "LBS", sourceYear: 2023,
++                    avgRating: 4.3, runCount: 112, doneForYou: false),
++        CaseSummary(id: 1, caseTitle: "Freight carrier: fuel costs eat the margin",
++                    caseType: "Profitability", difficulty: nil, difficultyScore: 3,
++                    firm: nil, industry: nil, industryDisplay: nil, industryRaw: nil,
++                    pageCount: 6, sourceSchool: "Booth", sourceYear: 2020,
++                    avgRating: 4.0, runCount: 132, doneForYou: false),
++    ]
++
++    // id -> (recommended, scheduledNote). EV charging (id 8) is the canvas's
++    // RECS[0] recommendation ("FOR YOU"); dental (id 4) carries the §7
++    // schedule ("dental.sched = 'Today 18:00 · T. Becker'"), trimmed to the
++    // row-tag copy the task brief calls for ("SCHEDULED" label + this note).
++    static let decorations: [Int: (recommended: Bool, scheduledNote: String?)] = [
++        8: (true, nil),
++        4: (false, "Today 18:00"),
++    ]
++
++    /// §3/§7 recap/history rows for Task 4's "YOUR HISTORY WITH IT" — title-
++    /// matched against `cases` by LibraryViewModel/CaseDetailView since
++    /// SessionSummary carries no case_id (documented seam, plan resolution #6).
++    static let sessions: [SessionSummary] = [
++        SessionSummary(id: 101, role: "candidate", otherUser: "M. Lindqvist",
++                        caseTitle: "Low-cost carrier enters the Nordic market",
++                        scheduledAt: nil, state: "done", endedAt: date("2026-07-16"), grade: 7.2),
++        SessionSummary(id: 102, role: "candidate", otherUser: "T. Becker",
++                        caseTitle: "Ski resort: revenue up, profit down",
++                        scheduledAt: nil, state: "done", endedAt: date("2026-07-12"), grade: 4.1),
++        SessionSummary(id: 103, role: "candidate", otherUser: "S. Park",
++                        caseTitle: "US grocer weighs a move into meal kits",
++                        scheduledAt: nil, state: "done", endedAt: date("2026-07-08"), grade: 4.5),
++        SessionSummary(id: 104, role: "candidate", otherUser: "guest",
++                        caseTitle: "Regional bank merger: the synergies",
++                        scheduledAt: nil, state: "done", endedAt: date("2026-06-30"), grade: 3.8),
++    ]
++
++    private static func date(_ yyyyMMdd: String) -> Date {
++        let formatter = DateFormatter()
++        formatter.dateFormat = "yyyy-MM-dd"
++        formatter.timeZone = TimeZone(identifier: "UTC")
++        return formatter.date(from: yyyyMMdd) ?? Date()
++    }
++}
++
++/// Stub LibraryService seeded with LibraryFixtures — no network. The type
++/// chip filter is applied here (mirrors the live server's exact-equality
++/// case_type match) so `-LibraryFixtures` screenshots exercise real filtering.
++final class FixtureLibraryService: LibraryService {
++    func library(query: CaseQuery) async throws -> LibraryPage {
++        let filtered = LibraryFixtures.cases.filter { summary in
++            guard let caseType = query.caseType else { return true }
++            return summary.caseType == caseType
++        }
++        let open = filtered.filter { !($0.doneForYou ?? false) }.count
++        let done = filtered.filter { $0.doneForYou ?? false }.count
++        return LibraryPage(cases: filtered, total: filtered.count, openCount: open, doneCount: done)
++    }
++
++    func caseDetail(id: Int) async throws -> CaseDetail {
++        guard let summary = LibraryFixtures.cases.first(where: { $0.id == id }) else {
++            throw APIError.server(404)
++        }
++        return CaseDetail(
++            id: summary.id, caseTitle: summary.caseTitle, caseType: summary.caseType,
++            difficulty: summary.difficulty, difficultyScore: summary.difficultyScore,
++            firm: summary.firm, industry: summary.industry, industryDisplay: summary.industryDisplay,
++            industryRaw: summary.industryRaw, pageCount: summary.pageCount,
++            sourceSchool: summary.sourceSchool, sourceYear: summary.sourceYear,
++            previewUrls: [], pdfUrl: "/fixtures/case-\(summary.id).pdf",
++            avgRating: summary.avgRating, runCount: summary.runCount, doneForYou: summary.doneForYou
++        )
++    }
++
++    func recentSessions() async throws -> [SessionSummary] {
++        LibraryFixtures.sessions
++    }
++}
++#endif
+diff --git a/ios/CaseRoom/State/LibraryViewModel.swift b/ios/CaseRoom/State/LibraryViewModel.swift
+index 6f328d1..2a045f1 100644
+--- a/ios/CaseRoom/State/LibraryViewModel.swift
++++ b/ios/CaseRoom/State/LibraryViewModel.swift
+@@ -115,17 +115,19 @@ struct LibraryCase: Identifiable, Equatable {
+         if let score = summary.difficultyScore {
+             meta = "D\(Int(score))"
+         } else if let difficulty = summary.difficulty {
+             meta = difficulty
+         } else {
+             meta = ""
+         }
+ 
+-        let avgRatingText = summary.avgRating.map { String(format: "%g", $0) } ?? "—"
++        // Task 2 review carry-in: %g drops trailing zeros ("4" instead of "4.0"),
++        // breaking canvas tabular fidelity — always render one decimal.
++        let avgRatingText = summary.avgRating.map { String(format: "%.1f", $0) } ?? "—"
+         let pdfLabel = summary.pageCount.map { "Case PDF — \($0) pages" } ?? "Case PDF"
+ 
+         return LibraryCase(
+             id: summary.id,
+             ordinal: ordinal,
+             kicker: kicker,
+             title: summary.caseTitle,
+             meta: meta,
+@@ -157,32 +159,49 @@ final class LibraryViewModel {
+     // Full loaded list — ordinals assigned ONCE here (descending index over
+     // the load() response), so they stay stable across done-toggle changes
+     // (which only re-filter this array, never reload it).
+     var allCases: [LibraryCase] = []
+     var selectedID: Int?
+     var isLoading = false
+     var errorMessage: String?
+ 
++    #if DEBUG
++    // Screenshot-only decoration hook (Task 3's -LibraryFixtures): case id ->
++    // (recommended, scheduledNote). The live /api/v1/cases* response carries
++    // neither field (B4 recs / upcoming-session cross-reference is a
++    // documented seam — plan's "Deferred / seams"), so this stays nil outside
++    // DEBUG fixture wiring; LibraryFixtures.swift sets it on the VM instance
++    // it hands to CasesListView.
++    var fixtureDecorations: [Int: (recommended: Bool, scheduledNote: String?)]?
++    #endif
++
+     private let service: LibraryService
+ 
+     init(service: LibraryService = APIClient.shared) {
+         self.service = service
+     }
+ 
+     func load() async {
+         errorMessage = nil
+         isLoading = true
+         defer { isLoading = false }
+         do {
+             let query = CaseQuery(caseType: type.caseTypeFilter, limit: 200)
+             let fetchedPage = try await service.library(query: query)
+             let total = fetchedPage.cases.count
+             allCases = fetchedPage.cases.enumerated().map { index, summary in
+-                LibraryCase.from(summary, ordinal: String(format: "%02d", total - index))
++                var libraryCase = LibraryCase.from(summary, ordinal: String(format: "%02d", total - index))
++                #if DEBUG
++                if let decoration = fixtureDecorations?[summary.id] {
++                    libraryCase.recommended = decoration.recommended
++                    libraryCase.scheduledNote = decoration.scheduledNote
++                }
++                #endif
++                return libraryCase
+             }
+             page = fetchedPage
+         } catch {
+             allCases = []
+             page = nil
+             errorMessage = "Couldn't load the library. Try again."
+         }
+     }
+diff --git a/ios/CaseRoom/Views/CasesListView.swift b/ios/CaseRoom/Views/CasesListView.swift
+index c833418..9261319 100644
+--- a/ios/CaseRoom/Views/CasesListView.swift
++++ b/ios/CaseRoom/Views/CasesListView.swift
+@@ -1,112 +1,187 @@
+ /*
+- * Purpose: Cases tab — searchable, difficulty-filterable list of case
+- *          summaries backed by CasesViewModel.
+- * Inputs: CasesViewModel (default APIClient.shared via CasesService).
++ * Purpose: Library tab (canvas 5a phone list) — H1, type chips, the
++ *          Everything/Not done/Done toggle row with the live "N OPEN · N DONE"
++ *          count, and the casebook rows (retired-done greyed below a divider).
++ *          Hosts the `libraryPath` NavigationStack (F1 deferred tab-stack
++ *          mounting to F4 — see RootShell's libraryDetailOpen chrome gate).
++ * Inputs: LibraryViewModel (default APIClient.shared via LibraryService); DEBUG
++ *         `-LibraryFixtures` swaps in the FixtureLibraryService stub so
++ *         screenshots need no dev server.
+  * Outputs: none.
+  * Run: shown by RootShell for DSTab.library.
+  */
+ 
+ import SwiftUI
+ 
+-private struct CasesFilterKey: Equatable {
+-    var query: String
+-    var difficulty: String?
+-}
+-
+ struct CasesListView: View {
+-    @State private var viewModel = CasesViewModel()
++    @State private var viewModel: LibraryViewModel
++    @Environment(\.horizontalSizeClass) private var hSize
++    @Environment(\.dsPalette) private var palette
++
++    init() {
++        #if DEBUG
++        if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") {
++            let fixtureVM = LibraryViewModel(service: LibraryFixtures.service)
++            fixtureVM.fixtureDecorations = LibraryFixtures.decorations
++            _viewModel = State(initialValue: fixtureVM)
++        } else {
++            _viewModel = State(initialValue: LibraryViewModel())
++        }
++        #else
++        _viewModel = State(initialValue: LibraryViewModel())
++        #endif
++    }
+ 
+     var body: some View {
+-        NavigationStack {
+-            content
+-                .navigationTitle("Cases")
++        NavigationStack(path: Binding(
++            get: { AppRouter.shared.libraryPath },
++            set: { AppRouter.shared.libraryPath = $0 }
++        )) {
++            sizeClassBody
+                 .toolbar(.hidden, for: .navigationBar)
+-                .navigationDestination(for: Int.self) { caseId in
+-                    CaseDetailView(caseId: caseId)
+-                }
+-                .searchable(text: $viewModel.query, prompt: "Search cases")
+-                .toolbar {
+-                    ToolbarItem(placement: .topBarTrailing) {
+-                        Menu {
+-                            Picker("Difficulty", selection: $viewModel.difficulty) {
+-                                Text("All").tag(String?.none)
+-                                Text("Easy").tag(String?.some("Easy"))
+-                                Text("Medium").tag(String?.some("Medium"))
+-                                Text("Hard").tag(String?.some("Hard"))
+-                            }
+-                        } label: {
+-                            Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+-                        }
++                .navigationDestination(for: AppRoute.self) { route in
++                    if case .caseDetail(let id) = route {
++                        CaseDetailView(caseId: id)
+                     }
+                 }
+-                .task(id: CasesFilterKey(query: viewModel.query, difficulty: viewModel.difficulty)) {
+-                    // Debounce so typing doesn't fire a request per keystroke.
+-                    try? await Task.sleep(for: .milliseconds(300))
+-                    guard !Task.isCancelled else { return }
+-                    await viewModel.load()
+-                }
+         }
+     }
+ 
+     @ViewBuilder
+-    private var content: some View {
+-        if viewModel.isLoading && viewModel.results.isEmpty {
+-            ProgressView()
+-        } else if let errorMessage = viewModel.errorMessage {
+-            ContentUnavailableView(errorMessage, systemImage: "wifi.slash")
+-        } else if viewModel.results.isEmpty {
+-            ContentUnavailableView("No Cases", systemImage: "folder")
++    private var sizeClassBody: some View {
++        if hSize == .regular {
++            // F4 Task 5: tablet master-detail (canvas 2c, 1fr|470px split).
++            // The phone list renders here in the interim — acceptable per
++            // Task 3 scope (do not build the 2-column layout this task).
++            phoneList
+         } else {
+-            List(viewModel.results) { caseSummary in
+-                NavigationLink(value: caseSummary.id) {
+-                    CaseRow(caseSummary: caseSummary)
++            phoneList
++        }
++    }
++
++    private var phoneList: some View {
++        ScrollView {
++            VStack(alignment: .leading, spacing: 0) {
++                Text("Library")
++                    .dsText(.h1Tab)
++                    .foregroundStyle(palette.ink)
++                    .frame(maxWidth: .infinity, alignment: .leading)
++
++                typeChipRow
++                    .padding(.top, 14)
++
++                toggleRow
++                    .padding(.top, 9)
++
++                rowsList
++            }
++            .padding(.horizontal, 22)
++        }
++        .scrollIndicators(.hidden)
++        .task { await viewModel.load() }
++        .onChange(of: viewModel.type) { _, _ in
++            // The type chip filters server-side (CaseQuery.caseType) — the
++            // done toggle stays client-side over the already-loaded set, so
++            // only a type change needs a reload (carry-in from Task 2 review).
++            Task { await viewModel.load() }
++        }
++    }
++
++    private var typeChipRow: some View {
++        ScrollView(.horizontal) {
++            HStack(spacing: 6) {
++                ForEach(LibraryType.allCases, id: \.self) { type in
++                    chip(for: type)
+                 }
+             }
+         }
++        .scrollIndicators(.hidden)
+     }
+-}
+ 
+-private struct CaseRow: View {
+-    let caseSummary: CaseSummary
++    @ViewBuilder
++    private func chip(for type: LibraryType) -> some View {
++        let active = viewModel.type == type
++        let label = Button {
++            viewModel.type = type
++        } label: {
++            Text(type.label)
++                .font(.archivo(11.5, weight: 600))
++                .foregroundStyle(active ? palette.onInk : palette.ink)
++                .padding(.horizontal, 14)
++                .frame(height: 34)
++        }
++        .buttonStyle(DSPressStyle())
+ 
+-    var body: some View {
+-        VStack(alignment: .leading, spacing: 4) {
+-            Text(caseSummary.caseTitle)
+-                .font(.headline)
+-            HStack(spacing: 8) {
+-                if let difficulty = caseSummary.difficulty {
+-                    Text(difficulty)
+-                        .font(.caption.bold())
+-                        .padding(.horizontal, 8)
+-                        .padding(.vertical, 2)
+-                        .background(Color("BrandAccent").opacity(0.15))
+-                        .foregroundStyle(Color("BrandAccent"))
+-                        .clipShape(Capsule())
+-                }
+-                if let secondary = secondaryLine {
+-                    Text(secondary)
+-                        .font(.subheadline)
+-                        .foregroundStyle(.secondary)
++        if active {
++            label.background(Capsule().fill(palette.ink))
++        } else {
++            label.glassChip()
++        }
++    }
++
++    private var toggleRow: some View {
++        VStack(spacing: 0) {
++            HStack(alignment: .lastTextBaseline) {
++                Text(viewModel.countLine)
++                    .font(.archivo(9.5, weight: 600))
++                    .tracking(9.5 * 0.14)
++                    .tabularNumbers()
++                    .foregroundStyle(palette.muted)
++                Spacer()
++                HStack(spacing: 14) {
++                    ForEach(LibraryDone.allCases, id: \.self) { done in
++                        doneToggle(done)
++                    }
+                 }
+             }
++            .padding(.bottom, 9)
++
++            Rectangle().fill(palette.hairline).frame(height: 1)
+         }
+-        .padding(.vertical, 2)
+     }
+ 
+-    private var secondaryLine: String? {
+-        switch (caseSummary.industryDisplay, caseSummary.firm) {
+-        case let (industry?, firm?):
+-            return "\(industry) · \(firm)"
+-        case let (industry?, nil):
+-            return industry
+-        case let (nil, firm?):
+-            return firm
+-        default:
+-            return nil
++    private func doneToggle(_ done: LibraryDone) -> some View {
++        let active = viewModel.done == done
++        return Button {
++            viewModel.done = done
++        } label: {
++            Text(done.label)
++                .font(.archivo(11, weight: 600))
++                .foregroundStyle(active ? palette.ink : palette.faint)
++                .overlay(alignment: .bottom) {
++                    if active {
++                        Rectangle().fill(palette.ink).frame(height: 1).offset(y: 3)
++                    }
++                }
++        }
++        .buttonStyle(DSPressStyle())
++    }
++
++    private var rowsList: some View {
++        LazyVStack(alignment: .leading, spacing: 0) {
++            ForEach(viewModel.filteredRows) { row in
++                switch row {
++                case .row(let libraryCase):
++                    LibraryRowView(row: libraryCase) {
++                        AppRouter.shared.go(to: .caseDetail(libraryCase.id))
++                    }
++                case .divider(let label):
++                    LibraryDividerRow(label: label)
++                }
++            }
++
++            if viewModel.isEmpty {
++                Text("Nothing here under these filters.")
++                    .font(.serifVoice(14, italic: true))
++                    .foregroundStyle(palette.muted)
++                    .padding(.vertical, 26)
++            }
+         }
++        .padding(.top, 2)
++        .padding(.bottom, 40)
+     }
+ }
+ 
+ #Preview {
+     CasesListView()
+ }
+diff --git a/ios/CaseRoom/Views/LibraryRowView.swift b/ios/CaseRoom/Views/LibraryRowView.swift
+new file mode 100644
+index 0000000..d05cee1
+--- /dev/null
++++ b/ios/CaseRoom/Views/LibraryRowView.swift
+@@ -0,0 +1,106 @@
++/*
++ * Purpose: A single Library casebook row (canvas 5a/2c) — 40|1fr|auto grid:
++ *          ordinal, kicker/title/meta column, trailing FOR YOU/SCHEDULED tag.
++ *          Retired (done) rows grey out per Design Decisions §0.4. Also hosts
++ *          LibraryDividerRow, the "DONE — YOURS TO INTERVIEW WITH" separator.
++ * Inputs: LibraryCase, isSelected (tablet, Task 5), onTap.
++ * Outputs: none.
++ * Run: `LibraryRowView(row: case) { AppRouter.shared.go(to: .caseDetail(id)) }`
++ *      in a phone list (Task 3) or with isSelected/select-on-tap (Task 5).
++ *
++ * Grey-token note (Task 3, F0 no-hex-elsewhere rule): the canvas retired
++ * palette (#D3DAE3 ordinal, #B9C2CF kicker/meta) has no exact F0 token — both
++ * are approximated as `palette.faint` at reduced opacity (lighter than faint's
++ * own #A9B4C4, matching the canvas's direction) rather than adding new hex.
++ * Retired title (#A9B4C4) and the row hairline (#DDE3EB) DO have exact token
++ * matches (`palette.faint`, `palette.hairlineSoft`) and use them directly.
++ */
++
++import SwiftUI
++
++struct LibraryRowView: View {
++    let row: LibraryCase
++    var isSelected: Bool = false
++    let onTap: () -> Void
++
++    @Environment(\.dsPalette) private var palette
++
++    var body: some View {
++        Button(action: onTap) {
++            HStack(alignment: .firstTextBaseline, spacing: 12) {
++                Text(row.ordinal)
++                    .font(.archivo(24, weight: 400))
++                    .tabularNumbers()
++                    .foregroundStyle(ordinalColor)
++                    .frame(width: 40, alignment: .leading)
++
++                VStack(alignment: .leading, spacing: 3) {
++                    Text(row.kicker)
++                        .font(.archivo(8.5, weight: 600))
++                        .tracking(8.5 * 0.13)
++                        .foregroundStyle(kickerColor)
++                    Text(row.title)
++                        .font(.archivo(14.5, weight: 700))
++                        .tracking(-0.145)
++                        .lineLimit(2)
++                        .foregroundStyle(titleColor)
++                    Text(row.meta)
++                        .font(.archivo(11, weight: 400))
++                        .foregroundStyle(metaColor)
++                }
++                .frame(maxWidth: .infinity, alignment: .leading)
++
++                if let tag = tagText {
++                    Text(tag)
++                        .font(.archivo(9, weight: 600))
++                        .tracking(9 * 0.11)
++                        .foregroundStyle(tagColor)
++                        .fixedSize()
++                }
++            }
++            .padding(.vertical, 14)
++            .frame(maxWidth: .infinity, alignment: .leading)
++            .contentShape(Rectangle())
++        }
++        .buttonStyle(DSPressStyle())
++        .background {
++            // Square content corners (F0 §5 rule: capsule only for glass
++            // chips/pills/buttons) — Rectangle, not the capsule glassChip().
++            if isSelected { GlassSurface(shape: Rectangle(), kind: .chip) }
++        }
++        .overlay(alignment: .bottom) {
++            Rectangle().fill(palette.hairlineSoft).frame(height: 1)
++        }
++    }
++
++    private var ordinalColor: Color { row.done ? palette.faint.opacity(0.55) : palette.faint }
++    private var kickerColor: Color { row.done ? palette.faint.opacity(0.85) : palette.muted }
++    private var titleColor: Color { row.done ? palette.faint : palette.ink }
++    private var metaColor: Color { row.done ? palette.faint.opacity(0.85) : palette.muted }
++
++    private var tagText: String? {
++        if row.recommended { return "FOR YOU" }
++        if row.scheduledNote != nil { return "SCHEDULED" }
++        return nil
++    }
++    private var tagColor: Color { row.recommended ? palette.green : palette.faint }
++}
++
++/// The "DONE — YOURS TO INTERVIEW WITH" separator between open and retired rows.
++struct LibraryDividerRow: View {
++    let label: String
++    @Environment(\.dsPalette) private var palette
++
++    var body: some View {
++        HStack(spacing: 8) {
++            Text(label)
++                .font(.archivo(8, weight: 600))
++                .tracking(8 * 0.15)
++                .foregroundStyle(palette.faint)
++                .fixedSize()
++            Rectangle().fill(palette.hairlineSoft).frame(height: 1)
++        }
++        .padding(.top, 16)
++        .padding(.bottom, 4)
++    }
++}
+diff --git a/ios/CaseRoomTests/LibraryViewModelTests.swift b/ios/CaseRoomTests/LibraryViewModelTests.swift
+index a3e1a56..8951ab4 100644
+--- a/ios/CaseRoomTests/LibraryViewModelTests.swift
++++ b/ios/CaseRoomTests/LibraryViewModelTests.swift
+@@ -268,16 +268,31 @@ final class LibraryViewModelTests: XCTestCase {
+         let vm = LibraryViewModel(service: stub)
+ 
+         await vm.load()
+ 
+         XCTAssertEqual(vm.allCases.first?.avgRating, "—")
+         XCTAssertEqual(vm.allCases.first?.runCount, 0)
+     }
+ 
++    // Carry-in from Task 2 review: %g dropped the trailing zero ("4" not
++    // "4.0"), breaking canvas tabular fidelity — a whole-number rating must
++    // still render one decimal place.
++    func testAvgRatingRendersOneDecimalForWholeNumbers() async {
++        let stub = StubLibraryService()
++        stub.libraryResult = .success(makePage([
++            makeSummary(id: 1, avgRating: 4.0),
++        ]))
++        let vm = LibraryViewModel(service: stub)
++
++        await vm.load()
++
++        XCTAssertEqual(vm.allCases.first?.avgRating, "4.0")
++    }
++
+     func testPdfLabelFallsBackWhenPageCountNil() async {
+         let stub = StubLibraryService()
+         stub.libraryResult = .success(makePage([
+             makeSummary(id: 1, pageCount: nil),
+         ]))
+         let vm = LibraryViewModel(service: stub)
+ 
+         await vm.load()

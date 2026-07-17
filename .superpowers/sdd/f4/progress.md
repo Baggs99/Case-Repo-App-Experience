@@ -52,3 +52,6 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
   GATE (carried to final review): authoritative full-suite green (skip-flaky or with mic re-grant)
   to be run when the machine is quiet (F2 done). Task-3 diff review proceeds now (reviews code, not a
   live suite).
+- Task 3 REVIEW: APPROVE (A spec/canvas + B quality). 3 Minors: (1) hex-in-comment in
+  LibraryRowView.swift:12-15 → reword before final review (grep-clean); (2) "Market Sizing"
+  case_type filter unverified vs live DB (documented seam); (3) report wording nit (no change).
