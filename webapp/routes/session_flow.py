@@ -19,12 +19,15 @@ from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
+from webapp.push.events import push_to_user
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import feedback as feedback_repo
 from webapp.repositories import negotiations as nego_repo
 from webapp.repositories import practice_sessions as sessions_repo
+from webapp.repositories import swaps as swap_repo
 from webapp.repositories.cases import get_case_by_id
-from webapp.repositories.feedback import is_burned
+from webapp.repositories.feedback import (
+    RecapGateError, assert_candidate_gate_clear, is_burned)
 from webapp.routes.practice import _session_or_404
 from webapp.routes.signal_ws import hub
 
@@ -189,3 +192,59 @@ def recap_close(session_id: int, body: RecapCloseBody,
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     return {"closed": True, "gate_cleared": feedback_repo.candidate_gate(user.id) is None}
+
+
+# --- Role swap -----------------------------------------------------------
+
+
+@router.post("/api/practice/{session_id}/swap", dependencies=_MUTATING)
+def swap_initiate(session_id: int, background: BackgroundTasks,
+                  user: User = Depends(require_session_participant)):
+    session, role = _session_or_404(session_id, user.id)
+    if user.is_guest or role != "interviewer":
+        raise HTTPException(status_code=403,
+                            detail="Only the authenticated interviewer can start a swap")
+    if session["state"] not in ("debrief", "finalized"):
+        raise HTTPException(status_code=409,
+                            detail="Swap is available after the debrief")
+    if session.get("candidate_is_guest"):
+        raise HTTPException(status_code=409, detail="Can't swap with a guest")
+    invitee_id = session["candidate_id"]
+    try:
+        invite = swap_repo.create_invite(session_id, user.id, invitee_id)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    background.add_task(
+        push_to_user, invitee_id, title="Swap roles & go again",
+        body="You're invited to interview next", data={
+            "kind": "swap_invite", "session_id": session_id,
+            "swap_invite_id": invite["id"]})
+    return {"swap_invite_id": invite["id"], "invitee_id": invitee_id}
+
+
+@router.post("/api/practice/{session_id}/swap/accept", dependencies=_MUTATING)
+def swap_accept(session_id: int, background: BackgroundTasks,
+                user: User = Depends(require_session_participant)):
+    session, _ = _session_or_404(session_id, user.id)
+    invite = swap_repo.pending_invite(session_id)
+    if invite is None or invite["invitee_id"] != user.id:
+        raise HTTPException(status_code=404, detail="No pending swap invite for you")
+    if user.is_guest:
+        raise HTTPException(status_code=403, detail="Guests cannot swap")
+    # Reversed roles: new interviewer = old candidate, new candidate = old interviewer.
+    new_interviewer = session["candidate_id"]
+    new_candidate = session["interviewer_id"]
+    try:
+        assert_candidate_gate_clear(new_candidate)
+    except RecapGateError as exc:
+        raise HTTPException(status_code=409,
+                            detail={"blocked_by_recap": exc.blocked_by_recap})
+    new_session = sessions_repo.create_negotiating_session(
+        interviewer_id=new_interviewer, candidate_id=new_candidate,
+        mode=session["mode"], swapped_from_session_id=session_id)
+    swap_repo.mark_accepted(invite["id"], new_session["id"])
+    background.add_task(
+        push_to_user, invite["initiator_id"], title="Swap accepted",
+        body="Your rematch is ready — pick a case", data={
+            "kind": "swap_accepted", "session_id": new_session["id"]})
+    return {"accepted": True, "session_id": new_session["id"], "needs_negotiation": True}
