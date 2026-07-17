@@ -30,3 +30,5 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
   - Minors for final triage: no explicit cross-origin 403 test on mutating routes; GET /timeline/firms 401 not directly asserted (mechanism proven elsewhere).
 - Task 6: complete (commits 40d9597..53f5e82, review clean SPEC+CODE PASS). /api/v1/dashboard additive +diagnostic +timeline (+6/-0 in api_v1.py). Suite 448→449.
   - Minor for final triage: TestDashboardTimelineKeys asserts next_deadline.slug=='mckinsey' via real clock — time-bomb after 2026-09-12 (seed dates are is_estimate stand-ins). Consider guarding next_deadline-None at final review; flag to Thomas.
+- Task 7: complete (commits 0a231b2..e56d529, review clean SPEC+CODE PASS). maintenance.py: sweep_deadline_prompts + daily guard + B5 seam (fail-open). b1-maintenance regression green. Suite 449→452.
+  - Minor for final triage: test_daily_guard_runs_once_per_day doesn't isolate guard from snooze throttle (1-then-0 holds even without guard). Could clear snooze between r1/r2. Low value.
