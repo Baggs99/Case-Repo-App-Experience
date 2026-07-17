@@ -33,6 +33,7 @@ T1 DONE + APPROVED (78e7e4e; 304 tests/0 fail = 289+15 AppRouterTests). Dispatch
 - [x] Plan review (Opus) — APPROVED after 2 rounds (be346f2)
 - [x] T1 AppRoute registry + AppRouter + remap (opus) — 78e7e4e, APPROVE
 - [x] T2 profile/settings models + APIClient (sonnet) — 773c7df, APPROVE (309 tests/0; multipart field `file` confirmed vs profile.py)
+- [x] T3 avatar sheet 7a + VM (opus) — f7bf899, APPROVE (313 tests/0; screenshot matches 7a, greens=3 at ceiling; deviations: injectable @MainActor VM init + DEBUG PreviewProfileService for populated shot)
 - [ ] T2 profile/settings models + APIClient (sonnet)
 - [ ] T3 avatar sheet 7a + VM (opus)
 - [ ] T4 RootShell: chrome + re-home + wire (opus)
