@@ -1,0 +1,273 @@
+=== git log f66dee5c1d2104f8835ff269c0c1ea9ef9cb8522..7b537959e8ef40cb52475326702c169e39d85fb5 ===
+7b53795 Ledger: Task 2 report (guest CRUD)
+bc4ffff Add guest CRUD + require_guest dependency
+
+=== diff --stat ===
+ .superpowers/sdd/b2/task-2-report.md |  27 +++++++++
+ tests/test_b2_guest_crud.py          | 112 +++++++++++++++++++++++++++++++++++
+ webapp/auth/guest.py                 | 105 ++++++++++++++++++++++++++++++++
+ 3 files changed, 244 insertions(+)
+
+=== diff -U10 ===
+diff --git a/.superpowers/sdd/b2/task-2-report.md b/.superpowers/sdd/b2/task-2-report.md
+new file mode 100644
+index 0000000..57da896
+--- /dev/null
++++ b/.superpowers/sdd/b2/task-2-report.md
+@@ -0,0 +1,27 @@
++# B2 Task 2 report — Guest CRUD + `require_guest` dependency (`webapp/auth/guest.py`)
++
++**Status:** DONE
++**Commit:** bc4ffff220f805fec138352477ab440620ac5f82 — "Add guest CRUD + require_guest dependency"
++**Branch:** bgap/b2-guest (worktree /Users/thomaskgould/dev/bgap-b2)
++
++## What changed
++- NEW `webapp/auth/guest.py` (4-line header docblock) — `mint_guest_user(display_name="Guest")` inserts an `is_guest=TRUE`, NULL-email/password row and returns the `User`; `upgrade_guest(user_id, email, password)` is a race-safe in-place conversion (`UPDATE ... WHERE id=%s AND is_guest=TRUE`) validating school-domain email + password strength, hashing the password, mapping `UniqueViolation`→`EmailAlreadyRegistered` and zero-rows→`GuestUpgradeConflict`; `GuestUpgradeConflict(Exception)` sentinel; `require_guest(request)` → 401 if no user, 403 if not a guest. Parameterized SQL only.
++- NEW `tests/test_b2_guest_crud.py` — 6 tests (mint flags row; upgrade converts in place keeping the same id; upgrade rejects bad domain; double-upgrade second call conflicts; upgrade rejects taken email; `require_guest` returns guest / 403s real user / 401s anon).
++
++## Evidence
++
++(a) Task-2 test — before `guest.py` existed (Step 2): `6 failed` (ModuleNotFoundError: `webapp.auth.guest`). After writing the module (Step 4):
++```
++$ DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_crud.py -q
++6 passed, 9 warnings in 0.80s
++```
++
++(b) Full suite — no regression:
++```
++$ DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q
++428 passed, 425 warnings in 5.63s
++```
++(422 baseline + 6 new = 428, no failures.)
++
++## Concerns
++None.
+diff --git a/tests/test_b2_guest_crud.py b/tests/test_b2_guest_crud.py
+new file mode 100644
+index 0000000..437d5e7
+--- /dev/null
++++ b/tests/test_b2_guest_crud.py
+@@ -0,0 +1,112 @@
++"""
++B2 Task 2: guest CRUD (mint_guest_user, upgrade_guest) + require_guest dep.
++Needs the seeded dev Postgres with migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestGuestCrud(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Enter the app context so the DB pool is initialized (init_pool runs in
++        # the lifespan). These tests call repo functions directly, not via HTTP.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def setUp(self):
++        self._created: list[int] = []
++
++    def tearDown(self):
++        import psycopg
++        if self._created:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (self._created,))
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (self._created,))
++
++    def _fresh_email(self) -> str:
++        import uuid
++        return f"upgrade-{uuid.uuid4().hex[:10]}@yale.edu"
++
++    def test_mint_guest_user_creates_flagged_row(self):
++        from webapp.auth.guest import mint_guest_user
++        g = mint_guest_user()
++        self._created.append(g.id)
++        self.assertTrue(g.is_guest)
++        self.assertIsNone(g.email)
++        self.assertFalse(g.is_verified)
++
++    def test_upgrade_guest_converts_in_place(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        g = mint_guest_user()
++        self._created.append(g.id)
++        email = self._fresh_email()
++        upgraded = upgrade_guest(g.id, email, "correct horse battery staple")
++        self.assertEqual(upgraded.id, g.id)          # same row → FKs intact
++        self.assertFalse(upgraded.is_guest)
++        self.assertEqual(upgraded.email, email)
++
++    def test_upgrade_rejects_bad_domain(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        from webapp.auth.users import InvalidEmailDomain
++        g = mint_guest_user()
++        self._created.append(g.id)
++        with self.assertRaises(InvalidEmailDomain):
++            upgrade_guest(g.id, "someone@gmail.com", "correct horse battery staple")
++
++    def test_double_upgrade_second_call_conflicts(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest, GuestUpgradeConflict
++        g = mint_guest_user()
++        self._created.append(g.id)
++        upgrade_guest(g.id, self._fresh_email(), "correct horse battery staple")
++        with self.assertRaises(GuestUpgradeConflict):
++            upgrade_guest(g.id, self._fresh_email(), "correct horse battery staple")
++
++    def test_upgrade_rejects_taken_email(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        from webapp.auth.users import EmailAlreadyRegistered
++        g = mint_guest_user()
++        self._created.append(g.id)
++        with self.assertRaises(EmailAlreadyRegistered):
++            upgrade_guest(g.id, "a@yale.edu", "correct horse battery staple")
++
++    def test_require_guest_dependency(self):
++        from fastapi import HTTPException, Request
++        from webapp.auth.guest import require_guest
++        from webapp.auth.users import User
++        from datetime import datetime
++
++        def _req(user):
++            scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
++            r = Request(scope)
++            r.state.user = user
++            return r
++
++        guest = User(id=1, email=None, email_verified_at=None,
++                     created_at=datetime.utcnow(), last_login_at=None, is_guest=True)
++        real = User(id=2, email="a@yale.edu", email_verified_at=datetime.utcnow(),
++                    created_at=datetime.utcnow(), last_login_at=None, is_guest=False)
++
++        self.assertIs(require_guest(_req(guest)), guest)
++        with self.assertRaises(HTTPException) as ctx_real:
++            require_guest(_req(real))
++        self.assertEqual(ctx_real.exception.status_code, 403)
++        with self.assertRaises(HTTPException) as ctx_none:
++            require_guest(_req(None))
++        self.assertEqual(ctx_none.exception.status_code, 401)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/auth/guest.py b/webapp/auth/guest.py
+new file mode 100644
+index 0000000..010d2f3
+--- /dev/null
++++ b/webapp/auth/guest.py
+@@ -0,0 +1,105 @@
++"""
++Purpose: Guest-interviewer identity — mint scoped guest users, convert them
++         to real accounts in place, and the FastAPI dependency guests use.
++Inputs:  users table (via get_pool); the current request's request.state.user.
++Outputs: guest users rows (is_guest=TRUE, NULL email/password); in-place
++         upgrades (is_guest→FALSE + real email/password). No files written.
++Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest
++"""
++
++from __future__ import annotations
++
++import logging
++
++import psycopg
++from fastapi import HTTPException, Request
++from psycopg.rows import dict_row
++
++from webapp.auth.dependencies import get_current_user
++from webapp.auth.passwords import hash_password, validate_password
++from webapp.auth.users import (
++    EmailAlreadyRegistered,
++    User,
++    _row_to_user,
++    validate_email,
++)
++from webapp.db import get_pool
++
++logger = logging.getLogger(__name__)
++
++_USER_COLS = "id, email, email_verified_at, created_at, last_login_at, is_guest"
++
++
++class GuestUpgradeConflict(Exception):
++    """The row targeted for upgrade is not a guest (already upgraded / not guest)."""
++
++
++def mint_guest_user(display_name: str = "Guest") -> User:
++    """Insert a guest users row (is_guest=TRUE, NULL email/password) and return it.
++    display_name renders wherever the session UI shows a participant name — the
++    session name query COALESCEs to it since guest email is NULL."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"""
++                INSERT INTO users (email, password_hash, is_guest, display_name)
++                VALUES (NULL, NULL, TRUE, %s)
++                RETURNING {_USER_COLS};
++                """,
++                (display_name,),
++            )
++            row = cur.fetchone()
++    logger.info("Minted guest user id=%d", row["id"])
++    return _row_to_user(row)
++
++
++def upgrade_guest(user_id: int, email: str, password: str) -> User:
++    """Convert a guest row to a real account in place — same id, so every FK
++    (session history, feedback, recordings) stays attached.
++
++    Race-safe: the UPDATE is guarded by `is_guest = TRUE`, so a concurrent
++    second upgrade updates zero rows and raises GuestUpgradeConflict. Left
++    unverified (email_verified_at stays NULL) to match a fresh password
++    signup — inbox control is proven later by the normal verification flow.
++
++    Raises: InvalidEmailDomain, WeakPasswordError, EmailAlreadyRegistered,
++    GuestUpgradeConflict.
++    """
++    e = validate_email(email)          # school-domain gate (raises InvalidEmailDomain)
++    validate_password(password)        # raises WeakPasswordError
++    pwd_hash = hash_password(password)
++
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            try:
++                cur.execute(
++                    f"""
++                    UPDATE users
++                    SET email = %s, password_hash = %s, is_guest = FALSE
++                    WHERE id = %s AND is_guest = TRUE
++                    RETURNING {_USER_COLS};
++                    """,
++                    (e, pwd_hash, user_id),
++                )
++            except psycopg.errors.UniqueViolation as exc:
++                raise EmailAlreadyRegistered(
++                    "An account with that email already exists."
++                ) from exc
++            row = cur.fetchone()
++            if row is None:
++                raise GuestUpgradeConflict(
++                    "This account is not an unclaimed guest (already upgraded)."
++                )
++    logger.info("Upgraded guest user id=%d to real account", user_id)
++    return _row_to_user(row)
++
++
++def require_guest(request: Request) -> User:
++    """Dependency for the upgrade endpoint: the caller must be a guest.
++    401 when unauthenticated, 403 when a real (non-guest) user."""
++    user = get_current_user(request)
++    if user is None:
++        raise HTTPException(status_code=401, detail="Authentication required")
++    if not user.is_guest:
++        raise HTTPException(status_code=403, detail="Only guests can upgrade")
++    return user

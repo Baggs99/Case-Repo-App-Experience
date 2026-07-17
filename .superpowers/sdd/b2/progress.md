@@ -14,7 +14,7 @@ Interpreter (`$PY`): `/Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/bin
 
 ## Tasks
 - Task 1: complete (commits a982f78..18361a3, review CLEAN) — migration 025 + User.is_guest; suite 422 passed.
-- Task 2: pending (guest CRUD + require_guest)
+- Task 2: complete (commits 18361a3..bc4ffff, review CLEAN) — webapp/auth/guest.py (mint_guest_user, upgrade_guest race-safe, require_guest); suite 428 passed. Minor: test uses inherited datetime.utcnow() deprecation (repo-wide norm, no fix).
 - Task 3: pending (mint guests on claim; N-1 fix)
 - Task 4: pending (require_session_participant + guest-reject + is_guest payload)
 - Task 5: pending (upgrade endpoint)
