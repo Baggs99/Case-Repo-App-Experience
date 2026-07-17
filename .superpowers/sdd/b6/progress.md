@@ -44,3 +44,6 @@ Migration numbers: 030 (connections), 031 (groups+members), 033 (leaderboard ind
   - Deferred MINORs (final triage, all by-design/small-scale): my_school_standing recomputes board (perf); streak_days N+1 in loop; group_progress cases_done/mean_grade all-time vs drill_attempts_30d windowed (matches brief); scope_user_ids('global') = all users while percentile pop = 30-day-active (documented seam).
 - Task 5: complete (commit c2b840e, review SPEC+CODE PASS). Groups router (create/join/leave/transfer, member-only detail+leaderboard, admin-gated progress) + main.py registration (additive +2). api 9/9 green. Gating matrix verified: 404-before-403 membership/admin order, IDOR-safe transfer, join-push idempotency, no-count payloads.
   - Deferred MINOR (final triage): negligible TOCTOU 500 in group_detail if group self-deleted between _require_member and get_group.
+- Task 6: complete (commit 3ba5065, review SPEC+CODE PASS). Leaderboards router (school standing, schools board, school-leader gated rollup) + main.py registration (additive +2). api 4/4 green; Step-6 sanity set 56 passed. School-leader gate uses session user.id (no bypass, no own-school fallback). Reviewer hard-delta grep confirmed: NO forum anywhere, NO count keys in any router payload, migration 032 vacant.
+
+## All tasks done → full suite + whole-branch review pending

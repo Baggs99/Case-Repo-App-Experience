@@ -1,0 +1,188 @@
+=== git log --oneline 2047ce9..3ba5065 ===
+3ba5065 Add leaderboards router + no-count payload audit (B6 Task 6)
+
+=== git diff --stat 2047ce9..3ba5065 ===
+ tests/test_b6_leaderboards_api.py | 82 +++++++++++++++++++++++++++++++++++++++
+ webapp/main.py                    |  2 +
+ webapp/routes/leaderboards.py     | 36 +++++++++++++++++
+ 3 files changed, 120 insertions(+)
+
+=== git diff -U10 2047ce9..3ba5065 ===
+diff --git a/tests/test_b6_leaderboards_api.py b/tests/test_b6_leaderboards_api.py
+new file mode 100644
+index 0000000..7d81049
+--- /dev/null
++++ b/tests/test_b6_leaderboards_api.py
+@@ -0,0 +1,82 @@
++"""B6 Task 6: leaderboards API — school standing, schools board, school-leader
++rollup. Auth + role gating + NO population counts. Needs seeded Postgres + httpx."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_b6_connections_api import _assert_no_counts  # shared no-count auditor
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestLeaderboardsApi(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute("SELECT school_id FROM users WHERE id = %s;", (ids["a@yale.edu"],))
++                cls.sid = cur.fetchone()[0]
++        cls.a, cls.b = ids["a@yale.edu"], ids["b@yale.edu"]
++        for client, uid in ((cls.alice, cls.a), (cls.bob, cls.b)):
++            s = create_session(uid, user_agent="b6-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def tearDown(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM school_leaders WHERE user_id = ANY(%s);",
++                            ([self.a, self.b],))
++
++    def test_requires_auth(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        self.assertEqual(TestClient(app).get("/api/v1/leaderboards/schools").status_code, 401)
++
++    def test_schools_board_no_counts(self):
++        r = self.alice.get("/api/v1/leaderboards/schools")
++        self.assertEqual(r.status_code, 200)
++        body = r.json()
++        self.assertIn("schools", body)
++        _assert_no_counts(self, body)
++        if body["schools"]:
++            self.assertIn("campus_city", body["schools"][0])
++            self.assertIn("avg_member_percentile", body["schools"][0])
++
++    def test_my_school_standing_no_counts(self):
++        r = self.alice.get("/api/v1/leaderboards/school")
++        self.assertEqual(r.status_code, 200)
++        _assert_no_counts(self, r.json())
++
++    def test_school_leader_rollup_gated(self):
++        # Not a leader -> 403
++        self.assertEqual(
++            self.alice.get(f"/api/v1/leaderboards/schools/{self.sid}/groups").status_code, 403)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("INSERT INTO school_leaders (school_id, user_id) VALUES (%s,%s)"
++                            " ON CONFLICT DO NOTHING;", (self.sid, self.a))
++        r = self.alice.get(f"/api/v1/leaderboards/schools/{self.sid}/groups")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIn("groups", r.json())
++        _assert_no_counts(self, r.json())
++        # bob (not a leader) still 403
++        self.assertEqual(
++            self.bob.get(f"/api/v1/leaderboards/schools/{self.sid}/groups").status_code, 403)
+diff --git a/webapp/main.py b/webapp/main.py
+index 162da9e..0c14a92 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -49,20 +49,21 @@ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+ from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import auth_oauth as auth_oauth_routes
+ from webapp.routes import connections as connections_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import groups as groups_routes
++from webapp.routes import leaderboards as leaderboards_routes
+ from webapp.routes import onboarding as onboarding_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import profile as profile_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+ from webapp.routes import recommendations as recommendations_routes
+@@ -151,20 +152,21 @@ def create_app() -> FastAPI:
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(timeline_routes.router)
+     app.include_router(api_v1_routes.router)
+     app.include_router(profile_routes.router)
+     app.include_router(onboarding_routes.router)
+     app.include_router(auth_oauth_routes.router)
+     app.include_router(connections_routes.router)
+     app.include_router(groups_routes.router)
++    app.include_router(leaderboards_routes.router)
+ 
+     return app
+ 
+ 
+ def _safe_url(url: str) -> str:
+     """Strip the password from a connection URL before logging."""
+     try:
+         from urllib.parse import urlparse, urlunparse
+         u = urlparse(url)
+         if u.password:
+diff --git a/webapp/routes/leaderboards.py b/webapp/routes/leaderboards.py
+new file mode 100644
+index 0000000..91de832
+--- /dev/null
++++ b/webapp/routes/leaderboards.py
+@@ -0,0 +1,36 @@
++"""
++Purpose: /api/v1/leaderboards* — percentile-based school standing, school-vs-
++         school board, and the school-leader per-group rollup for B6 Community.
++         Percentiles only; NO population counts.
++Inputs:  session cookie (require_auth_api); school_id path.
++Outputs: JSON standing/board payloads; no writes.
++Run:     GET /api/v1/leaderboards/schools  (Cookie: caseroom_session=…)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException
++
++from webapp.auth.dependencies import require_auth_api
++from webapp.auth.users import User
++from webapp.repositories import groups as groups_repo
++from webapp.repositories import leaderboards as repo
++
++router = APIRouter(prefix="/api/v1")
++
++
++@router.get("/leaderboards/school")
++def my_school_standing(user: User = Depends(require_auth_api)):
++    return repo.my_school_standing(user.id)
++
++
++@router.get("/leaderboards/schools")
++def schools_board(user: User = Depends(require_auth_api)):
++    return {"schools": repo.school_standings()}
++
++
++@router.get("/leaderboards/schools/{school_id}/groups")
++def school_group_rollup(school_id: int, user: User = Depends(require_auth_api)):
++    if not groups_repo.is_school_leader(user.id, school_id):
++        raise HTTPException(status_code=403, detail="School-leader access required")
++    return {"groups": repo.school_group_rollup(school_id)}
