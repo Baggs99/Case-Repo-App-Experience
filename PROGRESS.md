@@ -1,7 +1,97 @@
 # PROGRESS
-Updated: 2026-07-16 (handoff → UI corrections; current handoff is the FIRST section below) · Branch: **feature/ios-p4** (P4 + post-P4 branding/identity/icon; NOT merged — Thomas merges); feature/caseroom holds the merged web+iOS P1-P3 chain (the iOS chain merged into it). iOS P3 (remote WebRTC media) built + reviewed + **merged**; on-device call test paused mid-way (see handoff). Fuller P3 detail in the "P3 (remote WebRTC media) — DONE · HANDOFF" section further down.
+Updated: 2026-07-17 (handoff → MAC MINI CUTOVER; current handoff is the FIRST
+section below) · Branch: **feature/backend-gap** (backend gap B1–B8 COMPLETE +
+front-end F0 merged; F1 in flight on `fe/f1-shell`). Older sections below
+(UI-corrections handoff of 07-16 and earlier P-phase logs) are HISTORICAL —
+superseded by the backend-gap/front-end execution track.
 
-## ▶ NEXT SESSION — UI CORRECTIONS (handoff 2026-07-16)
+## ▶ NEXT SESSION — MAC MINI CUTOVER (handoff 2026-07-17)
+
+GOAL: continue the multi-agent front-end execution (waves FW2→FW7) of the
+myCase app on the Mac mini, exactly as governed by
+`docs/superpowers/plans/2026-07-17-frontend-execution.md` (binding agent
+contract) + `ORCHESTRATION.md` (repo root — wave ledger, merge log, owner
+decisions, escalations). Backend is DONE: 8/8 phases merged here.
+
+### Verified state (commands run 2026-07-17 on the MacBook, outputs live)
+
+- `git log --oneline -2` → `000f0c8` Log F0 merge / `6bb98b3` Merge F0.
+  Working tree clean. Branch pushed: `git ls-remote --heads origin` →
+  `feature/backend-gap` @ 000f0c8, `fe/f1-shell` @ f56590d (snapshot; F1
+  still committing — re-fetch before resuming).
+- Backend suite: `.venv/bin/python -m pytest tests/ -q` in this checkout →
+  **655 passed, 0 failed** (DB `caserepo_bgap_integration`).
+- iOS suite: **289 passed** verified at F0 head `19e9ce1`;
+  `git diff fe/f0-foundation HEAD -- ios/` is EMPTY (byte-identical tree),
+  so the count holds for this branch. UNVERIFIED on the mini until its
+  first local run.
+- Migrations present through `035_gauntlet_rank_indexes.sql` (019 + 032
+  vacant BY DESIGN — drills bank + nixed forum; do not fill them).
+- F1 (wave FW2) in flight on the MacBook: `fe/f1-shell` @ f56590d, ledger
+  `.superpowers/sdd/f1/progress.md` shows Tasks 1–3 approved (routing/
+  DeepLink rename, API layer, avatar sheet); Tasks 4–5 (iPad shell,
+  close-out) remain. Plan (rev ca4bbac) APPROVED by re-review; one folded
+  MINOR: mount-time drill check on the authenticated shell view.
+
+### Mini boot sequence (fresh session, run in order)
+
+1. Clone `https://github.com/Baggs99/Case-Repo-App-Experience.git` to
+   `~/dev/Case-Repo-App-Experience` (NEVER under ~/Documents — iCloud
+   evicts file contents and wedges git). `git checkout feature/backend-gap`.
+2. Copy from the MacBook (gitignored, not in the clone): `.env` into the
+   repo root. Create venv: `python3 -m venv .venv && .venv/bin/pip install
+   -r requirements.txt`.
+3. DB (order matters): `createdb caserepo_bgap_integration` → apply
+   `db/schema.sql` → every `db/migrations/0*.sql` with ON_ERROR_STOP → THEN
+   `.venv/bin/python scripts/seed_caseroom_dev.py`. Seeding BEFORE
+   migrations (or not at all) silently skips 135 DB tests and breaks the
+   school binding. Point `.env` DATABASE_URL at this DB.
+4. Baselines before any dispatch: backend `pytest tests/ -q` → expect 655;
+   iOS: `cd ios && xcodegen generate`, then xcodebuild test on an iPhone 17
+   sim → expect 289. FIRST grant sim mic or the suite hangs at the Live
+   Activity test: `xcrun simctl privacy <sim-udid> grant microphone
+   study.mycase study.mycase.CaseRoomTests com.apple.dt.xctest.tool`.
+   macOS has no `timeout` — bound xcodebuild via the Bash tool timeout or
+   a `perl -e 'alarm ...; exec ...'` wrapper.
+5. Resume F1: `git fetch origin && git worktree add ~/dev/fe-f1 fe/f1-shell`
+   (branch may have advanced past f56590d — fetch first). If
+   `docs/superpowers/sdd/fe-f1-report.md` EXISTS on the branch, F1 finished
+   on the MacBook: merge it per contract §7 instead of resuming. Otherwise
+   dispatch a fresh Opus F1 lead: same brief as §5-F1 of the frontend
+   execution doc, PLUS: "resume from `.superpowers/sdd/f1/progress.md` —
+   tasks marked approved are DONE, never re-run them; trust the ledger +
+   `git log` over recollection; dispatch ALL subagents with
+   `run_in_background: false`."
+6. Re-arm the stall watchdog (Monitor tool): the fe-* loop is recorded in
+   ORCHESTRATION.md conventions; 40-min threshold, verify-before-kill.
+7. Continue waves per frontend doc §1: F1 merge → FW3 (F2+F4, parallel,
+   own worktrees fe-f2/fe-f4 cut AFTER the F1 merge) → FW4 (F7+F8) →
+   FW5 (F3+F5) → FW6 (F6) → FW7 (F9+F10). Max 2 concurrent phases.
+   Merge protocol per contract §7; log every event in ORCHESTRATION.md.
+
+### Handoff partition
+| Chunk | Spec state | Tier | Next concrete action |
+|---|---|---|---|
+| F1 finish (tasks 4–5) or merge | complete (plan in fe-f1 worktree) | session-model orchestrates; leads are Opus subagents | Step 5 above — check for fe-f1-report.md, then resume-or-merge |
+| FW3–FW7 (F2,F4,F7,F8,F3,F5,F6,F9,F10) | complete (briefs = frontend doc §5) | session-model orchestrates; implementers sonnet, JUDGMENT tasks opus | After F1 merges: cut fe-f2 + fe-f4 worktrees, dispatch per §5 briefs |
+| Backend prod deploy | needs-spec (owner decisions O1 host, TURN) | session-model | Do nothing until Thomas green-lights |
+| Thomas manual queue | n/a (owner) | — | ORCHESTRATION.md "Escalations": OAuth apps + WEBAPP_SESSION_SECRET, real firm deadlines, school_percentile nod, demo checkpoints after FW2/FW5/FW7 |
+
+### Gotchas this session (beyond what ORCHESTRATION.md records)
+- Phase leads MUST dispatch subagents synchronously (`run_in_background:
+  false`) — now codified in frontend doc §4; background children strand a
+  stopped lead (F1 stalled exactly this way; a relayed verdict + SendMessage
+  resume recovered it).
+- Migration numbers and sdd subdirs are pre-assigned serial resources —
+  contract §5/§6; improvising either causes merge conflicts (B4×B1 ledger
+  add/add proved it).
+- Cross-phase truth lives in `docs/superpowers/sdd/bgap-*-report.md` /
+  `fe-*-report.md` — reports OVERRIDE briefs (e.g. B1 DD-1, B4 `title` key).
+- DesignSync (claude.ai design project) is reachable ONLY from the main
+  session, not subagents; design canon already imported to `docs/design/`
+  (Mobile canvas truncated at the stale 1-series tail — README there).
+
+## ▶ SUPERSEDED — UI CORRECTIONS (handoff 2026-07-16)
 GOAL: iterate on the **myCase iOS app UI**. The app builds, is branded (name
 **myCase**, Liquid Glass icon, bundle `study.mycase`), runs on Thomas's iPhone
 15 Pro, and reaches the dev backend over LAN. **The specific UI corrections are

@@ -124,7 +124,10 @@ approach (token ramps in base.html). No frameworks, no build steps.
 Identical to backend doc §4 (plan → plan-review → task loop with fresh
 implementer per task + task reviewer + fix loops → full suites → final
 whole-branch review → committed report `docs/superpowers/sdd/fe-<phase>-report.md`
-→ ≤15-line summary). Two changes:
+→ ≤15-line summary). **Dispatch every subagent with `run_in_background:
+false` (synchronous)** — a lead that ends its turn waiting on a background
+child is stranded (nothing re-invokes it); F1 hit exactly this. Your loop
+is sequential anyway. Two further changes:
 - Implementer model defaults to `sonnet`; tasks marked JUDGMENT in the
   brief dispatch `opus` implementers.
 - Every screen task's reviewer receives the screenshot path(s) and the
