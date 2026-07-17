@@ -18,3 +18,4 @@ Branch: bgap/b1-scheduling · DB: caserepo_bgap_b1 · Interpreter: /Users/thomas
 - Task 1: complete (commits f1721cf..6a72e75, review CLEAN — migrations 020/021 idempotent, spec-compliant)
 - Task 2: complete (commit ab30892, review CLEAN — env-tunable expiry settings, suite 362 green)
 - Task 3: complete (commit 62fb963, review CLEAN — nullable case/recipient + claim_token, suite 366 green)
+- Task 4: complete (commit bcab307, review PASS both verdicts — claim endpoint + claim_proposal(token,user_id), suite 373 green). NOTE (carried to final review, Minor): the 2-file isolated-pair failure is a PRE-EXISTING second-resolution email-filename collision in dev ConsoleEmailSender (webapp/auth/email_sender.py:90 uses %Y%m%dT%H%M%SZ granularity + B1 test classes don't clean output/emails/); exposed not caused by Task 4; full suite green via wall-clock spacing. Optional hardening: sub-second filenames or tearDownClass email cleanup.
