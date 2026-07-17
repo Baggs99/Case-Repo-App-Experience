@@ -22,6 +22,7 @@ from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.push.live_activity import push_live_activity_update
 from webapp.repositories.cases import get_case_by_id
+from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import feedback as feedback_repo
 from webapp.repositories import pairing_tokens as pairing_repo
 from webapp.repositories import practice_sessions as repo
@@ -173,12 +174,21 @@ def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)
 @router.get("/api/practice/pair/status/{token}")
 def pair_token_status(token: str, user: User = Depends(require_auth_api)):
     """Interviewer polls this to discover the session created by a claim
-    (§ pairing). 404 if the token doesn't exist or isn't owned by the caller."""
+    (§ pairing). 404 if the token doesn't exist or isn't owned by the caller.
+    Once claimed, the response carries the candidate's top-3 recommendations
+    (spec §7.2 — "Recommended for [name]", interviewer-side)."""
     try:
         session_id = pairing_repo.status(token=token, interviewer_id=user.id)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-    return {"session_id": session_id}
+    counterpart_recs: list[dict] = []
+    if session_id is not None:
+        session = repo.get_practice_session(session_id)
+        if session is not None:
+            counterpart_recs = dashboard_repo.recommendations(
+                session["candidate_id"], limit=3)
+    return {"session_id": session_id,
+            "counterpart_recommendations": counterpart_recs}
 
 
 @router.get("/api/practice/{session_id}/join-config")
@@ -193,10 +203,16 @@ async def join_config(session_id: int, request: Request,
     ice_servers = list(settings.ice_servers)
     if session["mode"] == "remote":
         ice_servers += await mint_turn_credentials(settings)
-    return {
+    config = {
         "session_id": session_id,
         "your_role": role,
         "mode": session["mode"],
         "ws_path": f"/ws/practice/{session_id}",
         "ice_servers": ice_servers,
     }
+    if role == "interviewer":
+        # Spec §7.2: the recommendation travels with the candidate — the
+        # interviewer sees "Recommended for [name]" (top 3). Interviewer-only.
+        config["counterpart_recommendations"] = await run_in_threadpool(
+            dashboard_repo.recommendations, session["candidate_id"], limit=3)
+    return config
