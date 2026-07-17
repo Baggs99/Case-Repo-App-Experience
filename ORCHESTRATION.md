@@ -8,11 +8,11 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 
 | Phase | Branch | Worktree | Status | Head | Suite |
 |---|---|---|---|---|---|
-| B1 scheduling | bgap/b1-scheduling | ~/dev/bgap-b1 | DISPATCHED w1 | — | — |
+| B1 scheduling | bgap/b1-scheduling | ~/dev/bgap-b1 | MERGED e315b68 | 350d069 | 402 phase / 418 integration |
 | B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | MERGED c0f26ca | 27a2e2a | 376 pass (phase + integration) |
 | B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | DISPATCHED w1 | — | — |
-| B2 guest | bgap/b2-guest | — | WAITING w2 (needs B1 merged) | — | — |
-| B7 timeline | bgap/b7-timeline | — | WAITING w2 (needs B4 merged) | — | — |
+| B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | DISPATCHED w2 | — | — |
+| B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | DISPATCHED w2 | — | — |
 | B3 sessionflow | bgap/b3-sessionflow | — | WAITING w3 (needs B1,B2,B4) | — | — |
 | B6 community | bgap/b6-community | — | WAITING w3 (needs B5,B7) | — | — |
 | B8 drills-agg | bgap/b8-drills-agg | — | WAITING w4 (needs B6 + OD-B8-1) | — | — |
@@ -51,6 +51,15 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   migrations or 135 DB tests skip — added to protocol). API note for iOS:
   recs payload key is `title` (never shipped as `case_title` in /api/v1).
   Final review caught+fixed a grade leak to interviewer surface (33a982b).
+
+## Merge log (cont.)
+
+- 2026-07-17 B1 → feature/backend-gap @ e315b68 (phase head 350d069).
+  Integration 418 passed (360+16 B4+42 B1). Sole conflict: both phases'
+  .superpowers/sdd/progress.md (add/add) — concatenated; §6 now mandates
+  per-phase sdd subdirs. B1 DD-1 seam: case-less accept → needs_negotiation
+  + null session; case-less pair claim 409s — B3 builds negotiating from
+  these. B1 deferred items ride to B2 (claim_token null hygiene) and B3.
 
 ## Escalations queued for Thomas
 

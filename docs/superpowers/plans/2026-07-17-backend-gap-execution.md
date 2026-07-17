@@ -206,6 +206,13 @@ not). Never renumber or edit another phase's migrations.
 
 ## 6. Phase briefs
 
+Before planning, read `docs/superpowers/sdd/bgap-<phase>-report.md` for
+every phase your brief's Consumes line names — **reports override briefs**
+where they differ (they record what was actually built, incl. deviations
+like B1's DD-1). Keep your ledger and diff packages under
+`.superpowers/sdd/<your-phase>/` (NOT the bare `.superpowers/sdd/` — same
+path across phases = merge conflicts every wave).
+
 Each brief supplements the roadmap section (read it first) and the spec
 sections it cites. Where a brief pins a signature, later phases build
 against it — deliver it exactly or record the deviation prominently in
