@@ -4,11 +4,11 @@
  *          propose-now sheet), next-session card (taps to Sessions), streak
  *          card, and a "Browse cases" CTA. Empty state when no upcoming session.
  * Inputs: TodayViewModel (default APIClient.shared); SessionStore (environment,
- *         for the drill engine's user seed); a binding to RootTabView's
- *         selectedTab so cards can switch tabs; startDrillToken, which RootTabView
- *         bumps to open the drill sheet from a drill deep link / intent.
+ *         for the drill engine's user seed); a binding to RootShell's DSTab
+ *         selection so cards can switch tabs. The drill card routes through
+ *         AppRouter.go(.drillRun) — RootShell owns the drill sheet.
  * Outputs: none.
- * Run: shown as a tab by RootTabView.
+ * Run: shown by RootShell for DSTab.home.
  */
 
 import SwiftUI
@@ -16,12 +16,9 @@ import SwiftUI
 struct TodayView: View {
     @State private var viewModel = TodayViewModel()
     @State private var freeNowViewModel = FreeNowViewModel()
-    @State private var drillViewModel: DrillViewModel?
-    @State private var drillCompleted = false
     @State private var proposeTo: FreeUser?
     @Environment(SessionStore.self) private var sessionStore
-    @Binding var selectedTab: RootTabView.RootTab
-    var startDrillToken: Int = 0
+    @Binding var selectedTab: DSTab
 
     private var freeBinding: Binding<Bool> {
         Binding(
@@ -34,6 +31,7 @@ struct TodayView: View {
         NavigationStack {
             content
                 .navigationTitle("Today")
+                .toolbar(.hidden, for: .navigationBar)
                 .task {
                     // Best-effort template refresh so the on-device FM engine has
                     // an offline pack; run alongside the dashboard load.
@@ -47,30 +45,7 @@ struct TodayView: View {
                     await viewModel.load()
                     await freeNowViewModel.refresh()
                 }
-                .sheet(item: $drillViewModel, onDismiss: handleDrillDismiss) {
-                    DrillView(viewModel: $0)
-                }
-                .onChange(of: startDrillToken) { _, _ in startDrill() }
         }
-    }
-
-    private func startDrill() {
-        drillCompleted = false
-        let drill = DrillViewModel(
-            engine: DrillEngineProvider.make(
-                service: APIClient.shared, userId: sessionStore.user?.id ?? 0
-            ),
-            recorder: AttemptRecorder(service: APIClient.shared)
-        )
-        // Flags graded completion for the dismissal handler — the sheet item is
-        // already nil by the time onDismiss runs, so the VM can't be read there.
-        drill.onAnswered = { drillCompleted = true }
-        drillViewModel = drill
-    }
-
-    private func handleDrillDismiss() {
-        viewModel.drillSheetDismissed(completed: drillCompleted)
-        drillCompleted = false
     }
 
     @ViewBuilder
@@ -83,7 +58,7 @@ struct TodayView: View {
                     DrillCard(
                         drillDoneToday: viewModel.drillDoneToday,
                         streakDays: viewModel.streakDays,
-                        onTap: startDrill
+                        onTap: { AppRouter.shared.go(to: .drillRun) }
                     )
                 }
 
@@ -128,11 +103,11 @@ struct TodayView: View {
                 Section {
                     if let nextSession = viewModel.nextSession {
                         NextSessionCard(session: nextSession) {
-                            selectedTab = .sessions
+                            selectedTab = .caseTab
                         }
                     } else {
                         EmptyNextSessionCard {
-                            selectedTab = .cases
+                            selectedTab = .library
                         }
                     }
                 }
@@ -143,7 +118,7 @@ struct TodayView: View {
 
                 Section {
                     Button {
-                        selectedTab = .cases
+                        selectedTab = .library
                     } label: {
                         Label("Browse cases", systemImage: "folder")
                     }
@@ -280,6 +255,6 @@ private struct StreakCard: View {
 }
 
 #Preview {
-    TodayView(selectedTab: .constant(.today))
+    TodayView(selectedTab: .constant(.home))
         .environment(SessionStore())
 }

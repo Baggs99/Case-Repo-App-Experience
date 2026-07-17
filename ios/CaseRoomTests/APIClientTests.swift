@@ -465,6 +465,69 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertTrue((destination.cookies ?? []).isEmpty)
     }
+
+    // MARK: - Profile
+
+    func testProfileDecodesNullableFields() async throws {
+        stubJSON(#"{"id":5,"email":"a@yale.edu","display_name":"Amara Osei","bio":null,"linkedin_url":"https://linkedin.com/in/amara","school":"Wharton","photo_url":"/avatars/5.jpg"}"#)
+        let p = try await client.profile()
+        XCTAssertEqual(p.id, 5)
+        XCTAssertEqual(p.displayName, "Amara Osei")
+        XCTAssertNil(p.bio)
+        XCTAssertEqual(p.linkedinUrl, "https://linkedin.com/in/amara")
+        XCTAssertEqual(p.school, "Wharton")
+        XCTAssertEqual(p.photoUrl, "/avatars/5.jpg")
+        XCTAssertEqual(StubURLProtocol.recordedRequests.first?.url?.path, "/api/v1/profile")
+        XCTAssertEqual(StubURLProtocol.recordedRequests.first?.httpMethod, "GET")
+    }
+
+    func testUpdateProfileEncodesSnakeCase() async throws {
+        stubJSON(#"{"id":5,"email":"a@yale.edu","display_name":"New Name","bio":"hi","linkedin_url":null,"school":"Wharton","photo_url":null}"#)
+        _ = try await client.updateProfile(displayName: "New Name", bio: "hi", linkedinUrl: nil)
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/profile")
+        XCTAssertEqual(request.httpMethod, "PUT")
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertEqual(body["display_name"] as? String, "New Name")
+        XCTAssertEqual(body["bio"] as? String, "hi")
+    }
+
+    func testUploadPhotoReturnsURLAndSendsMultipart() async throws {
+        stubJSON(#"{"photo_url":"/avatars/5.png"}"#)
+        let url = try await client.uploadProfilePhoto(data: Data([0x89, 0x50]), mime: "image/png")
+        XCTAssertEqual(url, "/avatars/5.png")
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/profile/photo")
+        XCTAssertEqual(request.httpMethod, "POST")
+        let contentType = request.value(forHTTPHeaderField: "Content-Type") ?? ""
+        XCTAssertTrue(contentType.hasPrefix("multipart/form-data; boundary="))
+    }
+
+    // MARK: - Notification settings
+
+    func testNotificationSettingsDecodesFiveBools() async throws {
+        stubJSON(#"{"proposals":true,"session_reminders":false,"feedback":true,"free_now":false,"community":true}"#)
+        let s = try await client.notificationSettings()
+        XCTAssertTrue(s.proposals)
+        XCTAssertFalse(s.sessionReminders)
+        XCTAssertTrue(s.feedback)
+        XCTAssertFalse(s.freeNow)
+        XCTAssertTrue(s.community)
+        XCTAssertFalse(s.allEnabled)
+        XCTAssertEqual(StubURLProtocol.recordedRequests.first?.url?.path, "/api/v1/settings/notifications")
+    }
+
+    func testUpdateNotificationSettingsRoundTrips() async throws {
+        stubJSON(#"{"proposals":false,"session_reminders":false,"feedback":false,"free_now":false,"community":false}"#)
+        let all = NotificationSettings(proposals: false, sessionReminders: false, feedback: false, freeNow: false, community: false)
+        let s = try await client.updateNotificationSettings(all)
+        XCTAssertFalse(s.allEnabled)
+        let request = StubURLProtocol.recordedRequests.first!
+        XCTAssertEqual(request.url?.path, "/api/v1/settings/notifications")
+        XCTAssertEqual(request.httpMethod, "PUT")
+        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
+        XCTAssertEqual(body["free_now"] as? Bool, false)
+    }
 }
 
 // Not private: reused by SessionServiceTests.swift (same test target).

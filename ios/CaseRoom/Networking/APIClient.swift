@@ -47,6 +47,16 @@ protocol AvailabilityService {
     func clearFree() async throws
 }
 
+// Profile + notification settings (B5). All cookie-authed; PUT/POST are
+// same-origin from the native client.
+protocol ProfileService {
+    func profile() async throws -> ProfileDetail
+    func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail
+    func uploadProfilePhoto(data: Data, mime: String) async throws -> String
+    func notificationSettings() async throws -> NotificationSettings
+    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -73,7 +83,7 @@ protocol SessionService {
     func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
-actor APIClient: SessionService, PairService, DrillService, AvailabilityService {
+actor APIClient: SessionService, PairService, DrillService, AvailabilityService, ProfileService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -264,6 +274,52 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService 
     func registerDevice(token: String) async throws {
         struct DeviceBody: Encodable { let token: String; let platform: String = "ios" }
         try await sendNoContent(path: "/api/v1/devices", method: "POST", body: DeviceBody(token: token))
+    }
+
+    // MARK: - Profile & settings (B5)
+
+    func profile() async throws -> ProfileDetail {
+        try await send(path: "/api/v1/profile", method: "GET")
+    }
+
+    // A nil field omits the key (synthesized Encodable uses encodeIfPresent); B5's
+    // ProfileUpdate defaults each to None, so an omitted key clears that field —
+    // which is exactly the "user emptied it" intent the avatar-sheet editor sends.
+    func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail {
+        struct Body: Encodable { let displayName: String?; let bio: String?; let linkedinUrl: String? }
+        return try await send(
+            path: "/api/v1/profile", method: "PUT",
+            body: Body(displayName: displayName, bio: bio, linkedinUrl: linkedinUrl)
+        )
+    }
+
+    func uploadProfilePhoto(data: Data, mime: String) async throws -> String {
+        struct PhotoResponse: Decodable { let photoUrl: String }
+        let boundary = "CaseRoomBoundary-\(UUID().uuidString)"
+        var request = try makeRequest(path: "/api/v1/profile/photo", method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Self.multipartPhotoBody(boundary: boundary, mime: mime, data: data)
+        let responseData = try await performRaw(request)
+        return try decoder.decode(PhotoResponse.self, from: responseData).photoUrl
+    }
+
+    func notificationSettings() async throws -> NotificationSettings {
+        try await send(path: "/api/v1/settings/notifications", method: "GET")
+    }
+
+    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings {
+        try await send(path: "/api/v1/settings/notifications", method: "PUT", body: settings)
+    }
+
+    private static func multipartPhotoBody(boundary: String, mime: String, data: Data) -> Data {
+        let ext = mime == "image/png" ? "png" : (mime == "image/webp" ? "webp" : "jpg")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"avatar.\(ext)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        return body
     }
 
     // MARK: - Drills (DrillService)
