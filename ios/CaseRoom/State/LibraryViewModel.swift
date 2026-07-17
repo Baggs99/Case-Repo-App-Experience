@@ -164,6 +164,15 @@ final class LibraryViewModel {
     var isLoading = false
     var errorMessage: String?
 
+    // Task 5 (tablet 2c right pane): recent sessions fetched once (not on
+    // every type-chip reload) and title-matched per selection via
+    // LibraryDetailCopy.history — the SAME join CaseDetailView uses for the
+    // phone push detail, so tablet/phone history lines stay derived
+    // identically (documented seam: no case_id on SessionSummary, plan
+    // resolution #6).
+    var recentSessions: [SessionSummary] = []
+    private var didFetchSessions = false
+
     #if DEBUG
     // Screenshot-only decoration hook (Task 3's -LibraryFixtures): case id ->
     // (recommended, scheduledNote). The live /api/v1/cases* response carries
@@ -203,6 +212,14 @@ final class LibraryViewModel {
             allCases = []
             page = nil
             errorMessage = "Couldn't load the library. Try again."
+        }
+
+        // Best-effort, fetched once: a failure here shouldn't block the case
+        // list, and re-fetching on every type-chip reload would be wasted
+        // work (recent sessions aren't filtered by case_type).
+        if !didFetchSessions {
+            didFetchSessions = true
+            recentSessions = (try? await service.recentSessions()) ?? []
         }
     }
 
@@ -250,4 +267,17 @@ final class LibraryViewModel {
     }
 
     var isEmpty: Bool { filteredRows.isEmpty }
+
+    // Task 5: the tablet right pane's source of truth — selectedCase with
+    // historyLine/historyScore attached via a title match over recentSessions
+    // (LibraryDetailCopy.history, shared with CaseDetailView's phone path so
+    // both derive "YOUR HISTORY WITH IT" identically). nil when there's no
+    // selection to show (empty library).
+    var selectedCaseWithHistory: LibraryCase? {
+        guard var selected = selectedCase else { return nil }
+        let history = LibraryDetailCopy.history(from: recentSessions, caseTitle: selected.title)
+        selected.historyLine = history.line
+        selected.historyScore = history.score
+        return selected
+    }
 }

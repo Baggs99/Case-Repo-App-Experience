@@ -16,6 +16,7 @@ final class StubLibraryService: LibraryService {
     var caseDetailResult: Result<CaseDetail, Error>?
     var recentSessionsResult: Result<[SessionSummary], Error> = .success([])
     var recordedQueries: [CaseQuery] = []
+    var recentSessionsCallCount = 0
 
     func library(query: CaseQuery) async throws -> LibraryPage {
         recordedQueries.append(query)
@@ -28,7 +29,8 @@ final class StubLibraryService: LibraryService {
     }
 
     func recentSessions() async throws -> [SessionSummary] {
-        try recentSessionsResult.get()
+        recentSessionsCallCount += 1
+        return try recentSessionsResult.get()
     }
 }
 
@@ -365,6 +367,104 @@ final class LibraryViewModelTests: XCTestCase {
 
         vm.selectedID = 2
         XCTAssertEqual(vm.selectedCase?.id, 2)
+    }
+
+    // MARK: - Task 5: selectedCaseWithHistory (tablet 2c right pane)
+
+    func testSelectedCaseWithHistoryAttachesTitleMatchedSession() async {
+        let stub = StubLibraryService()
+        stub.libraryResult = .success(makePage([
+            makeSummary(id: 1, title: "Ski resort: revenue up, profit down", doneForYou: true),
+        ]))
+        let calendar = Calendar(identifier: .gregorian)
+        let endedAt = calendar.date(from: DateComponents(year: 2026, month: 7, day: 12))!
+        stub.recentSessionsResult = .success([
+            SessionSummary(id: 900, role: "candidate", otherUser: "T. Becker",
+                            caseTitle: "Ski resort: revenue up, profit down",
+                            scheduledAt: nil, state: "done", endedAt: endedAt, grade: 4.1),
+        ])
+        let vm = LibraryViewModel(service: stub)
+
+        await vm.load()
+
+        let attached = try? XCTUnwrap(vm.selectedCaseWithHistory)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM dd"
+        let expectedDate = formatter.string(from: endedAt)
+        XCTAssertEqual(attached?.historyLine, "\(expectedDate) · T. Becker")
+        XCTAssertEqual(attached?.historyScore, "4.1 avg")
+    }
+
+    func testSelectedCaseWithHistoryNilLineWhenNoTitleMatch() async {
+        let stub = StubLibraryService()
+        stub.libraryResult = .success(makePage([
+            makeSummary(id: 1, title: "Freight carrier: fuel costs eat the margin"),
+        ]))
+        stub.recentSessionsResult = .success([
+            SessionSummary(id: 901, role: "candidate", otherUser: "S. Park",
+                            caseTitle: "A completely different case",
+                            scheduledAt: nil, state: "done", endedAt: Date(), grade: 4.5),
+        ])
+        let vm = LibraryViewModel(service: stub)
+
+        await vm.load()
+
+        let attached = try? XCTUnwrap(vm.selectedCaseWithHistory)
+        XCTAssertNil(attached?.historyLine)
+        XCTAssertNil(attached?.historyScore)
+    }
+
+    func testSelectedCaseWithHistoryFollowsSelectionAcrossRows() async {
+        let stub = StubLibraryService()
+        stub.libraryResult = .success(makePage([
+            makeSummary(id: 1, title: "Case A"),
+            makeSummary(id: 2, title: "Case B"),
+        ]))
+        let calendar = Calendar(identifier: .gregorian)
+        let endedAt = calendar.date(from: DateComponents(year: 2026, month: 7, day: 8))!
+        stub.recentSessionsResult = .success([
+            SessionSummary(id: 902, role: "candidate", otherUser: "S. Park",
+                            caseTitle: "Case B",
+                            scheduledAt: nil, state: "done", endedAt: endedAt, grade: 4.5),
+        ])
+        let vm = LibraryViewModel(service: stub)
+
+        await vm.load()
+
+        // id 1 (default selection fallback) has no matching session.
+        XCTAssertNil(vm.selectedCaseWithHistory?.historyLine)
+
+        vm.selectedID = 2
+        XCTAssertEqual(vm.selectedCaseWithHistory?.id, 2)
+        XCTAssertNotNil(vm.selectedCaseWithHistory?.historyLine)
+        XCTAssertEqual(vm.selectedCaseWithHistory?.historyScore, "4.5 avg")
+    }
+
+    func testSelectedCaseWithHistoryNilWhenLibraryEmpty() async {
+        let stub = StubLibraryService()
+        stub.libraryResult = .success(makePage([]))
+        let vm = LibraryViewModel(service: stub)
+
+        await vm.load()
+
+        XCTAssertNil(vm.selectedCaseWithHistory)
+    }
+
+    func testRecentSessionsFetchedOnceNotOnEveryTypeReload() async {
+        let stub = StubLibraryService()
+        stub.libraryResult = .success(makePage([makeSummary(id: 1)]))
+        let vm = LibraryViewModel(service: stub)
+
+        await vm.load()
+        vm.type = .profitability
+        await vm.load()
+        vm.type = .marketEntry
+        await vm.load()
+
+        // Three library() reloads (one per type change) but recentSessions()
+        // only fetched on the first — didFetchSessions gates the rest.
+        XCTAssertEqual(stub.recordedQueries.count, 3)
+        XCTAssertEqual(stub.recentSessionsCallCount, 1)
     }
 
     // MARK: - No population-count phrasing leaks into any string
