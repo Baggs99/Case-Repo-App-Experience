@@ -75,6 +75,18 @@ class TestSwap(unittest.TestCase):
         self.assertEqual(r.status_code, 409, r.text)
         self.assertEqual(r.json()["detail"]["blocked_by_recap"], blk_sid)
 
+    def test_claim_invite_single_winner(self):
+        from webapp.repositories import swaps as swap_repo
+        sid = self._finished()
+        self.alice.post(f"/api/practice/{sid}/swap")   # creates a pending invite
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id, invitee_id FROM swap_invites"
+                        " WHERE from_session_id = %s AND state='pending';", (sid,))
+            invite_id, invitee_id = cur.fetchone()
+        self.assertTrue(swap_repo.claim_invite(invite_id, invitee_id))    # first wins
+        self.assertFalse(swap_repo.claim_invite(invite_id, invitee_id))   # second loses
+
     def _drop(self, sid, cid):
         import psycopg
         # Purge any session swapped FROM this one first (new_session_id/swapped_from

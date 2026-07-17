@@ -39,10 +39,24 @@ def pending_invite(from_session_id: int) -> Optional[dict]:
             return cur.fetchone()
 
 
-def mark_accepted(invite_id: int, new_session_id: int) -> None:
+def claim_invite(invite_id: int, invitee_id: int) -> bool:
+    """Atomically transition a pending invite to 'accepted' for its invitee.
+    Returns True iff THIS call won the transition (so exactly one accept creates
+    the reversed session — a concurrent second accept gets False). new_session_id
+    is attached afterwards by attach_new_session."""
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE swap_invites SET state = 'accepted', new_session_id = %s,"
-                " responded_at = NOW() WHERE id = %s AND state = 'pending';",
+                "UPDATE swap_invites SET state = 'accepted', responded_at = NOW()"
+                " WHERE id = %s AND invitee_id = %s AND state = 'pending';",
+                (invite_id, invitee_id))
+            return cur.rowcount == 1
+
+
+def attach_new_session(invite_id: int, new_session_id: int) -> None:
+    """Record the reversed session created for an already-claimed invite."""
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE swap_invites SET new_session_id = %s WHERE id = %s;",
                 (new_session_id, invite_id))

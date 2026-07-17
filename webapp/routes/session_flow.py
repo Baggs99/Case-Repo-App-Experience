@@ -239,10 +239,14 @@ def swap_accept(session_id: int, background: BackgroundTasks,
     except RecapGateError as exc:
         raise HTTPException(status_code=409,
                             detail={"blocked_by_recap": exc.blocked_by_recap})
+    # Atomically win the invite before creating anything — a concurrent second
+    # accept loses the claim and gets 409 with no orphan session created.
+    if not swap_repo.claim_invite(invite["id"], user.id):
+        raise HTTPException(status_code=409, detail="Swap already accepted")
     new_session = sessions_repo.create_negotiating_session(
         interviewer_id=new_interviewer, candidate_id=new_candidate,
         mode=session["mode"], swapped_from_session_id=session_id)
-    swap_repo.mark_accepted(invite["id"], new_session["id"])
+    swap_repo.attach_new_session(invite["id"], new_session["id"])
     background.add_task(
         push_to_user, invite["initiator_id"], title="Swap accepted",
         body="Your rematch is ready — pick a case", data={
