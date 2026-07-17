@@ -64,23 +64,18 @@ struct RootTabView: View {
         }
         .onChange(of: pushCoordinator.pendingRoute) { _, newRoute in
             guard let newRoute else { return }
-            handle(AppRoute(newRoute))
+            handle(DeepLink(newRoute))
             pushCoordinator.pendingRoute = nil
         }
-        .onChange(of: appRouter.pending) { _, newRoute in
-            guard let newRoute else { return }
-            handle(newRoute)
-            appRouter.pending = nil
-        }
         .onOpenURL { url in
-            if let route = AppRoute.route(from: url) { handle(route) }
+            if let route = DeepLink.route(from: url) { handle(route) }
         }
         .task {
             await sessionStore.bootstrap()
         }
     }
 
-    private func handle(_ route: AppRoute) {
+    private func handle(_ route: DeepLink) {
         switch route {
         case .drill:
             selectedTab = .today

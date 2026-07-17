@@ -12,40 +12,40 @@ import XCTest
 
 final class IntentsTests: XCTestCase {
 
-    // MARK: - AppRoute URL parsing
+    // MARK: - DeepLink URL parsing
 
     func testRouteFromDrillURL() {
-        XCTAssertEqual(AppRoute.route(from: URL(string: "caseroom://drill")!), .drill)
+        XCTAssertEqual(DeepLink.route(from: URL(string: "caseroom://drill")!), .drill)
     }
 
     func testRouteFromSessionsURL() {
-        XCTAssertEqual(AppRoute.route(from: URL(string: "caseroom://sessions")!), .sessions)
+        XCTAssertEqual(DeepLink.route(from: URL(string: "caseroom://sessions")!), .sessions)
     }
 
     func testRouteFromFreeNowURL() {
-        XCTAssertEqual(AppRoute.route(from: URL(string: "caseroom://freenow")!), .freeNow)
+        XCTAssertEqual(DeepLink.route(from: URL(string: "caseroom://freenow")!), .freeNow)
     }
 
     func testRouteFromUnknownHostIsNil() {
-        XCTAssertNil(AppRoute.route(from: URL(string: "caseroom://mystery")!))
+        XCTAssertNil(DeepLink.route(from: URL(string: "caseroom://mystery")!))
     }
 
     func testRouteFromWrongSchemeIsNil() {
-        XCTAssertNil(AppRoute.route(from: URL(string: "https://drill")!))
+        XCTAssertNil(DeepLink.route(from: URL(string: "https://drill")!))
     }
 
-    // MARK: - PushRoute -> AppRoute mapping
+    // MARK: - PushRoute -> DeepLink mapping
 
     func testProposalsMapsToSessions() {
-        XCTAssertEqual(AppRoute(.proposals), .sessions)
+        XCTAssertEqual(DeepLink(.proposals), .sessions)
     }
 
     func testSessionMapsToSessions() {
-        XCTAssertEqual(AppRoute(.session(7)), .sessions)
+        XCTAssertEqual(DeepLink(.session(7)), .sessions)
     }
 
     func testProposeToMapsToProposeTo() {
-        XCTAssertEqual(AppRoute(.proposeTo(3)), .proposeTo(3))
+        XCTAssertEqual(DeepLink(.proposeTo(3)), .proposeTo(3))
     }
 
     // MARK: - NextSessionIntent.dialogText

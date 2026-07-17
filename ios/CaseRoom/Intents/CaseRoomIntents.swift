@@ -1,28 +1,28 @@
 /*
- * Purpose: In-app routing target for intents/deep-links plus the app-side App
- *          Intents — AppRoute (the folded PushRoute + URL destinations),
- *          AppRouter (a router singleton RootTabView observes), StartDrillIntent,
+ * Purpose: Steering-source parsing + the app-side App Intents. DeepLink folds the
+ *          caseroom:// URL and PushRoute steering sources (their parsers/tests are
+ *          behavior-preserved); AppRouter is the central router that maps every
+ *          steering source onto the pinned AppRoute registry; plus StartDrillIntent,
  *          NextSessionIntent, and the CaseRoomShortcuts provider.
  * Inputs: PushRoute payloads, caseroom:// URLs, APIClient.shared.dashboard().
- * Outputs: AppRouter.shared.pending mutations; a spoken/next-session dialog.
- * Run: intents run by the system; RootTabView observes AppRouter + .onOpenURL.
+ * Outputs: AppRouter.shared mutations (observed by RootShell); a spoken dialog.
+ * Run: intents run by the system; RootShell observes AppRouter + .onOpenURL.
  */
 
 import AppIntents
 import Foundation
 import Observation
 
-// One destination type for every way the app gets steered: notification taps
-// (PushRoute), caseroom:// deep links, and App Intents. RootTabView switches on
-// this alone, so there is a single routing path.
-enum AppRoute: Equatable {
+// Steering-source parse result (was `AppRoute` pre-F1). Covers the caseroom://
+// deep links and the notification-tap fold. AppRouter maps these onto AppRoute.
+enum DeepLink: Equatable {
     case drill
     case sessions
     case proposeTo(Int)
     case freeNow
 
-    // Folds a notification-tap PushRoute into an AppRoute. Both `.proposals` and
-    // `.session` land on the Sessions tab (the prior RootTabView behavior).
+    // Folds a notification-tap PushRoute. Both `.proposals` and `.session` land
+    // on the sessions surface (the prior behavior).
     init(_ pushRoute: PushRoute) {
         switch pushRoute {
         case .proposals, .session:
@@ -32,9 +32,9 @@ enum AppRoute: Equatable {
         }
     }
 
-    // Pure caseroom:// parser (covers the Task-8 widget deep links). Unknown
-    // host or a non-caseroom scheme -> nil (ignored by the caller).
-    static func route(from url: URL) -> AppRoute? {
+    // Pure caseroom:// parser (covers the widget deep links). Unknown host or a
+    // non-caseroom scheme -> nil (ignored by the caller).
+    static func route(from url: URL) -> DeepLink? {
         guard url.scheme == "caseroom" else { return nil }
         switch url.host {
         case "drill": return .drill
@@ -50,11 +50,64 @@ enum AppRoute: Equatable {
 final class AppRouter {
     static let shared = AppRouter()
 
-    /// Set by an intent (or any in-process caller) to request navigation;
-    /// RootTabView observes this, acts, then clears it back to nil.
+    // Tab + navigation state observed by RootShell.
+    var selection: DSTab = .home
+    var avatarSheet = false
+    var proposeToUserID: Int?
+    var sessionTakeoverID: Int?
+    var drillRun = false          // the shell owns the drill sheet, keyed off this
+    var homePath: [AppRoute] = []
+    var libraryPath: [AppRoute] = []
+    var casePath: [AppRoute] = []
+    var communityPath: [AppRoute] = []
+
+    /// Intent inbox: an App Intent (which can't reach the SwiftUI environment)
+    /// sets this; RootShell drains it via go(to:) then clears it back to nil.
     var pending: AppRoute?
 
     private init() {}
+
+    /// Navigate to any AppRoute. Detail routes select the owning tab and push
+    /// onto its stack; modal/cover routes flip their presentation flag; drillRun
+    /// opens the (transitionally Home-hosted) drill sheet.
+    func go(to route: AppRoute) {
+        switch route {
+        case .home, .library, .caseTab, .community, .drills:
+            if let tab = route.owningTab { selection = tab }
+        case .avatarSheet:
+            avatarSheet = true
+        case .sessionTakeover(let id):
+            sessionTakeoverID = id
+        case .drillRun:
+            selection = .home
+            drillRun = true       // RootShell observes this and presents DrillView
+        case .caseDetail(let id):
+            selection = .library
+            libraryPath.append(.caseDetail(id))
+        case .timelineDetail:
+            selection = .home    // F2 wires the detail push onto homePath
+        case .recap:
+            selection = .caseTab // F5 wires the recap presentation
+        case .groupPage:
+            selection = .community // F8 wires the group-page push onto communityPath
+        }
+    }
+
+    /// Remap a parsed caseroom:// / push-fold steering source onto the router.
+    func handleDeepLink(_ link: DeepLink) {
+        switch link {
+        case .drill:              go(to: .drillRun)
+        case .sessions, .freeNow: go(to: .caseTab)
+        case .proposeTo(let id):
+            selection = .caseTab
+            proposeToUserID = id
+        }
+    }
+
+    /// Remap a raw notification-tap PushRoute onto the router (via DeepLink).
+    func handlePush(_ route: PushRoute) {
+        handleDeepLink(DeepLink(route))
+    }
 }
 
 struct StartDrillIntent: AppIntent {
@@ -63,7 +116,7 @@ struct StartDrillIntent: AppIntent {
     static let openAppWhenRun = true
 
     func perform() async throws -> some IntentResult {
-        await MainActor.run { AppRouter.shared.pending = .drill }
+        await MainActor.run { AppRouter.shared.pending = .drillRun }
         return .result()
     }
 }
