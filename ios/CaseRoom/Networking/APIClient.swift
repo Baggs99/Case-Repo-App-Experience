@@ -83,6 +83,18 @@ protocol BoardService {
     func groupBoard() async throws -> GroupBoard
 }
 
+// Community tab (F8, Task 1): connections + groups + school standing. All
+// cookie-authed; POST/PUT are same-origin from the native client.
+protocol CommunityService {
+    func connections() async throws -> [Connection]
+    func groups() async throws -> [GroupSummary]
+    func createGroup(name: String) async throws -> GroupSummary
+    func group(id: Int) async throws -> GroupDetail
+    func transferGroupAdmin(id: Int, userId: Int) async throws
+    func groupProgress(id: Int) async throws -> [GroupProgressMember]
+    func schoolStanding() async throws -> SchoolStanding
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -110,7 +122,7 @@ protocol SessionService {
 }
 
 actor APIClient: SessionService, PairService, DrillService, AvailabilityService, ProfileService,
-    TimelineService, RecommendationService, GauntletService, BoardService {
+    TimelineService, RecommendationService, GauntletService, BoardService, CommunityService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -366,6 +378,44 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
             path: "/api/v1/drills/boards", method: "GET",
             queryItems: [URLQueryItem(name: "scope", value: "group")]
         )
+    }
+
+    // MARK: - Community (CommunityService, F8)
+
+    func connections() async throws -> [Connection] {
+        struct ConnectionsResponse: Decodable { let connections: [Connection] }
+        let response: ConnectionsResponse = try await send(path: "/api/v1/connections", method: "GET")
+        return response.connections
+    }
+
+    func groups() async throws -> [GroupSummary] {
+        struct GroupsResponse: Decodable { let groups: [GroupSummary] }
+        let response: GroupsResponse = try await send(path: "/api/v1/groups", method: "GET")
+        return response.groups
+    }
+
+    func createGroup(name: String) async throws -> GroupSummary {
+        struct CreateGroupBody: Encodable { let name: String }
+        return try await send(path: "/api/v1/groups", method: "POST", body: CreateGroupBody(name: name))
+    }
+
+    func group(id: Int) async throws -> GroupDetail {
+        try await send(path: "/api/v1/groups/\(id)", method: "GET")
+    }
+
+    func transferGroupAdmin(id: Int, userId: Int) async throws {
+        struct TransferBody: Encodable { let userId: Int }
+        try await sendNoContent(path: "/api/v1/groups/\(id)/transfer", method: "POST", body: TransferBody(userId: userId))
+    }
+
+    func groupProgress(id: Int) async throws -> [GroupProgressMember] {
+        struct ProgressResponse: Decodable { let members: [GroupProgressMember] }
+        let response: ProgressResponse = try await send(path: "/api/v1/groups/\(id)/progress", method: "GET")
+        return response.members
+    }
+
+    func schoolStanding() async throws -> SchoolStanding {
+        try await send(path: "/api/v1/leaderboards/school", method: "GET")
     }
 
     // MARK: - Devices

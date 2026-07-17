@@ -4,7 +4,8 @@
  *          registration.
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
  *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
- *         -startTab <tab>, -avatarOpen — see the #if DEBUG blocks).
+ *         -startTab <tab>, -avatarOpen, -LibraryFixtures, -CommunityFixtures
+ *         — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -105,6 +106,9 @@ struct CaseRoomApp: App {
     //  -LibraryFixtures  fake auth (no network) + CasesListView/CaseDetailView
     //                    swap in the LibraryFixtures stub service — see
     //                    LibraryFixtures.swift.
+    //  -CommunityFixtures  fake auth + selects the community tab; CommunityView
+    //                    swaps in a fixture-backed CommunityViewModel — see
+    //                    CommunityFixtures.swift.
     //  -startCaseDetail <id>  push .caseDetail(id) onto libraryPath (Task 4
     //                    screenshot hatch) — apply AFTER fake-auth so the
     //                    push lands on an already-authenticated shell.
@@ -129,6 +133,16 @@ struct CaseRoomApp: App {
             // routes its LibraryViewModel to the FixtureLibraryService stub,
             // so the whole Library screenshot path needs no dev server.
             sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+        }
+        if args.contains("-CommunityFixtures") {
+            // Fake auth, no network — CommunityView reads the same arg and
+            // constructs a fixture-backed CommunityViewModel from
+            // CommunityFixtures.swift, so the Community screenshot path needs
+            // no dev server. Also selects the tab (unlike -LibraryFixtures,
+            // which relies on a separate -startTab arg — F8-T1 pins this
+            // hatch to select the tab on its own).
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.selection = .community
         }
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true

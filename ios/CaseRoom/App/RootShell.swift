@@ -52,11 +52,13 @@ struct RootShell: View {
         }
         .task {
             #if DEBUG
-            // -LibraryFixtures fakes auth directly (CaseRoomApp.applyDebugLaunchHatches)
-            // with no dev server running; bootstrap()'s client.me() would hit a
-            // dead 127.0.0.1 host, fail unauthorized, and race-clobber the fake
-            // user back to nil. Skip it on this screenshot-only path.
-            if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") { return }
+            // -LibraryFixtures/-CommunityFixtures fake auth directly (CaseRoomApp.
+            // applyDebugLaunchHatches) with no dev server running; bootstrap()'s
+            // client.me() would hit a dead 127.0.0.1 host, fail unauthorized, and
+            // race-clobber the fake user back to nil. Skip it on these
+            // screenshot-only paths.
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures") { return }
             #endif
             await sessionStore.bootstrap()
         }
@@ -112,7 +114,7 @@ struct RootShell: View {
             // tap); skip it on DEBUG screenshot paths so the shot is clean.
             // Normal launches (and Release) always request as before.
             let args = ProcessInfo.processInfo.arguments
-            if args.contains("-DevLogin") || args.contains("-LibraryFixtures") { return }
+            if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures") { return }
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
@@ -170,7 +172,14 @@ struct RootShell: View {
         case .caseTab:
             SessionsView()
         case .community:
-            CommunityTabStub()
+            NavigationStack(path: $router.communityPath) {
+                CommunityView()
+                    .navigationDestination(for: AppRoute.self) { route in
+                        if case .groupPage = route {
+                            EmptyView() // F8-T2
+                        }
+                    }
+            }
         case .drills:
             DrillsTabStub()
         }
