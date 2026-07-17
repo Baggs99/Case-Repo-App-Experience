@@ -24,11 +24,8 @@ from webapp.db import get_pool
 logger = logging.getLogger(__name__)
 
 
-# School domains: any address on these suffixes. Chicago Booth: one guest only.
-# Enforced here and via CHECK constraint on users.email (see db/schema.sql).
-ALLOWED_DOMAIN_SUFFIXES = ("@yale.edu", "@umich.edu")
-ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
-BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
+# Allowed domains now live in the `schools` registry (migration 023), enforced
+# server-side. To add a school, INSERT a schools row — no code change (OD-B5-2).
 
 
 @dataclass(frozen=True)
@@ -73,32 +70,41 @@ def normalize_email(email: str) -> str:
     return (email or "").strip().lower()
 
 
-def validate_email(email: str) -> str:
-    """Return the normalized email iff it's on an allowed school domain or Booth guest.
+def domain_of(email: str) -> str:
+    """Return the lowercase domain part of a normalized email ('' if malformed)."""
+    e = normalize_email(email)
+    return e.split("@", 1)[1] if e.count("@") == 1 else ""
 
-    Conservative: single '@', suffix / allow-list checks. Verification email
-    is the actual proof of inbox control.
+
+def validate_email(email: str) -> str:
+    """Return the normalized email iff its domain is in the schools registry.
+
+    The registry IS the school allowlist (OD-B5-2): a domain is allowed exactly
+    when a schools row exists for it. Verification of inbox control happens via
+    the sign-up link / OTP code.
+
+    Raises InvalidEmailDomain for a malformed address or an unregistered domain.
     """
+    from webapp.repositories.schools import domain_is_registered  # avoid import cycle
+
     e = normalize_email(email)
     if "@" not in e or e.count("@") != 1:
         raise InvalidEmailDomain("Email address looks malformed.")
-    local = e.split("@")[0]
+    local, domain = e.split("@", 1)
     if not local:
         raise InvalidEmailDomain("Email address is missing the local part.")
-
-    if any(e.endswith(suffix) for suffix in ALLOWED_DOMAIN_SUFFIXES):
-        return e
-    if e == ALLOWED_BOOTH_EMAIL:
-        return e
-    if e.endswith(BOOTH_DOMAIN_SUFFIX):
+    if not domain_is_registered(domain):
         raise InvalidEmailDomain(
-            "Chicago Booth sign-up is limited to invited addresses on this site."
+            "Sign-up is restricted to registered school email addresses."
         )
-    domains = ", ".join(ALLOWED_DOMAIN_SUFFIXES)
-    raise InvalidEmailDomain(
-        f"Sign-up is restricted to {domains} addresses "
-        "and authorized Booth collaborators."
-    )
+    return e
+
+
+def school_id_for_email(email: str) -> Optional[int]:
+    """Return the school id for the email's domain, or None if unregistered."""
+    from webapp.repositories.schools import get_school_by_domain
+    school = get_school_by_domain(domain_of(email))
+    return school["id"] if school else None
 
 
 # ── CRUD ───────────────────────────────────────────────────────────────────────
