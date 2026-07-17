@@ -90,7 +90,9 @@ def put_rubric(session_id: int, body: RubricDraftBody,
 def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
                   user: User = Depends(require_session_participant)):
     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
-    one transaction. Optional body.grade overrides the computed score."""
+    one transaction. Optional body.grade overrides the computed score. The
+    response + feedback push also seed the candidate's next session (B3 §7.3):
+    next_recommendation (top rec, excluding the just-burned case) + prefill_proposal."""
     session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
     try:
         feedback = repo.finalize(session_id, user.id, body.grade)
