@@ -21,10 +21,12 @@ decisions, escalations). Backend is DONE: 8/8 phases merged here.
   still committing — re-fetch before resuming).
 - Backend suite: `.venv/bin/python -m pytest tests/ -q` in this checkout →
   **655 passed, 0 failed** (DB `caserepo_bgap_integration`).
-- iOS suite: **289 passed** verified at F0 head `19e9ce1`;
-  `git diff fe/f0-foundation HEAD -- ios/` is EMPTY (byte-identical tree),
-  so the count holds for this branch. UNVERIFIED on the mini until its
-  first local run.
+- iOS suite: **313 passed** verified at F1 head `c4d89da`;
+  `git diff fe/f1-shell HEAD -- ios/` is EMPTY (byte-identical tree), so
+  the count holds for this branch. UNVERIFIED on the mini until its first
+  local run (and the mini may build with Xcode 27 beta 3 vs the MacBook's
+  26.6 — a baseline deviation there implicates the toolchain, not the code;
+  fall back to Xcode 26.6 if iOS baseline diverges).
 - Migrations present through `035_gauntlet_rank_indexes.sql` (019 + 032
   vacant BY DESIGN — drills bank + nixed forum; do not fill them).
 - F1 (wave FW2) COMPLETE and MERGED on the MacBook before cutover:
@@ -47,7 +49,7 @@ decisions, escalations). Backend is DONE: 8/8 phases merged here.
    school binding. Point `.env` DATABASE_URL at this DB.
 4. Baselines before any dispatch: backend `pytest tests/ -q` → expect 655;
    iOS: `cd ios && xcodegen generate`, then xcodebuild test on an iPhone 17
-   sim → expect 289. FIRST grant sim mic or the suite hangs at the Live
+   sim → expect 313 (289 post-F0 + 24 F1). FIRST grant sim mic or the suite hangs at the Live
    Activity test: `xcrun simctl privacy <sim-udid> grant microphone
    study.mycase study.mycase.CaseRoomTests com.apple.dt.xctest.tool`.
    macOS has no `timeout` — bound xcodebuild via the Bash tool timeout or
