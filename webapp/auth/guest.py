@@ -12,11 +12,12 @@ from __future__ import annotations
 import logging
 
 import psycopg
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 from psycopg.rows import dict_row
 
 from webapp.auth.dependencies import get_current_user
 from webapp.auth.passwords import hash_password, validate_password
+from webapp.auth.sessions import attach_session_cookie, create_session
 from webapp.auth.users import (
     EmailAlreadyRegistered,
     User,
@@ -103,3 +104,26 @@ def require_guest(request: Request) -> User:
     if not user.is_guest:
         raise HTTPException(status_code=403, detail="Only guests can upgrade")
     return user
+
+
+def require_auth_or_mint_guest(request: Request, response: Response) -> User:
+    """Auth dependency for the claim endpoints. Returns the current real user
+    unchanged; when the request is unauthenticated, mints a guest user + server
+    session and sets the session cookie on the response, returning the guest.
+
+    A user who is *already a guest* is rejected (403): a guest is scoped to the
+    single session it claimed — claiming again would accrue cross-session
+    history before upgrade, which the design forbids.
+    """
+    user = get_current_user(request)
+    if user is not None:
+        if user.is_guest:
+            raise HTTPException(
+                status_code=403,
+                detail="Guests are limited to one session. Create an account to continue.",
+            )
+        return user
+    guest = mint_guest_user()
+    session = create_session(guest.id, user_agent=request.headers.get("user-agent"))
+    attach_session_cookie(response, session)
+    return guest

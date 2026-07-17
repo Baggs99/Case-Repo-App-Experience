@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from webapp.auth.dependencies import require_auth, require_auth_api
+from webapp.auth.guest import require_auth_or_mint_guest
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
@@ -165,7 +166,7 @@ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_ap
 
 
 @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
-def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
+def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_or_mint_guest)):
     """Claim a pairing token by token OR short_code (spec §8)."""
     if not body.token and not body.short_code:
         raise HTTPException(status_code=422, detail="Provide a token or short_code")

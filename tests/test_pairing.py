@@ -209,12 +209,13 @@ class TestPairingTokenClaim(unittest.TestCase):
         r = self.bob.post("/api/practice/pair/claim", json={"token": "does-not-exist"})
         self.assertEqual(r.status_code, 404, r.text)
 
-    def test_unauthenticated_returns_401(self):
+    def test_unauthenticated_claim_mints_guest(self):
+        # B2: pair/claim mints a scoped guest when unauthenticated.
         token = self._mint()
         from fastapi.testclient import TestClient
         from webapp.main import app
         r = TestClient(app).post("/api/practice/pair/claim", json={"token": token})
-        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.status_code, 200, r.text)
 
 
 @unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")

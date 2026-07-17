@@ -106,7 +106,7 @@ class TestPairingShortCode(unittest.TestCase):
         from fastapi.testclient import TestClient
         from webapp.main import app
         r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
-        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.status_code, 200, r.text)
 
 
 if __name__ == "__main__":

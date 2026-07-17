@@ -90,8 +90,9 @@ def claim_proposal(token: str, user_id: int) -> dict:
             if user_id == prop["from_user_id"]:
                 raise TransitionError(409, "You can't claim your own link")
 
-            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
-                        (user_id, prop["id"]))
+            cur.execute(
+                "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",
+                (user_id, prop["id"]))
             prop["to_user_id"] = user_id
 
             result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
