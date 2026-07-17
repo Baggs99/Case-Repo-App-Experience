@@ -1,0 +1,672 @@
+=== git log ===
+5352c59 Convert case-less entries to negotiating sessions; enforce recap gate on candidate seats
+
+=== diff --stat ===
+ tests/test_b1_pairing_shortcode.py    | 17 +++++++---
+ tests/test_b1_proposals_open.py       | 11 +++++--
+ tests/test_b3_recap_gate.py           | 61 +++++++++++++++++++++++++++++++++++
+ webapp/repositories/pairing_tokens.py | 19 ++++++++---
+ webapp/repositories/proposals.py      | 35 ++++++++++++++++----
+ webapp/routes/practice.py             | 13 +++++++-
+ webapp/routes/proposals.py            | 25 ++++++++++----
+ 7 files changed, 156 insertions(+), 25 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b1_pairing_shortcode.py b/tests/test_b1_pairing_shortcode.py
+index 8895e41..87ac5d0 100644
+--- a/tests/test_b1_pairing_shortcode.py
++++ b/tests/test_b1_pairing_shortcode.py
+@@ -82,32 +82,41 @@ class TestPairingShortCode(unittest.TestCase):
+         r = self.bob.post("/api/practice/pair/claim", json={})
+         self.assertEqual(r.status_code, 422)
+ 
+     def test_unknown_short_code_404(self):
+         r = self.bob.post("/api/practice/pair/claim", json={"short_code": "ZZZZZZ"})
+         self.assertEqual(r.status_code, 404)
+ 
+     def test_self_claim_by_code_409(self):
+         # IDOR/guard: the minter cannot claim their own code as candidate.
+         code = self.alice.post("/api/practice/pair/create",
+                                json={"case_id": self.case_id}).json()["short_code"]
+         r = self.alice.post("/api/practice/pair/claim", json={"short_code": code})
+         self.assertEqual(r.status_code, 409)
+ 
+-    def test_case_less_token_claim_409(self):
+-        # DD-1: sessions stay case-bound in B1; a case-less pairing token can't
+-        # create a session yet (case negotiation lands in B3).
++    def test_case_less_token_claim_negotiating(self):
++        # DD-1: B3 creates a negotiating session for a case-less pairing claim
++        # (in-person "interviewer decides"); the case is settled via negotiation.
+         code = self.alice.post("/api/practice/pair/create", json={}).json()["short_code"]
+         r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
+-        self.assertEqual(r.status_code, 409)
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
++        self.assertTrue(r.json()["needs_negotiation"])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT state, case_id FROM practice_sessions WHERE id = %s;",
++                        (r.json()["session_id"],))
++            state, case_id = cur.fetchone()
++        self.assertEqual(state, "negotiating")
++        self.assertIsNone(case_id)
+ 
+     def test_claim_requires_auth(self):
+         code = self.alice.post("/api/practice/pair/create",
+                                json={"case_id": self.case_id}).json()["short_code"]
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
+         self.assertEqual(r.status_code, 200, r.text)
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 70508d8..b3f7c41 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -175,30 +175,37 @@ class TestClaim(unittest.TestCase):
+         tok = self._mk_open(self.alice, proposed_times=[when])
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertEqual(r.json()["state"], "pending")
+         self.assertIsNone(r.json()["session_id"])
+         # to_user_id now bound to the claimer -> shows in Bob's inbox.
+         inbox = self.bob.get("/api/proposals/inbox").json()["proposals"]
+         self.assertIn(r.json()["proposal_id"], [p["id"] for p in inbox])
+ 
+     def test_claim_case_less_now_needs_negotiation(self):
+         tok = self._mk_open(self.alice, case_id=None)
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertTrue(r.json()["accepted"])
+-        self.assertIsNone(r.json()["session_id"])
++        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
+         self.assertTrue(r.json()["needs_negotiation"])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT state, case_id FROM practice_sessions WHERE id = %s;",
++                        (r.json()["session_id"],))
++            state, case_id = cur.fetchone()
++        self.assertEqual(state, "negotiating")
++        self.assertIsNone(case_id)
+ 
+     def test_double_claim_404_dead_token(self):
+         # B2 N-1: claiming nulls the now-dead claim_token, so a second claim of
+         # the same token no longer finds the row → 404 "No such claim link"
+         # (was 409 in B1, before the token was nulled on claim).
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
+         self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 404)
+ 
+ 
+ @unittest.skipUnless(_READY, "requires seeded dev Postgres")
+ @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+ class TestCounter(unittest.TestCase):
+     @classmethod
+@@ -319,20 +326,20 @@ class TestCounter(unittest.TestCase):
+         r = self.bob.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
+         self.assertEqual(r.status_code, 404)
+ 
+     def test_accept_case_less_scheduled_needs_negotiation(self):
+         # DD-1: a case-less ("interviewer decides") scheduled proposal accepted
+         # via POST /accept marks accepted with no session (B3 negotiation).
+         when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
+         pid = self.alice.post("/api/proposals", json={
+             "to_user_id": self.bid, "case_id": None,
+             "from_role": "interviewer", "proposed_times": [when.isoformat()],
+         }).json()["id"]
+         r = self.bob.post(f"/api/proposals/{pid}/accept",
+                           json={"scheduled_at": when.isoformat()})
+         self.assertEqual(r.status_code, 200, r.text)
+-        self.assertIsNone(r.json()["session_id"])
++        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
+         self.assertTrue(r.json()["needs_negotiation"])
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_b3_recap_gate.py b/tests/test_b3_recap_gate.py
+index cad8b19..db872cd 100644
+--- a/tests/test_b3_recap_gate.py
++++ b/tests/test_b3_recap_gate.py
+@@ -109,14 +109,75 @@ class TestRecapGateRepo(unittest.TestCase):
+         # Runs before test_close_recap_clears_gate (alphabetical), so cls.sid is
+         # still the oldest open recap → assert_candidate_gate_clear points at it.
+         from webapp.repositories import feedback as repo
+         with self.assertRaises(repo.RecapGateError) as ctx:
+             repo.assert_candidate_gate_clear(self.bid)
+         self.assertEqual(ctx.exception.blocked_by_recap, self.sid)
+         self.assertEqual(ctx.exception.status_code, 409)
+ 
+     def _drop(self, sid, cid):
+         import psycopg
+         _purge_session(sid)
+         if cid:
+             with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+                 cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestRecapGateEndpoints(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer
++        cls.bob = TestClient(app)          # candidate (gated)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path) VALUES ('B3 Entry Case','b3 entry case',"
++                " 'DevSchool',2094,'Technology','Profitability','Easy',3.0,2,"
++                " 'output/none.pdf') RETURNING id;")
++            cls.case_id = cur.fetchone()[0]
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3-test", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++        # Bob has an open recap (as candidate) → gated.
++        cls.gate_sid, cls.gate_case = _seed_finalized_session(cls.aid, cls.bid, "B3 Entry Gate")
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        # Blocked candidate entries create no session; only gate_sid exists.
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++            extra = [r[0] for r in cur.fetchall()]
++        for sid in [cls.gate_sid, *extra]:
++            _purge_session(sid)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM proposals WHERE from_user_id = ANY(%s)"
++                        " OR to_user_id = ANY(%s);", ([cls.aid, cls.bid], [cls.aid, cls.bid]))
++            cur.execute("DELETE FROM cases WHERE id = ANY(%s);", ([cls.case_id, cls.gate_case],))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_create_practice_as_candidate_blocked(self):
++        r = self.bob.post("/api/practice", json={
++            "interviewer_id": self.aid, "candidate_id": self.bid,
++            "case_id": self.case_id})
++        self.assertEqual(r.status_code, 409, r.text)
++        self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
++
++    def test_proposal_accept_as_candidate_blocked(self):
++        # Alice (interviewer) proposes to Bob (candidate) with a case.
++        pid = self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": self.case_id,
++            "from_role": "interviewer"}).json()["id"]
++        r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
++        self.assertEqual(r.status_code, 409, r.text)
++        self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
+diff --git a/webapp/repositories/pairing_tokens.py b/webapp/repositories/pairing_tokens.py
+index b7f3716..b376205 100644
+--- a/webapp/repositories/pairing_tokens.py
++++ b/webapp/repositories/pairing_tokens.py
+@@ -4,30 +4,31 @@ Pairing-token repository — ad-hoc in-person pairing (db/migrations/014).
+ An interviewer mints a short-TTL token bound to a chosen case; the scanner
+ (candidate) later claims it, which creates the practice session.
+ """
+ 
+ from __future__ import annotations
+ 
+ import secrets
+ from typing import Optional
+ 
+ from psycopg import errors as pg_errors
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+-from webapp.repositories.feedback import is_burned
+-from webapp.repositories.practice_sessions import create_practice_session
++from webapp.repositories.feedback import assert_candidate_gate_clear, is_burned
++from webapp.repositories.practice_sessions import (
++    create_negotiating_session, create_practice_session)
+ 
+ 
+ # Unambiguous 6-char set (spec §8): A-Z + 2-9, minus 0/O/1/I.
+ _SHORT_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+ 
+ 
+ def _gen_short_code(n: int = 6) -> str:
+     return "".join(secrets.choice(_SHORT_ALPHABET) for _ in range(n))
+ 
+ 
+ def mint_token(interviewer_id: int, case_id: Optional[int] = None,
+                ttl_minutes: int = 10) -> dict:
+     """Mint a pairing token (spec §8). case_id optional ("interviewer decides",
+     negotiated in B3). Returns token + 6-char short_code + expiry. Retries on
+@@ -42,29 +43,29 @@ def mint_token(interviewer_id: int, case_id: Optional[int] = None,
+             try:
+                 with conn.cursor(row_factory=dict_row) as cur:
+                     # Regenerate BOTH on retry so a token clash (astronomically
+                     # rare) is also escaped, not just a short_code clash.
+                     cur.execute(sql, (secrets.token_urlsafe(24), interviewer_id,
+                                       case_id, _gen_short_code(), ttl_minutes))
+                     return cur.fetchone()
+             except pg_errors.UniqueViolation:
+                 conn.rollback()  # token/short_code clash — regenerate
+                 continue
+         raise TransitionError(500, "Could not allocate a pairing code")
+ 
+ 
+ def claim(*, candidate_id: int, token: Optional[str] = None,
+-          short_code: Optional[str] = None) -> dict:
++          short_code: Optional[str] = None, is_guest: bool = False) -> dict:
+     """Claim a pairing token by token OR short_code (spec §8), creating the
+     practice session in one transaction. Case-less tokens can't create a
+     session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
+ 
+     The token row is locked with SELECT ... FOR UPDATE for the whole
+     transaction — this is the anti-double-claim mechanism. A concurrent
+     second claim of the same token blocks on the lock until this one
+     commits, then sees claimed_session_id already set and gets a 409.
+ 
+     create_practice_session() opens its OWN connection/transaction (repo
+     convention) and commits independently of the lock we're holding here.
+     Accepted caveat: if the process crashes after that commit but before
+     our UPDATE ... claimed_session_id below commits, a stray 'scheduled'
+     session can be left behind while the token remains claimable. Rare
+@@ -84,29 +85,39 @@ def claim(*, candidate_id: int, token: Optional[str] = None,
+                 "SELECT *, (expires_at < now()) AS expired"
+                 f" FROM pairing_tokens WHERE {where} FOR UPDATE;",
+                 (val,),
+             )
+             row = cur.fetchone()
+             if row is None:
+                 raise TransitionError(404, "No such pairing token")
+             if row["expired"]:
+                 raise TransitionError(409, "Pairing token has expired")
+             if row["claimed_session_id"] is not None:
+                 raise TransitionError(409, "Pairing token already claimed")
+             if row["interviewer_id"] == candidate_id:
+                 raise TransitionError(409, "Cannot claim your own pairing token")
+             if row["case_id"] is None:
+-                raise TransitionError(409, "Choose a case before pairing")
++                if is_guest:
++                    raise TransitionError(
++                        409, "Guests can only claim an instant, ready-to-run link.")
++                assert_candidate_gate_clear(candidate_id)
++                session = create_negotiating_session(
++                    interviewer_id=row["interviewer_id"],
++                    candidate_id=candidate_id, mode="in_person")
++                cur.execute("UPDATE pairing_tokens SET claimed_session_id = %s"
++                            " WHERE id = %s;", (session["id"], row["id"]))
++                return {"session_id": session["id"], "needs_negotiation": True}
++            assert_candidate_gate_clear(candidate_id)
+             if is_burned(candidate_id, row["case_id"]):
+                 raise TransitionError(409, "You have already completed this case")
+ 
+             session = create_practice_session(
+                 interviewer_id=row["interviewer_id"],
+                 candidate_id=candidate_id,
+                 case_id=row["case_id"],
+                 mode="in_person",
+             )
+             cur.execute(
+                 "UPDATE pairing_tokens SET claimed_session_id = %s WHERE id = %s;",
+                 (session["id"], row["id"]),
+             )
+             return {"session_id": session["id"]}
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index f2dc365..b83a8b6 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -11,30 +11,31 @@ both are idempotent reads/creates).
+ """
+ 
+ from __future__ import annotations
+ 
+ import secrets
+ 
+ from datetime import datetime
+ from typing import Optional
+ 
+ from psycopg.rows import dict_row
+ from psycopg.types.json import Jsonb
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+-from webapp.repositories.feedback import is_burned
+-from webapp.repositories.practice_sessions import get_default_rubric_template_id
++from webapp.repositories.feedback import assert_candidate_gate_clear, is_burned
++from webapp.repositories.practice_sessions import (
++    create_negotiating_session_within, get_default_rubric_template_id)
+ from webapp.repositories.rooms import get_or_create_room
+ 
+ MAX_PROPOSED_TIMES = 3
+ 
+ _COLS = """
+     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
+     p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at,
+     p.claim_token, p.counter_times_json, p.counter_by, p.countered_at
+ """
+ 
+ 
+ def candidate_of(from_user_id: int, to_user_id: int, from_role: str) -> int:
+     """Who would sit as candidate if this proposal became a session."""
+     return to_user_id if from_role == "interviewer" else from_user_id
+@@ -97,32 +98,43 @@ def claim_proposal(token: str, user_id: int, is_guest: bool = False) -> dict:
+                 )
+ 
+             cur.execute(
+                 "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",
+                 (user_id, prop["id"]))
+             prop["to_user_id"] = user_id
+ 
+             result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
+             if prop["proposed_times_json"]:
+                 # Scheduled: claimer is now the recipient; awaits accept/counter.
+                 result.update(state="pending", session_id=None,
+                               accepted=False, needs_negotiation=False)
+                 return result
+ 
++            # Gate the candidate seat: the claimer becomes to_user_id, so they
++            # are candidate iff from_role == 'interviewer'.
++            claimer_is_candidate = (prop["from_role"] == "interviewer")
++            if claimer_is_candidate:
++                assert_candidate_gate_clear(user_id)
++
++            interviewer_id, candidate_id = _resolve_roles(prop)
++
+             if prop["case_id"] is None:
++                sid = create_negotiating_session_within(
++                    cur, interviewer_id=interviewer_id, candidate_id=candidate_id)
+                 cur.execute("UPDATE proposals SET state = 'accepted',"
+-                            " responded_at = NOW() WHERE id = %s;", (prop["id"],))
+-                result.update(state="accepted", session_id=None,
++                            " responded_at = NOW(), session_id = %s WHERE id = %s;",
++                            (sid, prop["id"]))
++                result.update(state="accepted", session_id=sid,
+                               accepted=True, needs_negotiation=True)
+                 return result
+ 
+             session_id = _create_session_within(cur, prop, None)
+             cur.execute("UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                         " session_id = %s WHERE id = %s;", (session_id, prop["id"]))
+             result.update(state="accepted", session_id=session_id,
+                           accepted=True, needs_negotiation=False)
+             return result
+ 
+ 
+ def counter_proposal(proposal_id: int, user_id: int,
+                      times: list[datetime]) -> dict:
+     """Recipient's one-round "Suggest new time" (spec §5.2). Only the recipient,
+@@ -298,31 +310,40 @@ def respond(proposal_id: int, user_id: int, *, accept: bool,
+                     f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                     (proposal_id,),
+                 )
+                 return cur.fetchone()
+ 
+             if state == "countered":
+                 allowed = {datetime.fromisoformat(s)
+                            for s in (prop["counter_times_json"] or [])}
+                 if counter_time is None or counter_time not in allowed:
+                     raise TransitionError(409, "Chosen time must be one of the counter times")
+                 use_scheduled = counter_time
+             else:
+                 use_scheduled = scheduled_at
+ 
++            # Recap gate: the acting user takes the candidate seat iff they are
++            # the candidate for this proposal.
++            interviewer_id, candidate_id = _resolve_roles(prop)
++            if user_id == candidate_id:
++                assert_candidate_gate_clear(user_id)
++
+             if prop["case_id"] is None:
++                sid = create_negotiating_session_within(
++                    cur, interviewer_id=interviewer_id, candidate_id=candidate_id,
++                    scheduled_at=use_scheduled)
+                 cur.execute(
+-                    "UPDATE proposals SET state = 'accepted', responded_at = NOW()"
+-                    f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+-                    (proposal_id,),
++                    "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
++                    f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
++                    (sid, proposal_id),
+                 )
+                 row = cur.fetchone()
+                 row["needs_negotiation"] = True
+                 return row
+ 
+             session_id = _create_session_within(cur, prop, use_scheduled)
+             cur.execute(
+                 "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                 f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                 (session_id, proposal_id),
+             )
+             return cur.fetchone()
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index a8482e5..613462e 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -18,28 +18,29 @@ from starlette.concurrency import run_in_threadpool
+ 
+ from webapp.auth.dependencies import require_auth, require_auth_api
+ from webapp.auth.guest import (
+     discard_minted_guest,
+     require_auth_or_mint_guest,
+     require_session_participant,
+ )
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.live_activity import push_live_activity_update
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as feedback_repo
++from webapp.repositories.feedback import RecapGateError
+ from webapp.repositories import pairing_tokens as pairing_repo
+ from webapp.repositories import practice_sessions as repo
+ from webapp.routes.signal_ws import hub
+ from webapp.templating import render
+ from webapp.turn import mint_turn_credentials
+ 
+ router = APIRouter(tags=["practice"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class PracticeCreateBody(BaseModel):
+     interviewer_id: int
+     candidate_id: int
+@@ -76,28 +77,34 @@ def _session_or_404(session_id: int, user_id: int) -> tuple[dict, str]:
+ def _public(session: dict) -> dict:
+     """Session as JSON — datetimes serialized by FastAPI; nothing here is
+     role-secret (exhibit keys, rubric drafts, grades live elsewhere)."""
+     return session
+ 
+ 
+ @router.post("/api/practice", dependencies=_MUTATING)
+ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_api)):
+     if user.id not in (body.interviewer_id, body.candidate_id):
+         raise HTTPException(status_code=403, detail="You must be a participant")
+     if body.interviewer_id == body.candidate_id:
+         raise HTTPException(status_code=400, detail="Interviewer and candidate must differ")
+     if get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
++    if user.id == body.candidate_id:
++        try:
++            feedback_repo.assert_candidate_gate_clear(body.candidate_id)
++        except RecapGateError as exc:
++            raise HTTPException(status_code=409,
++                                detail={"blocked_by_recap": exc.blocked_by_recap})
+     if feedback_repo.is_burned(body.candidate_id, body.case_id):
+         # A6: the candidate has already received this case in a finalized
+         # session — it's burned for them.
+         raise HTTPException(status_code=409,
+                             detail="This case is burned for the candidate")
+ 
+     session = repo.create_practice_session(
+         interviewer_id=body.interviewer_id,
+         candidate_id=body.candidate_id,
+         case_id=body.case_id,
+         rubric_template_id=body.rubric_template_id,
+         scheduled_at=body.scheduled_at,
+     )
+     return _public(session)
+@@ -167,29 +174,33 @@ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_ap
+     if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
+ 
+ 
+ @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
+ def claim_pair_token(body: PairClaimBody, request: Request,
+                      user: User = Depends(require_auth_or_mint_guest)):
+     """Claim a pairing token by token OR short_code (spec §8)."""
+     if not body.token and not body.short_code:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=422, detail="Provide a token or short_code")
+     try:
+         return pairing_repo.claim(candidate_id=user.id, token=body.token,
+-                                  short_code=body.short_code)
++                                  short_code=body.short_code, is_guest=user.is_guest)
++    except RecapGateError as exc:
++        discard_minted_guest(request)
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
+     except TransitionError as exc:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+     (§ pairing). 404 if the token doesn't exist or isn't owned by the caller.
+     Once claimed, the response carries the candidate's top-3 recommendations
+     (spec §7.2 — "Recommended for [name]", interviewer-side)."""
+     try:
+         session_id = pairing_repo.status(token=token, interviewer_id=user.id)
+     except TransitionError as exc:
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index 0da49e8..6db4d1f 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -19,28 +19,29 @@ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.dependencies import require_auth_api
+ from webapp.auth.guest import (
+     discard_minted_guest,
+     require_auth_or_mint_guest,
+     require_session_participant,
+ )
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.ics import build_session_ics
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.repositories import proposals as repo
+ from webapp.repositories.cases import get_case_by_id
++from webapp.repositories.feedback import RecapGateError
+ from webapp.repositories.practice_sessions import get_practice_session
+ from webapp.routes.practice import _session_or_404
+ 
+ logger = logging.getLogger(__name__)
+ 
+ router = APIRouter(tags=["proposals"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class ProposalBody(BaseModel):
+     to_user_id: Optional[int] = None
+     case_id: Optional[int] = None
+     from_role: str = Field(pattern="^(interviewer|candidate)$")
+@@ -88,69 +89,79 @@ def create_proposal(body: ProposalBody, background: BackgroundTasks,
+ @router.get("/api/proposals/inbox")
+ def proposal_inbox(user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # T8.3: page loads stand in for cron
+     return {"proposals": repo.inbox(user.id)}
+ 
+ 
+ @router.post("/api/proposals/{proposal_id}/accept", dependencies=_MUTATING)
+ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+                     background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # A3: an over-window proposal (now-ping >2h, or past its earliest start) must expire, not accept
+     try:
+         prop = repo.respond(proposal_id, user.id, accept=True,
+                             scheduled_at=body.scheduled_at, counter_time=body.time)
++    except RecapGateError as exc:
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+-    if prop["session_id"] is None:
+-        # Case-less "interviewer decides" accept — session created in B3
+-        # negotiation; still notify the counterpart the proposal was accepted.
++    if prop.get("needs_negotiation"):
++        # Negotiating session created; no case/time yet → no ICS invite. Notify
++        # the counterpart the proposal was accepted (pre-negotiation).
+         other = (prop["from_user_id"] if user.id == prop["to_user_id"]
+                  else prop["to_user_id"])
+         if other is not None:
+             background.add_task(
+                 push_to_user, other, title="Proposal accepted",
+-                body="Your case session proposal was accepted",
+-                data={"kind": "accepted", "proposal_id": prop["id"]})
+-        return {"accepted": True, "session_id": None, "needs_negotiation": True}
++                body="Your case session proposal was accepted — pick a case",
++                data={"kind": "accepted", "proposal_id": prop["id"],
++                      "session_id": prop["session_id"]})
++        return {"accepted": True, "session_id": prop["session_id"],
++                "needs_negotiation": True}
+ 
++    # Case-set accept (unchanged from B1): ICS invite + accepted push.
+     _send_invites(request, prop["session_id"])
+     other = (prop["from_user_id"] if user.id == prop["to_user_id"]
+              else prop["to_user_id"])
+     background.add_task(
+         push_to_user, other,
+         title="Proposal accepted",
+         body="Your case session proposal was accepted",
+         data={"kind": "accepted", "session_id": prop["session_id"]},
+     )
+     return {"accepted": True, "session_id": prop["session_id"],
+             "session_url": f"/session/{prop['session_id']}",
+             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
+ 
+ 
+ @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+ def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+                    user: User = Depends(require_auth_or_mint_guest)):
+     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+     the creator; guests arrive in B2 by overriding require_auth_api."""
+     try:
+         result = repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
++    except RecapGateError as exc:
++        discard_minted_guest(request)
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
+     except TransitionError as exc:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+-    if result["session_id"] is not None:
++    if result["session_id"] is not None and not result.get("needs_negotiation"):
+         _send_invites(request, result["session_id"])
+         background.add_task(
+             push_to_user, result["from_user_id"],
+             title="Your invite was claimed",
+             body="Someone claimed your session link",
+             data={"kind": "accepted", "session_id": result["session_id"]},
+         )
+     return result
+ 
+ 
+ @router.post("/api/proposals/{proposal_id}/decline", dependencies=_MUTATING)
+ def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
+     try:
+         repo.respond(proposal_id, user.id, accept=False, scheduled_at=None)

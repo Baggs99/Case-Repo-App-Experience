@@ -1,0 +1,423 @@
+=== git log ===
+92fe948 Add case-negotiation endpoints (pick/counter/accept) + WS broadcast
+
+=== diff --stat ===
+ tests/test_b3_negotiation.py        | 104 ++++++++++++++++++++++++++
+ webapp/main.py                      |   2 +
+ webapp/repositories/negotiations.py |  81 ++++++++++++++++++++
+ webapp/routes/session_flow.py       | 142 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 329 insertions(+)
+
+=== full diff ===
+diff --git a/tests/test_b3_negotiation.py b/tests/test_b3_negotiation.py
+index 9a5d94a..13f8be2 100644
+--- a/tests/test_b3_negotiation.py
++++ b/tests/test_b3_negotiation.py
+@@ -65,12 +65,116 @@ class TestNegotiatingSessionRepo(unittest.TestCase):
+                 " page_count, pdf_path) VALUES ('B3 Nego Case','b3 nego case',"
+                 " 'DevSchool',2094,'Technology','Profitability','Easy',3.0,2,"
+                 " 'output/none.pdf') RETURNING id;")
+             case_id = cur.fetchone()[0]
+         self._cases.append(case_id)
+         sess = repo.create_negotiating_session(
+             interviewer_id=self.aid, candidate_id=self.bid)
+         self._created.append(sess["id"])
+         tmpl = repo.get_default_rubric_template_id(case_id, self.aid)
+         out = repo.stamp_negotiated_case(sess["id"], case_id, tmpl)
+         self.assertEqual(out["state"], "lobby")
+         self.assertEqual(out["case_id"], case_id)
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestNegotiationEndpoints(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer
++        cls.bob = TestClient(app)          # candidate
++        cls.cara = TestClient(app)         # non-participant
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++            cls.aid, cls.bid, cls.cid = (r[0] for r in cur.fetchall())
++            cls.case_ids = []
++            for i in range(2):
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES (%s,%s,'DevSchool',2094,'Technology',"
++                    " 'Profitability','Easy',3.0,2,'output/none.pdf') RETURNING id;",
++                    (f"B3 Nego Ep {i}", f"b3 nego ep {i}"))
++                cls.case_ids.append(cur.fetchone()[0])
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++        cls._sessions = []
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        from tests.test_b3_recap_gate import _purge_session
++        for sid in cls._sessions:
++            _purge_session(sid)   # nulls the originating proposal + drops the session
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM proposals WHERE from_user_id = %s;", (cls.aid,))
++            cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls.case_ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _new_negotiating(self):
++        # Alice (interviewer) opens a case-less link, Bob claims → negotiating.
++        tok = self.alice.post("/api/proposals", json={
++            "case_id": None, "from_role": "interviewer"}).json()["claim_token"]
++        sid = self.bob.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        self._sessions.append(sid)
++        return sid
++
++    def test_interviewer_pick_then_candidate_accepts(self):
++        sid = self._new_negotiating()
++        r = self.alice.post(f"/api/practice/{sid}/negotiation/propose",
++                            json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 200, r.text)
++        # Candidate accepts the interviewer's pick → lobby.
++        r = self.bob.post(f"/api/practice/{sid}/negotiation/accept",
++                          json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertEqual(r.json()["state"], "lobby")
++        self.assertEqual(r.json()["case_id"], self.case_ids[0])
++
++    def test_candidate_cannot_pick_first(self):
++        sid = self._new_negotiating()
++        r = self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                          json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_candidate_counter_then_interviewer_keeps_pick(self):
++        sid = self._new_negotiating()
++        self.alice.post(f"/api/practice/{sid}/negotiation/propose",
++                        json={"case_id": self.case_ids[0]})
++        self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                      json={"case_id": self.case_ids[1]})   # candidate counter
++        # Interviewer keeps their pick (accepts case 0, not the counter).
++        r = self.alice.post(f"/api/practice/{sid}/negotiation/accept",
++                            json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertEqual(r.json()["case_id"], self.case_ids[0])
++
++    def test_round_cap_two(self):
++        sid = self._new_negotiating()
++        self.alice.post(f"/api/practice/{sid}/negotiation/propose",
++                        json={"case_id": self.case_ids[0]})
++        self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                      json={"case_id": self.case_ids[1]})
++        # A third propose (candidate again) → 409.
++        r = self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                          json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 409, r.text)
++
++    def test_non_participant_404(self):
++        sid = self._new_negotiating()
++        r = self.cara.get(f"/api/practice/{sid}/negotiation")
++        self.assertEqual(r.status_code, 404)
++
++    def test_pick_sources_interviewer_only(self):
++        sid = self._new_negotiating()
++        ai = self.alice.get(f"/api/practice/{sid}/negotiation").json()
++        bi = self.bob.get(f"/api/practice/{sid}/negotiation").json()
++        self.assertIn("pick_sources", ai)
++        self.assertNotIn("pick_sources", bi)
+diff --git a/webapp/main.py b/webapp/main.py
+index a5fc618..b61609b 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -58,24 +58,25 @@ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import onboarding as onboarding_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import profile as profile_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+ from webapp.routes import recommendations as recommendations_routes
+ from webapp.routes import rooms as rooms_routes
+ from webapp.routes import search as search_routes
++from webapp.routes import session_flow as session_flow_routes
+ from webapp.routes import timeline as timeline_routes
+ from webapp.routes import signal_ws as signal_ws_routes
+ from webapp.routes import votes as votes_routes
+ from webapp.settings import load_settings
+ 
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     """Open the Postgres pool at startup, close it cleanly at shutdown."""
+@@ -135,24 +136,25 @@ def create_app() -> FastAPI:
+         app.mount("/static", StaticFiles(directory=settings.static_dir), name="static")
+ 
+     app.include_router(auth_routes.router)
+     app.include_router(pages_routes.router)
+     app.include_router(search_routes.router)
+     app.include_router(files_routes.router)
+     app.include_router(votes_routes.router)
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
++    app.include_router(session_flow_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
+     app.include_router(guest_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(timeline_routes.router)
+     app.include_router(api_v1_routes.router)
+     app.include_router(profile_routes.router)
+     app.include_router(onboarding_routes.router)
+     app.include_router(auth_oauth_routes.router)
+diff --git a/webapp/repositories/negotiations.py b/webapp/repositories/negotiations.py
+new file mode 100644
+index 0000000..a7e6769
+--- /dev/null
++++ b/webapp/repositories/negotiations.py
+@@ -0,0 +1,81 @@
++"""
++Purpose: Case-negotiation SQL — proposed-case rounds for a pre-lobby session.
++Inputs:  case_negotiations, practice_sessions, proposals (via get_pool).
++Outputs: negotiation rows; no external side effects (WS/broadcast done by route).
++Run:     from webapp.repositories import negotiations as nego
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++
++def _pick_by_round(session_id: int, round_no: int) -> Optional[dict]:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT cn.*, c.case_title, c.case_type, c.difficulty"
++                " FROM case_negotiations cn JOIN cases c ON c.id = cn.proposed_case_id"
++                " WHERE cn.session_id = %s AND cn.round = %s"
++                " ORDER BY cn.id DESC LIMIT 1;", (session_id, round_no))
++            return cur.fetchone()
++
++
++def interviewer_pick(session_id: int) -> Optional[dict]:
++    return _pick_by_round(session_id, 1)
++
++
++def candidate_counter(session_id: int) -> Optional[dict]:
++    return _pick_by_round(session_id, 2)
++
++
++def record_proposal(session_id: int, by_user_id: int, case_id: int,
++                    round_no: int) -> dict:
++    """Insert one negotiation round (pending)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "INSERT INTO case_negotiations (session_id, proposed_case_id,"
++                " by_user_id, round) VALUES (%s, %s, %s, %s) RETURNING *;",
++                (session_id, case_id, by_user_id, round_no))
++            return cur.fetchone()
++
++
++def mark_accepted(session_id: int, case_id: int) -> None:
++    """Mark the chosen round accepted (and the rest declined)."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE case_negotiations SET state ="
++                " CASE WHEN proposed_case_id = %s THEN 'accepted' ELSE 'declined' END"
++                " WHERE session_id = %s;", (case_id, session_id))
++
++
++def interviewer_done_set(interviewer_id: int, limit: int = 5) -> list[dict]:
++    """Cases the interviewer has been candidate on (burned) — a source they can
++    interview from confidently. Newest first."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT c.id AS case_id, c.case_title AS title, c.case_type,"
++                "       c.difficulty"
++                " FROM burned b JOIN cases c ON c.id = b.case_id"
++                " WHERE b.user_id = %s ORDER BY b.burned_at DESC LIMIT %s;",
++                (interviewer_id, limit))
++            return cur.fetchall()
++
++
++def originating_requested_case(session_id: int) -> Optional[dict]:
++    """If the proposal that spawned this negotiating session carried a case
++    (candidate's request), return it. Case-less entries → None (the norm)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT c.id AS case_id, c.case_title AS title, p.from_role"
++                " FROM proposals p JOIN cases c ON c.id = p.case_id"
++                " WHERE p.session_id = %s LIMIT 1;", (session_id,))
++            return cur.fetchone()
+diff --git a/webapp/routes/session_flow.py b/webapp/routes/session_flow.py
+new file mode 100644
+index 0000000..3a07a15
+--- /dev/null
++++ b/webapp/routes/session_flow.py
+@@ -0,0 +1,142 @@
++"""
++Purpose: B3 session-flow endpoints — case negotiation, feedback recap gate
++         close-out, and role swap — all session-scoped over the existing
++         participant guard + signaling WS.
++Inputs:  practice_sessions/feedback/negotiations/swaps repos; request cookies.
++Outputs: JSON; broadcasts session_update on the signaling hub; APNs pushes.
++Run:     registered in webapp/main.py via include_router(session_flow.router).
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
++from pydantic import BaseModel
++
++from webapp.auth.guest import require_session_participant
++from webapp.auth.users import User
++from webapp.csrf import require_same_origin
++from webapp.practice_states import TransitionError
++from webapp.repositories import dashboard as dashboard_repo
++from webapp.repositories import negotiations as nego_repo
++from webapp.repositories import practice_sessions as sessions_repo
++from webapp.repositories.cases import get_case_by_id
++from webapp.repositories.feedback import is_burned
++from webapp.routes.practice import _session_or_404
++from webapp.routes.signal_ws import hub
++
++router = APIRouter(tags=["session-flow"])
++
++_MUTATING = [Depends(require_same_origin)]
++
++
++class ProposeBody(BaseModel):
++    case_id: int
++
++
++class AcceptCaseBody(BaseModel):
++    case_id: int
++
++
++def _case_brief(row: Optional[dict]) -> Optional[dict]:
++    if row is None:
++        return None
++    return {"case_id": row["proposed_case_id"], "title": row.get("case_title"),
++            "case_type": row.get("case_type"), "difficulty": row.get("difficulty")}
++
++
++def _nego_view(session: dict, role: str) -> dict:
++    sid = session["id"]
++    pick = nego_repo.interviewer_pick(sid)
++    counter = nego_repo.candidate_counter(sid)
++    if pick is None:
++        whose_turn = "interviewer"
++    elif counter is None:
++        whose_turn = "candidate"   # candidate may accept or counter once
++    else:
++        whose_turn = "interviewer"  # interviewer resolves (keep or take counter)
++    out = {
++        "session_id": sid,
++        "session_state": session["state"],
++        "your_role": role,
++        "whose_turn": whose_turn if session["state"] == "negotiating" else None,
++        "round_used": 2 if counter else (1 if pick else 0),
++        "current_pick": _case_brief(pick),
++        "candidate_counter": _case_brief(counter),
++        "candidate_requested_case": nego_repo.originating_requested_case(sid),
++    }
++    if role == "interviewer":
++        out["pick_sources"] = {
++            "recommended_for_candidate": dashboard_repo.recommendations(
++                session["candidate_id"], limit=3),
++            "interviewer_done_set": nego_repo.interviewer_done_set(
++                session["interviewer_id"]),
++            "library_allowed": True,
++        }
++    return out
++
++
++@router.get("/api/practice/{session_id}/negotiation")
++def get_negotiation(session_id: int,
++                    user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    return _nego_view(session, role)
++
++
++@router.post("/api/practice/{session_id}/negotiation/propose", dependencies=_MUTATING)
++def propose_case(session_id: int, body: ProposeBody, background: BackgroundTasks,
++                 user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    if session["state"] != "negotiating":
++        raise HTTPException(status_code=409, detail="Session is not in negotiation")
++    if get_case_by_id(body.case_id) is None:
++        raise HTTPException(status_code=404, detail="Case not found")
++    if is_burned(session["candidate_id"], body.case_id):
++        raise HTTPException(status_code=409,
++                            detail="That case is burned for the candidate")
++    pick = nego_repo.interviewer_pick(session_id)
++    counter = nego_repo.candidate_counter(session_id)
++    if role == "interviewer":
++        if pick is not None:
++            raise HTTPException(status_code=409,
++                                detail="You already picked — accept or await a counter")
++        row = nego_repo.record_proposal(session_id, user.id, body.case_id, 1)
++    else:  # candidate
++        if pick is None:
++            raise HTTPException(status_code=403,
++                                detail="The interviewer picks first")
++        if counter is not None:
++            raise HTTPException(status_code=409, detail="You already countered once")
++        row = nego_repo.record_proposal(session_id, user.id, body.case_id, 2)
++    background.add_task(hub.broadcast_session_update, session_id)
++    return _nego_view(*_session_or_404(session_id, user.id))
++
++
++@router.post("/api/practice/{session_id}/negotiation/accept", dependencies=_MUTATING)
++def accept_case(session_id: int, body: AcceptCaseBody, background: BackgroundTasks,
++                user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    if session["state"] != "negotiating":
++        raise HTTPException(status_code=409, detail="Session is not in negotiation")
++    pick = nego_repo.interviewer_pick(session_id)
++    counter = nego_repo.candidate_counter(session_id)
++    proposed = {r["proposed_case_id"] for r in (pick, counter) if r}
++    if body.case_id not in proposed:
++        raise HTTPException(status_code=409,
++                            detail="Choose a case that was proposed in this negotiation")
++    if role == "candidate" and (pick is None or body.case_id != pick["proposed_case_id"]):
++        raise HTTPException(status_code=403,
++                            detail="You may only accept the interviewer's pick")
++    if is_burned(session["candidate_id"], body.case_id):
++        raise HTTPException(status_code=409,
++                            detail="That case is burned for the candidate")
++    template_id = sessions_repo.get_default_rubric_template_id(
++        body.case_id, session["interviewer_id"])
++    try:
++        result = sessions_repo.stamp_negotiated_case(session_id, body.case_id, template_id)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    nego_repo.mark_accepted(session_id, body.case_id)
++    background.add_task(hub.broadcast_session_update, session_id)
++    return result

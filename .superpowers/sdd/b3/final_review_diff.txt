@@ -1,0 +1,2330 @@
+=== WHOLE-BRANCH B3 code diff (base a87ad7bb785b8307c9791313114af2df074ca64e..HEAD) ===
+=== commits ===
+a33dcf3 Ledger: Task 9 complete (review CLEAN); all 9 tasks done
+10d2879 Add per-case rating aggregates + open/done counts to Library payloads
+02e7216 Ledger: Tasks 7-8 complete; finalize docstring seeding note (review minor)
+9006dc5 Seed the next session on debrief: next_recommendation + prefill_proposal on finalize + push
+25fdc3e Fix swap double-accept race: claim invite atomically before creating the reversed session
+62b2d65 Add role swap: interviewer-initiated invite + reversed negotiating session, gate on new candidate
+bebc7d5 Ledger: Task 6 complete (review CLEAN)
+28da16f Add recap endpoints: list, viewed, close (required 1-5 rating, guest-thumbs guard)
+40c89b7 Ledger: Task 5 complete (review CLEAN); sync plan propose-403
+92fe948 Add case-negotiation endpoints (pick/counter/accept) + WS broadcast
+d614464 Ledger: Task 4 complete; refresh claim/respond docstrings (review minors)
+5352c59 Convert case-less entries to negotiating sessions; enforce recap gate on candidate seats
+bc1a8f5 Ledger: Task 3 complete (review CLEAN)
+23e8863 Add recap gate repo: candidate_gate, close_recap, list_unread_recaps
+8ea0733 Ledger: Task 2 complete; refresh practice_states header for negotiating (review minor)
+08e0eb6 Add negotiating session state + repo plumbing (LEFT JOIN cases, create/stamp helpers)
+52ad8b2 Ledger: Task 1 complete (review CLEAN)
+e2551fe Add B3 migrations 028/029: negotiating state, swap+negotiation tables, recap columns
+2a55674 Plan review round 1: fix gate-error test assertion + claim-route ICS guard; minors (dead code, gate placement, expand accept tail)
+40fec26 Plan: fix stale test refs after T4/T6 gate-test split
+ceec220 B3 plan + bootstrap ledger; migrations/repo/endpoints/tests across 9 tasks
+
+=== stat ===
+ db/migrations/028_negotiation_and_swap.sql |  47 +++++
+ db/migrations/029_recap_gate.sql           |  16 ++
+ tests/test_b1_pairing_shortcode.py         |  17 +-
+ tests/test_b1_proposals_open.py            |  11 +-
+ tests/test_b3_case_aggregates.py           |  62 +++++++
+ tests/test_b3_debrief_seeding.py           |  67 +++++++
+ tests/test_b3_migrations.py                |  52 ++++++
+ tests/test_b3_negotiation.py               | 180 +++++++++++++++++++
+ tests/test_b3_recap_gate.py                | 278 +++++++++++++++++++++++++++++
+ tests/test_b3_swap.py                      | 102 +++++++++++
+ webapp/main.py                             |   2 +
+ webapp/practice_states.py                  |  19 +-
+ webapp/repositories/case_stats.py          |  44 +++++
+ webapp/repositories/cases.py               |  28 +++
+ webapp/repositories/feedback.py            |  97 ++++++++++
+ webapp/repositories/negotiations.py        |  81 +++++++++
+ webapp/repositories/pairing_tokens.py      |  24 ++-
+ webapp/repositories/practice_sessions.py   |  70 +++++++-
+ webapp/repositories/proposals.py           |  40 ++++-
+ webapp/repositories/swaps.py               |  62 +++++++
+ webapp/routes/api_v1.py                    |  17 +-
+ webapp/routes/practice.py                  |  13 +-
+ webapp/routes/practice_feedback.py         |  18 +-
+ webapp/routes/proposals.py                 |  25 ++-
+ webapp/routes/session_flow.py              | 254 ++++++++++++++++++++++++++
+ 25 files changed, 1585 insertions(+), 41 deletions(-)
+
+=== full code diff (webapp + db + tests) ===
+diff --git a/db/migrations/028_negotiation_and_swap.sql b/db/migrations/028_negotiation_and_swap.sql
+new file mode 100644
+index 0000000..daf5202
+--- /dev/null
++++ b/db/migrations/028_negotiation_and_swap.sql
+@@ -0,0 +1,47 @@
++-- 028_negotiation_and_swap.sql — B3 case negotiation + role swap.
++-- Adds the pre-lobby 'negotiating' session state (case chosen after pairing),
++-- makes case_id/rubric_template_id nullable for negotiating sessions, links a
++-- swapped session to its origin, and adds the negotiation + swap-invite tables.
++-- Idempotent: re-runnable (IF NOT EXISTS / DROP CONSTRAINT IF EXISTS + re-ADD).
++
++ALTER TABLE practice_sessions ALTER COLUMN case_id DROP NOT NULL;
++ALTER TABLE practice_sessions ALTER COLUMN rubric_template_id DROP NOT NULL;
++
++ALTER TABLE practice_sessions DROP CONSTRAINT IF EXISTS practice_sessions_state_check;
++ALTER TABLE practice_sessions ADD CONSTRAINT practice_sessions_state_check
++    CHECK (state = ANY (ARRAY[
++        'negotiating', 'scheduled', 'lobby', 'live',
++        'debrief', 'finalized', 'aborted', 'missed'
++    ]));
++
++ALTER TABLE practice_sessions
++    ADD COLUMN IF NOT EXISTS swapped_from_session_id INTEGER
++        REFERENCES practice_sessions(id) ON DELETE SET NULL;
++
++CREATE TABLE IF NOT EXISTS case_negotiations (
++    id               SERIAL PRIMARY KEY,
++    session_id       INTEGER NOT NULL REFERENCES practice_sessions(id) ON DELETE CASCADE,
++    proposed_case_id INTEGER NOT NULL REFERENCES cases(id),
++    by_user_id       INTEGER NOT NULL REFERENCES users(id),
++    round            INTEGER NOT NULL,
++    state            TEXT NOT NULL DEFAULT 'pending'
++                        CHECK (state = ANY (ARRAY['pending', 'accepted', 'declined'])),
++    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
++);
++CREATE INDEX IF NOT EXISTS idx_case_negotiations_session
++    ON case_negotiations(session_id, round);
++
++CREATE TABLE IF NOT EXISTS swap_invites (
++    id              SERIAL PRIMARY KEY,
++    from_session_id INTEGER NOT NULL REFERENCES practice_sessions(id) ON DELETE CASCADE,
++    initiator_id    INTEGER NOT NULL REFERENCES users(id),
++    invitee_id      INTEGER NOT NULL REFERENCES users(id),
++    state           TEXT NOT NULL DEFAULT 'pending'
++                        CHECK (state = ANY (ARRAY['pending', 'accepted', 'declined', 'expired'])),
++    new_session_id  INTEGER REFERENCES practice_sessions(id) ON DELETE SET NULL,
++    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++    responded_at    TIMESTAMPTZ
++);
++-- At most one live (pending) swap invite per origin session.
++CREATE UNIQUE INDEX IF NOT EXISTS uq_swap_invites_pending
++    ON swap_invites(from_session_id) WHERE state = 'pending';
+diff --git a/db/migrations/029_recap_gate.sql b/db/migrations/029_recap_gate.sql
+new file mode 100644
+index 0000000..0f6dccc
+--- /dev/null
++++ b/db/migrations/029_recap_gate.sql
+@@ -0,0 +1,16 @@
++-- 029_recap_gate.sql — B3 feedback recap gate + case rating.
++-- viewed_at/closed_at track the recap read+close; case_rating is the required
++-- 1-5 close-out rating (same scale as the debrief, design delta §0.5);
++-- feedback_thumbs is the optional interviewer-quality mark (auth interviewers).
++-- Idempotent: ADD COLUMN IF NOT EXISTS.
++
++ALTER TABLE feedback ADD COLUMN IF NOT EXISTS viewed_at   TIMESTAMPTZ;
++ALTER TABLE feedback ADD COLUMN IF NOT EXISTS closed_at   TIMESTAMPTZ;
++ALTER TABLE feedback ADD COLUMN IF NOT EXISTS case_rating SMALLINT
++    CHECK (case_rating IS NULL OR (case_rating BETWEEN 1 AND 5));
++ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_thumbs BOOLEAN;
++
++-- Powers candidate_gate (oldest open recap) and the recap list.
++CREATE INDEX IF NOT EXISTS idx_feedback_open_recap
++    ON feedback(session_id)
++    WHERE finalized_at IS NOT NULL AND closed_at IS NULL;
+diff --git a/tests/test_b1_pairing_shortcode.py b/tests/test_b1_pairing_shortcode.py
+index 8895e41..87ac5d0 100644
+--- a/tests/test_b1_pairing_shortcode.py
++++ b/tests/test_b1_pairing_shortcode.py
+@@ -88,22 +88,31 @@ class TestPairingShortCode(unittest.TestCase):
+ 
+     def test_self_claim_by_code_409(self):
+         # IDOR/guard: the minter cannot claim their own code as candidate.
+         code = self.alice.post("/api/practice/pair/create",
+                                json={"case_id": self.case_id}).json()["short_code"]
+         r = self.alice.post("/api/practice/pair/claim", json={"short_code": code})
+         self.assertEqual(r.status_code, 409)
+ 
+-    def test_case_less_token_claim_409(self):
+-        # DD-1: sessions stay case-bound in B1; a case-less pairing token can't
+-        # create a session yet (case negotiation lands in B3).
++    def test_case_less_token_claim_negotiating(self):
++        # DD-1: B3 creates a negotiating session for a case-less pairing claim
++        # (in-person "interviewer decides"); the case is settled via negotiation.
+         code = self.alice.post("/api/practice/pair/create", json={}).json()["short_code"]
+         r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
+-        self.assertEqual(r.status_code, 409)
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
++        self.assertTrue(r.json()["needs_negotiation"])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT state, case_id FROM practice_sessions WHERE id = %s;",
++                        (r.json()["session_id"],))
++            state, case_id = cur.fetchone()
++        self.assertEqual(state, "negotiating")
++        self.assertIsNone(case_id)
+ 
+     def test_claim_requires_auth(self):
+         code = self.alice.post("/api/practice/pair/create",
+                                json={"case_id": self.case_id}).json()["short_code"]
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
+         self.assertEqual(r.status_code, 200, r.text)
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 70508d8..b3f7c41 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -181,18 +181,25 @@ class TestClaim(unittest.TestCase):
+         inbox = self.bob.get("/api/proposals/inbox").json()["proposals"]
+         self.assertIn(r.json()["proposal_id"], [p["id"] for p in inbox])
+ 
+     def test_claim_case_less_now_needs_negotiation(self):
+         tok = self._mk_open(self.alice, case_id=None)
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertTrue(r.json()["accepted"])
+-        self.assertIsNone(r.json()["session_id"])
++        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
+         self.assertTrue(r.json()["needs_negotiation"])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT state, case_id FROM practice_sessions WHERE id = %s;",
++                        (r.json()["session_id"],))
++            state, case_id = cur.fetchone()
++        self.assertEqual(state, "negotiating")
++        self.assertIsNone(case_id)
+ 
+     def test_double_claim_404_dead_token(self):
+         # B2 N-1: claiming nulls the now-dead claim_token, so a second claim of
+         # the same token no longer finds the row → 404 "No such claim link"
+         # (was 409 in B1, before the token was nulled on claim).
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
+         self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 404)
+@@ -325,14 +332,14 @@ class TestCounter(unittest.TestCase):
+         when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
+         pid = self.alice.post("/api/proposals", json={
+             "to_user_id": self.bid, "case_id": None,
+             "from_role": "interviewer", "proposed_times": [when.isoformat()],
+         }).json()["id"]
+         r = self.bob.post(f"/api/proposals/{pid}/accept",
+                           json={"scheduled_at": when.isoformat()})
+         self.assertEqual(r.status_code, 200, r.text)
+-        self.assertIsNone(r.json()["session_id"])
++        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
+         self.assertTrue(r.json()["needs_negotiation"])
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_b3_case_aggregates.py b/tests/test_b3_case_aggregates.py
+new file mode 100644
+index 0000000..fbb1e19
+--- /dev/null
++++ b/tests/test_b3_case_aggregates.py
+@@ -0,0 +1,62 @@
++"""B3 Task 9: per-case rating aggregates on Library payloads. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++from tests.test_b3_recap_gate import _seed_finalized_session, _purge_session
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestCaseAggregates(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.bob = cls._ctx.__enter__()   # candidate (burned on the case)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        s = create_session(cls.bid, user_agent="b3", ip_address=None)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME, s.id)
++        # Finalized+closed session on a fresh case, rated 5, burned for Bob.
++        cls.sid, cls.case_id = _seed_finalized_session(cls.aid, cls.bid, "B3 Agg Case")
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("UPDATE feedback SET case_rating = 5, closed_at = NOW()"
++                        " WHERE session_id = %s;", (cls.sid,))
++            cur.execute("INSERT INTO burned (user_id, case_id, session_id)"
++                        " VALUES (%s,%s,%s) ON CONFLICT DO NOTHING;",
++                        (cls.bid, cls.case_id, cls.sid))
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _purge_session(cls.sid)   # also deletes the burned row
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_detail_has_aggregates(self):
++        r = self.bob.get(f"/api/v1/cases/{self.case_id}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertEqual(body["avg_rating"], 5.0)
++        self.assertEqual(body["run_count"], 1)
++        self.assertTrue(body["done_for_you"])
++
++    def test_list_has_counts_and_flags(self):
++        r = self.bob.get("/api/v1/cases?q=B3 Agg Case")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertIn("open_count", body)
++        self.assertIn("done_count", body)
++        rows = {c["id"]: c for c in body["cases"]}
++        self.assertTrue(rows[self.case_id]["done_for_you"])
++        self.assertEqual(rows[self.case_id]["avg_rating"], 5.0)
+diff --git a/tests/test_b3_debrief_seeding.py b/tests/test_b3_debrief_seeding.py
+new file mode 100644
+index 0000000..c6143bc
+--- /dev/null
++++ b/tests/test_b3_debrief_seeding.py
+@@ -0,0 +1,67 @@
++"""B3 Task 8: debrief seeding — finalize response carries next_recommendation +
++prefill_proposal. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestDebriefSeeding(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer (finalizes)
++        cls.bob = TestClient(app)          # candidate
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path) VALUES ('B3 Seed','b3 seed','DevSchool',2094,"
++                " 'Technology','Profitability','Medium',5.0,2,'output/none.pdf') RETURNING id;")
++            cls.case_id = cur.fetchone()[0]
++        from webapp.repositories.rooms import get_or_create_room
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        cls.room_id = get_or_create_room(cls.aid)["id"]
++        rt_id = get_default_rubric_template_id(cls.case_id, cls.aid)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++                " case_id, rubric_template_id, state, started_at) VALUES"
++                " (%s,%s,%s,%s,%s,'debrief', NOW()) RETURNING id;",
++                (cls.room_id, cls.aid, cls.bid, cls.case_id, rt_id))
++            cls.sid = cur.fetchone()[0]
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM burned WHERE case_id = %s;", (cls.case_id,))
++            cur.execute("DELETE FROM feedback WHERE session_id = %s;", (cls.sid,))
++            cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (cls.sid,))
++            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_finalize_seeds_next(self):
++        r = self.alice.post(f"/api/practice/{self.sid}/finalize", json={"grade": 4.0})
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertIn("next_recommendation", body)
++        self.assertIn("prefill_proposal", body)
++        if body["prefill_proposal"] is not None:
++            self.assertEqual(body["prefill_proposal"]["to_user_id"], self.aid)
++            # next recommendation never re-recommends the just-burned case
++            self.assertNotEqual(body["next_recommendation"]["case_id"], self.case_id)
+diff --git a/tests/test_b3_migrations.py b/tests/test_b3_migrations.py
+new file mode 100644
+index 0000000..1121ab0
+--- /dev/null
++++ b/tests/test_b3_migrations.py
+@@ -0,0 +1,52 @@
++"""B3 Task 1: migrations 028/029 — schema shape + idempotency. Needs the dev
++Postgres; skips cleanly otherwise. Mirrors tests/test_ws_integration.py."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires dev Postgres")
++class TestB3Migrations(unittest.TestCase):
++    def _cols(self, table):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "SELECT column_name, is_nullable FROM information_schema.columns"
++                " WHERE table_name = %s;", (table,))
++            return {r[0]: r[1] for r in cur.fetchall()}
++
++    def test_practice_sessions_case_and_rubric_nullable(self):
++        cols = self._cols("practice_sessions")
++        self.assertEqual(cols["case_id"], "YES")
++        self.assertEqual(cols["rubric_template_id"], "YES")
++        self.assertIn("swapped_from_session_id", cols)
++
++    def test_state_check_allows_negotiating(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
++                " WHERE conname = 'practice_sessions_state_check';")
++            self.assertIn("negotiating", cur.fetchone()[0])
++
++    def test_negotiation_and_swap_tables_exist(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "SELECT table_name FROM information_schema.tables"
++                " WHERE table_name = ANY(%s);",
++                (["case_negotiations", "swap_invites"],))
++            names = {r[0] for r in cur.fetchall()}
++        self.assertEqual(names, {"case_negotiations", "swap_invites"})
++
++    def test_feedback_recap_columns(self):
++        cols = self._cols("feedback")
++        for c in ("viewed_at", "closed_at", "case_rating", "feedback_thumbs"):
++            self.assertIn(c, cols)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b3_negotiation.py b/tests/test_b3_negotiation.py
+new file mode 100644
+index 0000000..13f8be2
+--- /dev/null
++++ b/tests/test_b3_negotiation.py
+@@ -0,0 +1,180 @@
++"""B3 Tasks 2 & 5: case negotiation — repo plumbing + endpoints. Needs seeded
++dev Postgres; skips otherwise. Login/cookie idiom of tests/test_b1_proposals_open.py."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx (TestClient inits the pool)")
++class TestNegotiatingSessionRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()   # run the app lifespan → init the DB pool
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        cls._created = []   # session ids
++        cls._cases = []     # case ids (dropped AFTER sessions — FK order)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            if cls._created:
++                cur.execute("DELETE FROM practice_sessions WHERE id = ANY(%s);",
++                            (cls._created,))
++            if cls._cases:
++                cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls._cases,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_create_negotiating_session_has_null_case_and_state(self):
++        from webapp.repositories import practice_sessions as repo
++        sess = repo.create_negotiating_session(
++            interviewer_id=self.aid, candidate_id=self.bid, mode="remote")
++        self._created.append(sess["id"])
++        self.assertEqual(sess["state"], "negotiating")
++        self.assertIsNone(sess["case_id"])
++        self.assertIsNone(sess["rubric_template_id"])
++
++    def test_get_practice_session_returns_negotiating(self):
++        from webapp.repositories import practice_sessions as repo
++        sess = repo.create_negotiating_session(
++            interviewer_id=self.aid, candidate_id=self.bid, mode="remote")
++        self._created.append(sess["id"])
++        got = repo.get_practice_session(sess["id"])
++        self.assertIsNotNone(got)               # LEFT JOIN keeps case_id-NULL rows
++        self.assertIsNone(got["case_title"])
++        self.assertEqual(got["interviewer_id"], self.aid)
++
++    def test_stamp_negotiated_case_moves_to_lobby(self):
++        import psycopg
++        from webapp.repositories import practice_sessions as repo
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path) VALUES ('B3 Nego Case','b3 nego case',"
++                " 'DevSchool',2094,'Technology','Profitability','Easy',3.0,2,"
++                " 'output/none.pdf') RETURNING id;")
++            case_id = cur.fetchone()[0]
++        self._cases.append(case_id)
++        sess = repo.create_negotiating_session(
++            interviewer_id=self.aid, candidate_id=self.bid)
++        self._created.append(sess["id"])
++        tmpl = repo.get_default_rubric_template_id(case_id, self.aid)
++        out = repo.stamp_negotiated_case(sess["id"], case_id, tmpl)
++        self.assertEqual(out["state"], "lobby")
++        self.assertEqual(out["case_id"], case_id)
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestNegotiationEndpoints(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer
++        cls.bob = TestClient(app)          # candidate
++        cls.cara = TestClient(app)         # non-participant
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++            cls.aid, cls.bid, cls.cid = (r[0] for r in cur.fetchall())
++            cls.case_ids = []
++            for i in range(2):
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES (%s,%s,'DevSchool',2094,'Technology',"
++                    " 'Profitability','Easy',3.0,2,'output/none.pdf') RETURNING id;",
++                    (f"B3 Nego Ep {i}", f"b3 nego ep {i}"))
++                cls.case_ids.append(cur.fetchone()[0])
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++        cls._sessions = []
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        from tests.test_b3_recap_gate import _purge_session
++        for sid in cls._sessions:
++            _purge_session(sid)   # nulls the originating proposal + drops the session
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM proposals WHERE from_user_id = %s;", (cls.aid,))
++            cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls.case_ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _new_negotiating(self):
++        # Alice (interviewer) opens a case-less link, Bob claims → negotiating.
++        tok = self.alice.post("/api/proposals", json={
++            "case_id": None, "from_role": "interviewer"}).json()["claim_token"]
++        sid = self.bob.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        self._sessions.append(sid)
++        return sid
++
++    def test_interviewer_pick_then_candidate_accepts(self):
++        sid = self._new_negotiating()
++        r = self.alice.post(f"/api/practice/{sid}/negotiation/propose",
++                            json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 200, r.text)
++        # Candidate accepts the interviewer's pick → lobby.
++        r = self.bob.post(f"/api/practice/{sid}/negotiation/accept",
++                          json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertEqual(r.json()["state"], "lobby")
++        self.assertEqual(r.json()["case_id"], self.case_ids[0])
++
++    def test_candidate_cannot_pick_first(self):
++        sid = self._new_negotiating()
++        r = self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                          json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_candidate_counter_then_interviewer_keeps_pick(self):
++        sid = self._new_negotiating()
++        self.alice.post(f"/api/practice/{sid}/negotiation/propose",
++                        json={"case_id": self.case_ids[0]})
++        self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                      json={"case_id": self.case_ids[1]})   # candidate counter
++        # Interviewer keeps their pick (accepts case 0, not the counter).
++        r = self.alice.post(f"/api/practice/{sid}/negotiation/accept",
++                            json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertEqual(r.json()["case_id"], self.case_ids[0])
++
++    def test_round_cap_two(self):
++        sid = self._new_negotiating()
++        self.alice.post(f"/api/practice/{sid}/negotiation/propose",
++                        json={"case_id": self.case_ids[0]})
++        self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                      json={"case_id": self.case_ids[1]})
++        # A third propose (candidate again) → 409.
++        r = self.bob.post(f"/api/practice/{sid}/negotiation/propose",
++                          json={"case_id": self.case_ids[0]})
++        self.assertEqual(r.status_code, 409, r.text)
++
++    def test_non_participant_404(self):
++        sid = self._new_negotiating()
++        r = self.cara.get(f"/api/practice/{sid}/negotiation")
++        self.assertEqual(r.status_code, 404)
++
++    def test_pick_sources_interviewer_only(self):
++        sid = self._new_negotiating()
++        ai = self.alice.get(f"/api/practice/{sid}/negotiation").json()
++        bi = self.bob.get(f"/api/practice/{sid}/negotiation").json()
++        self.assertIn("pick_sources", ai)
++        self.assertNotIn("pick_sources", bi)
+diff --git a/tests/test_b3_recap_gate.py b/tests/test_b3_recap_gate.py
+new file mode 100644
+index 0000000..7755ed0
+--- /dev/null
++++ b/tests/test_b3_recap_gate.py
+@@ -0,0 +1,278 @@
++"""B3 Task 3 & 6: recap gate repo + endpoints. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _seed_finalized_session(interviewer_id, candidate_id, case_title):
++    """Insert a finalized session + feedback (closed_at NULL) using ONLY raw
++    psycopg (no get_pool — works without an app context). rubric_template_id is
++    left NULL (nullable after migration 028; unused by these tests). Returns
++    (session_id, case_id)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++        cur.execute(
++            "INSERT INTO cases (case_title, normalized_title, source_school,"
++            " source_year, industry, case_type, difficulty, difficulty_score,"
++            " page_count, pdf_path) VALUES (%s,%s,'DevSchool',2094,'Technology',"
++            " 'Profitability','Easy',3.0,2,'output/none.pdf') RETURNING id;",
++            (case_title, case_title.lower()))
++        case_id = cur.fetchone()[0]
++        cur.execute("SELECT id FROM rooms WHERE owner_user_id = %s LIMIT 1;",
++                    (interviewer_id,))
++        r = cur.fetchone()
++        if r is None:
++            cur.execute("INSERT INTO rooms (owner_user_id, slug) VALUES (%s, %s)"
++                        " RETURNING id;", (interviewer_id, f"rm-{interviewer_id}-{case_id}"))
++            room_id = cur.fetchone()[0]
++        else:
++            room_id = r[0]
++        cur.execute(
++            "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++            " case_id, rubric_template_id, state, ended_at) VALUES"
++            " (%s,%s,%s,%s,NULL,'finalized', NOW()) RETURNING id;",
++            (room_id, interviewer_id, candidate_id, case_id))
++        session_id = cur.fetchone()[0]
++        cur.execute(
++            "INSERT INTO feedback (session_id, rubric_json, grade, finalized_at)"
++            " VALUES (%s, '{\"items\":{}}', 4.0, NOW());", (session_id,))
++    return session_id, case_id
++
++
++def _purge_session(session_id):
++    """Delete a practice_session and its NO-ACTION referencers, FK-safe."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++        cur.execute("UPDATE proposals SET session_id = NULL WHERE session_id = %s;", (session_id,))
++        cur.execute("DELETE FROM pairing_tokens WHERE claimed_session_id = %s;", (session_id,))
++        cur.execute("DELETE FROM burned WHERE session_id = %s;", (session_id,))
++        cur.execute("DELETE FROM live_activity_tokens WHERE session_id = %s;", (session_id,))
++        cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (session_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx (TestClient inits the pool)")
++class TestRecapGateRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()   # run the app lifespan → init the DB pool
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        cls.sid, cls.case_id = _seed_finalized_session(cls.aid, cls.bid, "B3 Gate Case")
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _purge_session(cls.sid)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_candidate_gate_blocks_open_recap(self):
++        from webapp.repositories import feedback as repo
++        self.assertEqual(repo.candidate_gate(self.bid), self.sid)   # candidate blocked
++        self.assertIsNone(repo.candidate_gate(self.aid))            # interviewer never gated
++
++    def test_close_recap_clears_gate(self):
++        from webapp.repositories import feedback as repo
++        repo.close_recap(self.sid, case_rating=5, feedback_thumbs=True, record_thumbs=True)
++        self.assertIsNone(repo.candidate_gate(self.bid))
++        # thumbs recorded because record_thumbs=True
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT case_rating, feedback_thumbs, closed_at FROM feedback"
++                        " WHERE session_id = %s;", (self.sid,))
++            rating, thumbs, closed = cur.fetchone()
++        self.assertEqual(rating, 5)
++        self.assertTrue(thumbs)
++        self.assertIsNotNone(closed)
++
++    def test_list_unread_recaps_oldest_first(self):
++        # fresh open recap for this test
++        sid2, cid2 = _seed_finalized_session(self.aid, self.bid, "B3 Gate Case 2")
++        self.addCleanup(self._drop, sid2, cid2)
++        from webapp.repositories import feedback as repo
++        recaps = repo.list_unread_recaps(self.bid)
++        self.assertTrue(all(r["session_id"] != self.sid for r in recaps))  # closed one gone
++        self.assertIn(sid2, [r["session_id"] for r in recaps])
++
++    def test_assert_gate_raises_recap_error(self):
++        # Runs before test_close_recap_clears_gate (alphabetical), so cls.sid is
++        # still the oldest open recap → assert_candidate_gate_clear points at it.
++        from webapp.repositories import feedback as repo
++        with self.assertRaises(repo.RecapGateError) as ctx:
++            repo.assert_candidate_gate_clear(self.bid)
++        self.assertEqual(ctx.exception.blocked_by_recap, self.sid)
++        self.assertEqual(ctx.exception.status_code, 409)
++
++    def _drop(self, sid, cid):
++        import psycopg
++        _purge_session(sid)
++        if cid:
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestRecapGateEndpoints(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer
++        cls.bob = TestClient(app)          # candidate (gated)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path) VALUES ('B3 Entry Case','b3 entry case',"
++                " 'DevSchool',2094,'Technology','Profitability','Easy',3.0,2,"
++                " 'output/none.pdf') RETURNING id;")
++            cls.case_id = cur.fetchone()[0]
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3-test", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++        # Bob has an open recap (as candidate) → gated.
++        cls.gate_sid, cls.gate_case = _seed_finalized_session(cls.aid, cls.bid, "B3 Entry Gate")
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        # Blocked candidate entries create no session; only gate_sid exists.
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++            extra = [r[0] for r in cur.fetchall()]
++        for sid in [cls.gate_sid, *extra]:
++            _purge_session(sid)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM proposals WHERE from_user_id = ANY(%s)"
++                        " OR to_user_id = ANY(%s);", ([cls.aid, cls.bid], [cls.aid, cls.bid]))
++            cur.execute("DELETE FROM cases WHERE id = ANY(%s);", ([cls.case_id, cls.gate_case],))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_create_practice_as_candidate_blocked(self):
++        r = self.bob.post("/api/practice", json={
++            "interviewer_id": self.aid, "candidate_id": self.bid,
++            "case_id": self.case_id})
++        self.assertEqual(r.status_code, 409, r.text)
++        self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
++
++    def test_proposal_accept_as_candidate_blocked(self):
++        # Alice (interviewer) proposes to Bob (candidate) with a case.
++        pid = self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": self.case_id,
++            "from_role": "interviewer"}).json()["id"]
++        r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
++        self.assertEqual(r.status_code, 409, r.text)
++        self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestRecapEndpoints(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer
++        cls.bob = TestClient(app)          # candidate
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++        cls.sid, cls.case_id = _seed_finalized_session(cls.aid, cls.bid, "B3 Recap Ep")
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _purge_session(cls.sid)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_recaps_list_shows_open_recap(self):
++        # Seed a fresh open recap: unittest runs methods alphabetically, so
++        # test_close_requires_rating_and_clears closes cls.sid before this test.
++        # Own recap keeps the assertion order-independent (sibling-test pattern).
++        sid_r, cid_r = _seed_finalized_session(self.aid, self.bid, "B3 Recap Ep List")
++        self.addCleanup(self._drop, sid_r, cid_r)
++        r = self.bob.get("/api/v1/recaps")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIn(sid_r, [x["session_id"] for x in r.json()["recaps"]])
++
++    def test_close_requires_rating_and_clears(self):
++        # missing rating → 422
++        r = self.bob.post(f"/api/practice/{self.sid}/recap/close", json={})
++        self.assertEqual(r.status_code, 422, r.text)
++        # valid rating → cleared, gone from list
++        r = self.bob.post(f"/api/practice/{self.sid}/recap/close",
++                          json={"case_rating": 4, "feedback_thumbs": True})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertNotIn(self.sid,
++                         [x["session_id"] for x in self.bob.get("/api/v1/recaps").json()["recaps"]])
++
++    def test_interviewer_cannot_close_candidate_recap(self):
++        sid2, cid2 = _seed_finalized_session(self.aid, self.bid, "B3 Recap Ep 2")
++        self.addCleanup(self._drop, sid2, cid2)
++        r = self.alice.post(f"/api/practice/{sid2}/recap/close", json={"case_rating": 3})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_viewed_stamps(self):
++        sid3, cid3 = _seed_finalized_session(self.aid, self.bid, "B3 Recap Ep 3")
++        self.addCleanup(self._drop, sid3, cid3)
++        r = self.bob.post(f"/api/practice/{sid3}/recap/viewed")
++        self.assertEqual(r.status_code, 200, r.text)
++
++    def test_gate_clears_then_entry_succeeds(self):
++        # Fresh open recap gates Bob; close it, then a candidate entry works.
++        gsid, gcid = _seed_finalized_session(self.aid, self.bid, "B3 Recap Gate Clear")
++        self.addCleanup(self._drop, gsid, gcid)
++        # Burn gcid for Bob too: the gate MUST win over is_burned — a dict-detail
++        # {blocked_by_recap} (not the burned string 409) proves the gate is
++        # checked before create_practice's is_burned check.
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("INSERT INTO burned (user_id, case_id, session_id)"
++                        " VALUES (%s,%s,%s) ON CONFLICT DO NOTHING;",
++                        (self.bid, gcid, gsid))
++        blocked = self.bob.post("/api/practice", json={
++            "interviewer_id": self.aid, "candidate_id": self.bid, "case_id": gcid})
++        self.assertEqual(blocked.status_code, 409)
++        self.assertEqual(blocked.json()["detail"]["blocked_by_recap"], gsid)
++        self.bob.post(f"/api/practice/{gsid}/recap/close", json={"case_rating": 4})
++        # Now a case-less open link claimed by Bob creates a negotiating session.
++        tok = self.alice.post("/api/proposals", json={
++            "case_id": None, "from_role": "interviewer"}).json()["claim_token"]
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])
++        self.addCleanup(self._drop, r.json()["session_id"], None)
++
++    def _drop(self, sid, cid):
++        import psycopg
++        _purge_session(sid)
++        if cid:
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
+diff --git a/tests/test_b3_swap.py b/tests/test_b3_swap.py
+new file mode 100644
+index 0000000..fe520c5
+--- /dev/null
++++ b/tests/test_b3_swap.py
+@@ -0,0 +1,102 @@
++"""B3 Task 7: role swap. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++from tests.test_b3_recap_gate import _seed_finalized_session, _purge_session
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestSwap(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer of the finished session
++        cls.bob = TestClient(app)          # candidate
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def _finished(self):
++        sid, cid = _seed_finalized_session(self.aid, self.bid, "B3 Swap Src")
++        # ensure Bob's recap is closed so a later swap can be gated cleanly
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("UPDATE feedback SET closed_at = NOW(), case_rating = 5"
++                        " WHERE session_id = %s;", (sid,))
++        self.addCleanup(self._drop, sid, cid)
++        return sid
++
++    def test_interviewer_swaps_roles_reversed(self):
++        sid = self._finished()
++        r = self.alice.post(f"/api/practice/{sid}/swap")
++        self.assertEqual(r.status_code, 200, r.text)
++        r = self.bob.post(f"/api/practice/{sid}/swap/accept")
++        self.assertEqual(r.status_code, 200, r.text)
++        new_sid = r.json()["session_id"]
++        self.addCleanup(self._drop, new_sid, None)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT interviewer_id, candidate_id, state, mode,"
++                        " swapped_from_session_id FROM practice_sessions WHERE id = %s;",
++                        (new_sid,))
++            ivr, cand, state, mode, frm = cur.fetchone()
++        self.assertEqual((ivr, cand), (self.bid, self.aid))   # reversed
++        self.assertEqual(state, "negotiating")
++        self.assertEqual(frm, sid)
++
++    def test_candidate_cannot_initiate(self):
++        sid = self._finished()
++        r = self.bob.post(f"/api/practice/{sid}/swap")
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_swap_gate_blocks_new_candidate(self):
++        # Alice (who will become the NEW candidate) has her own open recap.
++        blk_sid, blk_cid = _seed_finalized_session(self.bid, self.aid, "B3 Swap Gate")
++        self.addCleanup(self._drop, blk_sid, blk_cid)   # Alice is candidate here → open recap
++        sid = self._finished()
++        self.alice.post(f"/api/practice/{sid}/swap")
++        r = self.bob.post(f"/api/practice/{sid}/swap/accept")
++        self.assertEqual(r.status_code, 409, r.text)
++        self.assertEqual(r.json()["detail"]["blocked_by_recap"], blk_sid)
++
++    def test_claim_invite_single_winner(self):
++        from webapp.repositories import swaps as swap_repo
++        sid = self._finished()
++        self.alice.post(f"/api/practice/{sid}/swap")   # creates a pending invite
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id, invitee_id FROM swap_invites"
++                        " WHERE from_session_id = %s AND state='pending';", (sid,))
++            invite_id, invitee_id = cur.fetchone()
++        self.assertTrue(swap_repo.claim_invite(invite_id, invitee_id))    # first wins
++        self.assertFalse(swap_repo.claim_invite(invite_id, invitee_id))   # second loses
++
++    def _drop(self, sid, cid):
++        import psycopg
++        # Purge any session swapped FROM this one first (new_session_id/swapped_from
++        # are ON DELETE SET NULL, so order is not FK-critical, but keep it tidy).
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM practice_sessions WHERE swapped_from_session_id = %s;", (sid,))
++            children = [r[0] for r in cur.fetchall()]
++        for child in children:
++            _purge_session(child)
++        _purge_session(sid)
++        if cid:
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
+diff --git a/webapp/main.py b/webapp/main.py
+index a5fc618..b61609b 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -62,16 +62,17 @@ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import profile as profile_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+ from webapp.routes import recommendations as recommendations_routes
+ from webapp.routes import rooms as rooms_routes
+ from webapp.routes import search as search_routes
++from webapp.routes import session_flow as session_flow_routes
+ from webapp.routes import timeline as timeline_routes
+ from webapp.routes import signal_ws as signal_ws_routes
+ from webapp.routes import votes as votes_routes
+ from webapp.settings import load_settings
+ 
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -139,16 +140,17 @@ def create_app() -> FastAPI:
+     app.include_router(search_routes.router)
+     app.include_router(files_routes.router)
+     app.include_router(votes_routes.router)
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
++    app.include_router(session_flow_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
+     app.include_router(guest_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(timeline_routes.router)
+diff --git a/webapp/practice_states.py b/webapp/practice_states.py
+index 5db7b34..a1327ef 100644
+--- a/webapp/practice_states.py
++++ b/webapp/practice_states.py
+@@ -1,28 +1,35 @@
+ """
+ Practice-session state machine (docs/caseroom-spec.md §4.5, INTEGRATION.md A1).
+ 
+ Pure validation — no DB, no FastAPI — so every edge is unit-testable. The
+ repository applies the transition inside a row lock after this validates.
+ 
+-    scheduled → lobby → live → debrief → finalized
+-    scheduled|lobby|live → aborted
++    negotiating → lobby → live → debrief → finalized   (also: scheduled → lobby)
++    negotiating|scheduled|lobby|live → aborted
+ 
+-'finalized' is deliberately NOT reachable through the generic state endpoint:
+-finalize has its own endpoint (Phase 7) because it computes the grade, writes
+-feedback and burned rows, and releases content in one transaction.
++'negotiating' (B3) is the pre-lobby state for case-less sessions (case chosen
++after pairing); the negotiating → lobby edge is deliberately NOT here — it's
++driven only by stamp_negotiated_case, which sets the case atomically. Likewise
++'finalized' is NOT reachable through the generic state endpoint: finalize has
++its own endpoint (Phase 7) because it computes the grade, writes feedback and
++burned rows, and releases content in one transaction.
+ """
+ 
+ from __future__ import annotations
+ 
+-STATES = ("scheduled", "lobby", "live", "debrief", "finalized", "aborted")
++STATES = ("negotiating", "scheduled", "lobby", "live", "debrief", "finalized", "aborted", "missed")
+ 
+ # (current, target) -> role allowed to drive the edge ('any' = either participant)
++# ('negotiating','lobby') is deliberately absent — that edge is driven only by
++# stamp_negotiated_case, which sets the case atomically; the generic /state
++# endpoint must not move a case-less session to lobby.
+ _EDGES: dict[tuple[str, str], str] = {
++    ("negotiating", "aborted"): "any",   # bail out of negotiation
+     ("scheduled", "lobby"): "any",
+     ("lobby", "live"): "interviewer",   # A7: state change first, WS admit second
+     ("live", "debrief"): "any",
+     ("scheduled", "aborted"): "any",
+     ("lobby", "aborted"): "any",
+     ("live", "aborted"): "any",
+ }
+ 
+diff --git a/webapp/repositories/case_stats.py b/webapp/repositories/case_stats.py
+new file mode 100644
+index 0000000..6925d7b
+--- /dev/null
++++ b/webapp/repositories/case_stats.py
+@@ -0,0 +1,44 @@
++"""
++Purpose: Per-case rating aggregates for the Library — average close-out rating,
++         run count (finalized sessions), and whether the case is burned for the
++         requesting user (done_for_you).
++Inputs:  practice_sessions, feedback, burned (via get_pool).
++Outputs: dict keyed by case_id; no side effects.
++Run:     from webapp.repositories import case_stats
++"""
++
++from __future__ import annotations
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++
++def case_aggregates(case_ids: list[int], user_id: int) -> dict[int, dict]:
++    """{case_id: {avg_rating: float|None (1dp), run_count: int, done_for_you: bool}}
++    for the given ids. Cases with no finalized runs get run_count 0 / avg None."""
++    result = {cid: {"avg_rating": None, "run_count": 0, "done_for_you": False}
++              for cid in case_ids}
++    if not case_ids:
++        return result
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT ps.case_id,"
++                "       COUNT(*) AS run_count,"
++                "       ROUND(AVG(f.case_rating)::numeric, 1) AS avg_rating"
++                " FROM practice_sessions ps JOIN feedback f ON f.session_id = ps.id"
++                " WHERE ps.case_id = ANY(%(ids)s) AND ps.state = 'finalized'"
++                " GROUP BY ps.case_id;",
++                {"ids": case_ids})
++            for row in cur.fetchall():
++                result[row["case_id"]].update(
++                    run_count=row["run_count"],
++                    avg_rating=(float(row["avg_rating"])
++                                if row["avg_rating"] is not None else None))
++            cur.execute("SELECT case_id FROM burned WHERE user_id = %(u)s"
++                        " AND case_id = ANY(%(ids)s);",
++                        {"u": user_id, "ids": case_ids})
++            for row in cur.fetchall():
++                result[row["case_id"]]["done_for_you"] = True
++    return result
+diff --git a/webapp/repositories/cases.py b/webapp/repositories/cases.py
+index 3484932..c56bdea 100644
+--- a/webapp/repositories/cases.py
++++ b/webapp/repositories/cases.py
+@@ -370,16 +370,44 @@ def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict
+             cur.execute(count_sql, params)
+             total = cur.fetchone()["total"]
+ 
+     for r in rows:
+         attach_industry_display(r)
+     return rows, total
+ 
+ 
++def library_counts(filters: SearchFilters, user_id: int) -> dict:
++    """{"open_count", "done_count"} over the user's canonical (deduped) library
++    matching `filters` — done = burned for the user. Reuses the search dedup CTE
++    and filter clause so the counts track the active filter set."""
++    raw_distinct = _distinct_raw_industries()
++    params: dict[str, object] = {
++        "q": filters.q, "difficulty": filters.difficulty,
++        "case_type": filters.case_type, "school": filters.school,
++        "user_id": user_id,
++    }
++    params.update(_industry_filter_params(filters, raw_distinct=raw_distinct))
++    sql = f"""
++        {_DEDUP_CTE}
++        SELECT
++            COUNT(*) FILTER (WHERE b.user_id IS NOT NULL) AS done_count,
++            COUNT(*) FILTER (WHERE b.user_id IS NULL)     AS open_count
++        FROM ranked
++        LEFT JOIN burned b ON b.case_id = ranked.id AND b.user_id = %(user_id)s
++        WHERE ranked.rn = 1 AND {_FILTER_WHERE};
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, params)
++            row = cur.fetchone()
++    return {"open_count": int(row["open_count"] or 0),
++            "done_count": int(row["done_count"] or 0)}
++
++
+ def count_all_cases(*, include_duplicates: bool = False) -> int:
+     """Return total case count for the footer / "showing X of Y" text.
+ 
+     Mirrors ``search_cases`` dedup behaviour: by default counts canonicals
+     only, so the public-facing total reflects what's actually browsable.
+     """
+     if include_duplicates:
+         sql = "SELECT COUNT(*) FROM cases;"
+diff --git a/webapp/repositories/feedback.py b/webapp/repositories/feedback.py
+index 8f0dfc4..b574019 100644
+--- a/webapp/repositories/feedback.py
++++ b/webapp/repositories/feedback.py
+@@ -167,8 +167,105 @@ def is_burned(user_id: int, case_id: int) -> bool:
+     """A6: has this user already received this case in a finalized session?"""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "SELECT 1 FROM burned WHERE user_id = %s AND case_id = %s;",
+                 (user_id, case_id),
+             )
+             return cur.fetchone() is not None
++
++
++class RecapGateError(TransitionError):
++    """Candidate has an unread (finalized-but-unclosed) recap and cannot start
++    or accept a new case as candidate (spec §6.4). Subclasses TransitionError
++    (status 409) so generic handlers still 409; candidate-entry routes catch it
++    explicitly to emit {"blocked_by_recap": session_id}."""
++
++    def __init__(self, session_id: int):
++        super().__init__(409, "Finish your last recap before starting a new case")
++        self.blocked_by_recap = session_id
++
++
++def candidate_gate(user_id: int) -> Optional[int]:
++    """The oldest session_id whose feedback is finalized but not yet closed and
++    where user_id sat as candidate — i.e. the recap that blocks a new candidate
++    seat. None when nothing blocks (never finalized ⇒ no gate)."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT ps.id FROM feedback f"
++                " JOIN practice_sessions ps ON ps.id = f.session_id"
++                " WHERE ps.candidate_id = %s"
++                "   AND f.finalized_at IS NOT NULL AND f.closed_at IS NULL"
++                " ORDER BY f.finalized_at ASC LIMIT 1;",
++                (user_id,),
++            )
++            row = cur.fetchone()
++            return row[0] if row else None
++
++
++def assert_candidate_gate_clear(user_id: int) -> None:
++    """Raise RecapGateError if user_id has an open recap (candidate-seat gate)."""
++    blocked = candidate_gate(user_id)
++    if blocked is not None:
++        raise RecapGateError(blocked)
++
++
++def list_unread_recaps(user_id: int) -> list[dict]:
++    """Finalized-but-unclosed recaps where user_id was candidate, oldest-first
++    (the order they clear). case_title may be NULL only for legacy rows."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT ps.id AS session_id, ps.case_id, c.case_title,"
++                "       f.grade, f.finalized_at, f.viewed_at,"
++                "       COALESCE(ui.display_name,"
++                "                split_part(ui.email::text, '@', 1)) AS interviewer_name"
++                " FROM feedback f"
++                " JOIN practice_sessions ps ON ps.id = f.session_id"
++                " JOIN users ui ON ui.id = ps.interviewer_id"
++                " LEFT JOIN cases c ON c.id = ps.case_id"
++                " WHERE ps.candidate_id = %s"
++                "   AND f.finalized_at IS NOT NULL AND f.closed_at IS NULL"
++                " ORDER BY f.finalized_at ASC;",
++                (user_id,),
++            )
++            return cur.fetchall()
++
++
++def mark_recap_viewed(session_id: int) -> None:
++    """Stamp viewed_at once (first view wins) for a finalized recap."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE feedback SET viewed_at = COALESCE(viewed_at, NOW())"
++                " WHERE session_id = %s AND finalized_at IS NOT NULL;",
++                (session_id,),
++            )
++
++
++def close_recap(session_id: int, *, case_rating: int,
++                feedback_thumbs: Optional[bool], record_thumbs: bool) -> dict:
++    """Close-out: stamp closed_at + the required 1-5 case_rating (and viewed_at
++    if unset). feedback_thumbs is stored only when record_thumbs (interviewer is
++    a real, non-guest user); otherwise NULL. First close only — a re-close 409s
++    (the gate is already cleared; recaps stay re-readable via GET feedback)."""
++    if not (1 <= case_rating <= 5):
++        raise TransitionError(400, "case_rating must be 1-5")
++    thumbs = feedback_thumbs if record_thumbs else None
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute("SELECT finalized_at, closed_at FROM feedback"
++                        " WHERE session_id = %s FOR UPDATE;", (session_id,))
++            row = cur.fetchone()
++            if row is None or row["finalized_at"] is None:
++                raise TransitionError(409, "No finalized recap to close")
++            if row["closed_at"] is not None:
++                raise TransitionError(409, "Recap already closed")
++            cur.execute(
++                "UPDATE feedback SET closed_at = NOW(),"
++                "   viewed_at = COALESCE(viewed_at, NOW()),"
++                "   case_rating = %s, feedback_thumbs = %s"
++                " WHERE session_id = %s RETURNING *;",
++                (case_rating, thumbs, session_id),
++            )
++            return cur.fetchone()
+diff --git a/webapp/repositories/negotiations.py b/webapp/repositories/negotiations.py
+new file mode 100644
+index 0000000..a7e6769
+--- /dev/null
++++ b/webapp/repositories/negotiations.py
+@@ -0,0 +1,81 @@
++"""
++Purpose: Case-negotiation SQL — proposed-case rounds for a pre-lobby session.
++Inputs:  case_negotiations, practice_sessions, proposals (via get_pool).
++Outputs: negotiation rows; no external side effects (WS/broadcast done by route).
++Run:     from webapp.repositories import negotiations as nego
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++
++def _pick_by_round(session_id: int, round_no: int) -> Optional[dict]:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT cn.*, c.case_title, c.case_type, c.difficulty"
++                " FROM case_negotiations cn JOIN cases c ON c.id = cn.proposed_case_id"
++                " WHERE cn.session_id = %s AND cn.round = %s"
++                " ORDER BY cn.id DESC LIMIT 1;", (session_id, round_no))
++            return cur.fetchone()
++
++
++def interviewer_pick(session_id: int) -> Optional[dict]:
++    return _pick_by_round(session_id, 1)
++
++
++def candidate_counter(session_id: int) -> Optional[dict]:
++    return _pick_by_round(session_id, 2)
++
++
++def record_proposal(session_id: int, by_user_id: int, case_id: int,
++                    round_no: int) -> dict:
++    """Insert one negotiation round (pending)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "INSERT INTO case_negotiations (session_id, proposed_case_id,"
++                " by_user_id, round) VALUES (%s, %s, %s, %s) RETURNING *;",
++                (session_id, case_id, by_user_id, round_no))
++            return cur.fetchone()
++
++
++def mark_accepted(session_id: int, case_id: int) -> None:
++    """Mark the chosen round accepted (and the rest declined)."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE case_negotiations SET state ="
++                " CASE WHEN proposed_case_id = %s THEN 'accepted' ELSE 'declined' END"
++                " WHERE session_id = %s;", (case_id, session_id))
++
++
++def interviewer_done_set(interviewer_id: int, limit: int = 5) -> list[dict]:
++    """Cases the interviewer has been candidate on (burned) — a source they can
++    interview from confidently. Newest first."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT c.id AS case_id, c.case_title AS title, c.case_type,"
++                "       c.difficulty"
++                " FROM burned b JOIN cases c ON c.id = b.case_id"
++                " WHERE b.user_id = %s ORDER BY b.burned_at DESC LIMIT %s;",
++                (interviewer_id, limit))
++            return cur.fetchall()
++
++
++def originating_requested_case(session_id: int) -> Optional[dict]:
++    """If the proposal that spawned this negotiating session carried a case
++    (candidate's request), return it. Case-less entries → None (the norm)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT c.id AS case_id, c.case_title AS title, p.from_role"
++                " FROM proposals p JOIN cases c ON c.id = p.case_id"
++                " WHERE p.session_id = %s LIMIT 1;", (session_id,))
++            return cur.fetchone()
+diff --git a/webapp/repositories/pairing_tokens.py b/webapp/repositories/pairing_tokens.py
+index b7f3716..273e141 100644
+--- a/webapp/repositories/pairing_tokens.py
++++ b/webapp/repositories/pairing_tokens.py
+@@ -10,18 +10,19 @@ from __future__ import annotations
+ import secrets
+ from typing import Optional
+ 
+ from psycopg import errors as pg_errors
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+-from webapp.repositories.feedback import is_burned
+-from webapp.repositories.practice_sessions import create_practice_session
++from webapp.repositories.feedback import assert_candidate_gate_clear, is_burned
++from webapp.repositories.practice_sessions import (
++    create_negotiating_session, create_practice_session)
+ 
+ 
+ # Unambiguous 6-char set (spec §8): A-Z + 2-9, minus 0/O/1/I.
+ _SHORT_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+ 
+ 
+ def _gen_short_code(n: int = 6) -> str:
+     return "".join(secrets.choice(_SHORT_ALPHABET) for _ in range(n))
+@@ -48,20 +49,21 @@ def mint_token(interviewer_id: int, case_id: Optional[int] = None,
+                     return cur.fetchone()
+             except pg_errors.UniqueViolation:
+                 conn.rollback()  # token/short_code clash — regenerate
+                 continue
+         raise TransitionError(500, "Could not allocate a pairing code")
+ 
+ 
+ def claim(*, candidate_id: int, token: Optional[str] = None,
+-          short_code: Optional[str] = None) -> dict:
++          short_code: Optional[str] = None, is_guest: bool = False) -> dict:
+     """Claim a pairing token by token OR short_code (spec §8), creating the
+-    practice session in one transaction. Case-less tokens can't create a
+-    session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
++    practice session in one transaction. A case-set token creates a live
++    (in-person) session; a case-less token creates a 'negotiating' session for
++    a real user (B3) or 409s a guest (guests may only claim ready-to-run links).
+ 
+     The token row is locked with SELECT ... FOR UPDATE for the whole
+     transaction — this is the anti-double-claim mechanism. A concurrent
+     second claim of the same token blocks on the lock until this one
+     commits, then sees claimed_session_id already set and gets a 409.
+ 
+     create_practice_session() opens its OWN connection/transaction (repo
+     convention) and commits independently of the lock we're holding here.
+@@ -90,17 +92,27 @@ def claim(*, candidate_id: int, token: Optional[str] = None,
+                 raise TransitionError(404, "No such pairing token")
+             if row["expired"]:
+                 raise TransitionError(409, "Pairing token has expired")
+             if row["claimed_session_id"] is not None:
+                 raise TransitionError(409, "Pairing token already claimed")
+             if row["interviewer_id"] == candidate_id:
+                 raise TransitionError(409, "Cannot claim your own pairing token")
+             if row["case_id"] is None:
+-                raise TransitionError(409, "Choose a case before pairing")
++                if is_guest:
++                    raise TransitionError(
++                        409, "Guests can only claim an instant, ready-to-run link.")
++                assert_candidate_gate_clear(candidate_id)
++                session = create_negotiating_session(
++                    interviewer_id=row["interviewer_id"],
++                    candidate_id=candidate_id, mode="in_person")
++                cur.execute("UPDATE pairing_tokens SET claimed_session_id = %s"
++                            " WHERE id = %s;", (session["id"], row["id"]))
++                return {"session_id": session["id"], "needs_negotiation": True}
++            assert_candidate_gate_clear(candidate_id)
+             if is_burned(candidate_id, row["case_id"]):
+                 raise TransitionError(409, "You have already completed this case")
+ 
+             session = create_practice_session(
+                 interviewer_id=row["interviewer_id"],
+                 candidate_id=candidate_id,
+                 case_id=row["case_id"],
+                 mode="in_person",
+diff --git a/webapp/repositories/practice_sessions.py b/webapp/repositories/practice_sessions.py
+index d436b45..da521ba 100644
+--- a/webapp/repositories/practice_sessions.py
++++ b/webapp/repositories/practice_sessions.py
+@@ -93,29 +93,95 @@ def create_practice_session(
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(sql, (room["id"], interviewer_id, candidate_id,
+                               case_id, rubric_template_id, scheduled_at, mode))
+             return cur.fetchone()
+ 
+ 
++def create_negotiating_session_within(
++    cur, *, interviewer_id: int, candidate_id: int, mode: str = "remote",
++    scheduled_at=None, swapped_from_session_id: int | None = None,
++) -> int:
++    """Create a pre-lobby 'negotiating' session (case undecided) using the
++    caller's already-locked cursor (case-less proposal accept/claim run this
++    inside their proposal lock). Room lookup opens its own idempotent
++    connection (repo convention). case_id/rubric_template_id stay NULL until
++    the interviewer and candidate settle a case (stamp_negotiated_case)."""
++    room = get_or_create_room(interviewer_id)
++    cur.execute(
++        "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++        " case_id, rubric_template_id, state, scheduled_at, mode,"
++        " swapped_from_session_id)"
++        " VALUES (%s, %s, %s, NULL, NULL, 'negotiating', %s, %s, %s)"
++        " RETURNING id;",
++        (room["id"], interviewer_id, candidate_id, scheduled_at, mode,
++         swapped_from_session_id),
++    )
++    return cur.fetchone()["id"]
++
++
++def create_negotiating_session(
++    *, interviewer_id: int, candidate_id: int, mode: str = "remote",
++    scheduled_at=None, swapped_from_session_id: int | None = None,
++) -> dict:
++    """Own-connection variant (pairing claim / swap accept). Returns the row."""
++    room = get_or_create_room(interviewer_id)
++    sql = f"""
++        INSERT INTO practice_sessions
++            (room_id, interviewer_id, candidate_id, case_id, rubric_template_id,
++             state, scheduled_at, mode, swapped_from_session_id)
++        VALUES (%s, %s, %s, NULL, NULL, 'negotiating', %s, %s, %s)
++        RETURNING {_SESSION_COLS.replace('ps.', '')};
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, (room["id"], interviewer_id, candidate_id,
++                              scheduled_at, mode, swapped_from_session_id))
++            return cur.fetchone()
++
++
++def stamp_negotiated_case(session_id: int, case_id: int,
++                          rubric_template_id: int) -> dict:
++    """Settle a negotiating session on a case: stamp case_id + rubric_template_id
++    and move negotiating → lobby (bypasses the generic state machine, which
++    forbids negotiating→lobby, because the case must be set in the same act)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"SELECT {_SESSION_COLS} FROM practice_sessions ps"
++                " WHERE ps.id = %s FOR UPDATE;", (session_id,))
++            row = cur.fetchone()
++            if row is None:
++                raise TransitionError(404, "No such session")
++            if row["state"] != "negotiating":
++                raise TransitionError(409, "Session is not in negotiation")
++            cur.execute(
++                "UPDATE practice_sessions SET case_id = %s, rubric_template_id = %s,"
++                " state = 'lobby', state_changed_at = NOW() WHERE id = %s"
++                f" RETURNING {_SESSION_COLS.replace('ps.', '')};",
++                (case_id, rubric_template_id, session_id),
++            )
++            return cur.fetchone()
++
++
+ def get_practice_session(session_id: int) -> Optional[dict]:
+     """Session row + display names and case metadata for the session UI."""
+     sql = f"""
+         SELECT {_SESSION_COLS},
+                COALESCE(ui.display_name, split_part(ui.email::text, '@', 1)) AS interviewer_name,
+                COALESCE(uc.display_name, split_part(uc.email::text, '@', 1)) AS candidate_name,
+                ui.is_guest AS interviewer_is_guest,
+                uc.is_guest AS candidate_is_guest,
+                c.case_title, r.slug AS room_slug
+         FROM practice_sessions ps
+         JOIN users ui ON ui.id = ps.interviewer_id
+         JOIN users uc ON uc.id = ps.candidate_id
+-        JOIN cases c  ON c.id = ps.case_id
++        LEFT JOIN cases c  ON c.id = ps.case_id
+         JOIN rooms r  ON r.id = ps.room_id
+         WHERE ps.id = %s;
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(sql, (session_id,))
+             return cur.fetchone()
+ 
+@@ -275,17 +341,17 @@ def sweep_stale_sessions() -> int:
+     Future-scheduled sessions are untouched."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "UPDATE practice_sessions"
+                 " SET state = 'aborted', ended_at = NOW(), state_changed_at = NOW()"
+                 " WHERE (state IN ('lobby', 'live')"
+                 "        AND state_changed_at < NOW() - INTERVAL '6 hours')"
+-                "    OR (state = 'scheduled'"
++                "    OR (state IN ('scheduled', 'negotiating')"
+                 "        AND COALESCE(scheduled_at, created_at)"
+                 "            < NOW() - INTERVAL '6 hours');"
+             )
+             return cur.rowcount
+ 
+ 
+ def sweep_missed(missed_after_min: int = 60) -> int:
+     """A3: an accepted session never joined (still 'scheduled'/'lobby')
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index f2dc365..c42cfac 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -17,18 +17,19 @@ import secrets
+ from datetime import datetime
+ from typing import Optional
+ 
+ from psycopg.rows import dict_row
+ from psycopg.types.json import Jsonb
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+-from webapp.repositories.feedback import is_burned
+-from webapp.repositories.practice_sessions import get_default_rubric_template_id
++from webapp.repositories.feedback import assert_candidate_gate_clear, is_burned
++from webapp.repositories.practice_sessions import (
++    create_negotiating_session_within, get_default_rubric_template_id)
+ from webapp.repositories.rooms import get_or_create_room
+ 
+ MAX_PROPOSED_TIMES = 3
+ 
+ _COLS = """
+     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
+     p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at,
+     p.claim_token, p.counter_times_json, p.counter_by, p.countered_at
+@@ -103,20 +104,31 @@ def claim_proposal(token: str, user_id: int, is_guest: bool = False) -> dict:
+ 
+             result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
+             if prop["proposed_times_json"]:
+                 # Scheduled: claimer is now the recipient; awaits accept/counter.
+                 result.update(state="pending", session_id=None,
+                               accepted=False, needs_negotiation=False)
+                 return result
+ 
++            # Gate the candidate seat: the claimer becomes to_user_id, so they
++            # are candidate iff from_role == 'interviewer'.
++            claimer_is_candidate = (prop["from_role"] == "interviewer")
++            if claimer_is_candidate:
++                assert_candidate_gate_clear(user_id)
++
++            interviewer_id, candidate_id = _resolve_roles(prop)
++
+             if prop["case_id"] is None:
++                sid = create_negotiating_session_within(
++                    cur, interviewer_id=interviewer_id, candidate_id=candidate_id)
+                 cur.execute("UPDATE proposals SET state = 'accepted',"
+-                            " responded_at = NOW() WHERE id = %s;", (prop["id"],))
+-                result.update(state="accepted", session_id=None,
++                            " responded_at = NOW(), session_id = %s WHERE id = %s;",
++                            (sid, prop["id"]))
++                result.update(state="accepted", session_id=sid,
+                               accepted=True, needs_negotiation=True)
+                 return result
+ 
+             session_id = _create_session_within(cur, prop, None)
+             cur.execute("UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                         " session_id = %s WHERE id = %s;", (session_id, prop["id"]))
+             result.update(state="accepted", session_id=session_id,
+                           accepted=True, needs_negotiation=False)
+@@ -261,18 +273,19 @@ def pending_count(user_id: int) -> int:
+             return cur.fetchone()[0]
+ 
+ 
+ def respond(proposal_id: int, user_id: int, *, accept: bool,
+             scheduled_at: Optional[datetime] = None,
+             counter_time: Optional[datetime] = None) -> dict:
+     """Accept or decline. 'pending' → the recipient acts (existing flow).
+     'countered' → the original proposer acts, choosing counter_time from the
+-    stored counter times (spec §5.2). Case-less accepts mark the proposal
+-    accepted with session_id NULL and needs_negotiation=True (B3 negotiation).
++    stored counter times (spec §5.2). A case-less accept creates a 'negotiating'
++    session (B3), sets proposals.session_id, and returns needs_negotiation=True;
++    the candidate seat is recap-gated when the acting user is the candidate.
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
+                         " FOR UPDATE;", (proposal_id,))
+             prop = cur.fetchone()
+             if prop is None:
+                 raise TransitionError(404, "No such proposal")
+@@ -304,21 +317,30 @@ def respond(proposal_id: int, user_id: int, *, accept: bool,
+                 allowed = {datetime.fromisoformat(s)
+                            for s in (prop["counter_times_json"] or [])}
+                 if counter_time is None or counter_time not in allowed:
+                     raise TransitionError(409, "Chosen time must be one of the counter times")
+                 use_scheduled = counter_time
+             else:
+                 use_scheduled = scheduled_at
+ 
++            # Recap gate: the acting user takes the candidate seat iff they are
++            # the candidate for this proposal.
++            interviewer_id, candidate_id = _resolve_roles(prop)
++            if user_id == candidate_id:
++                assert_candidate_gate_clear(user_id)
++
+             if prop["case_id"] is None:
++                sid = create_negotiating_session_within(
++                    cur, interviewer_id=interviewer_id, candidate_id=candidate_id,
++                    scheduled_at=use_scheduled)
+                 cur.execute(
+-                    "UPDATE proposals SET state = 'accepted', responded_at = NOW()"
+-                    f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+-                    (proposal_id,),
++                    "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
++                    f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
++                    (sid, proposal_id),
+                 )
+                 row = cur.fetchone()
+                 row["needs_negotiation"] = True
+                 return row
+ 
+             session_id = _create_session_within(cur, prop, use_scheduled)
+             cur.execute(
+                 "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+diff --git a/webapp/repositories/swaps.py b/webapp/repositories/swaps.py
+new file mode 100644
+index 0000000..dbfeb24
+--- /dev/null
++++ b/webapp/repositories/swaps.py
+@@ -0,0 +1,62 @@
++"""
++Purpose: Role-swap invite SQL — a pending "swap roles & go again" between two
++         real users, resolved into a reversed negotiating session on accept.
++Inputs:  swap_invites (via get_pool).
++Outputs: swap_invite rows; no external side effects.
++Run:     from webapp.repositories import swaps as swap_repo
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++import psycopg
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++from webapp.practice_states import TransitionError
++
++
++def create_invite(from_session_id: int, initiator_id: int, invitee_id: int) -> dict:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            try:
++                cur.execute(
++                    "INSERT INTO swap_invites (from_session_id, initiator_id, invitee_id)"
++                    " VALUES (%s, %s, %s) RETURNING *;",
++                    (from_session_id, initiator_id, invitee_id))
++                return cur.fetchone()
++            except psycopg.errors.UniqueViolation as exc:
++                raise TransitionError(409, "A swap invite is already pending") from exc
++
++
++def pending_invite(from_session_id: int) -> Optional[dict]:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT * FROM swap_invites WHERE from_session_id = %s"
++                " AND state = 'pending' ORDER BY id DESC LIMIT 1;", (from_session_id,))
++            return cur.fetchone()
++
++
++def claim_invite(invite_id: int, invitee_id: int) -> bool:
++    """Atomically transition a pending invite to 'accepted' for its invitee.
++    Returns True iff THIS call won the transition (so exactly one accept creates
++    the reversed session — a concurrent second accept gets False). new_session_id
++    is attached afterwards by attach_new_session."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE swap_invites SET state = 'accepted', responded_at = NOW()"
++                " WHERE id = %s AND invitee_id = %s AND state = 'pending';",
++                (invite_id, invitee_id))
++            return cur.rowcount == 1
++
++
++def attach_new_session(invite_id: int, new_session_id: int) -> None:
++    """Record the reversed session created for an already-claimed invite."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE swap_invites SET new_session_id = %s WHERE id = %s;",
++                (new_session_id, invite_id))
+diff --git a/webapp/routes/api_v1.py b/webapp/routes/api_v1.py
+index 28e7993..27a06d5 100644
+--- a/webapp/routes/api_v1.py
++++ b/webapp/routes/api_v1.py
+@@ -25,23 +25,29 @@ from webapp.auth.sessions import (
+ from webapp.auth.users import User, authenticate
+ from webapp.csrf import require_same_origin
+ from webapp.db import get_pool
+ from webapp import drills
+ from webapp import timeline_service
+ from webapp.preview_urls import preview_page_urls
+ from webapp.push.events import push_to_user
+ from webapp.repositories import availability as availability_repo
++from webapp.repositories import case_stats
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import device_tokens as repo
+ from webapp.repositories import drill_attempts as drills_repo
+ from webapp.repositories import live_activity_tokens as live_activity_repo
+ from webapp.repositories import practice_sessions as sessions_repo
+ from webapp.repositories import proposals as proposals_repo
+-from webapp.repositories.cases import SearchFilters, get_case_by_id, search_cases
++from webapp.repositories.cases import (
++    SearchFilters,
++    get_case_by_id,
++    library_counts,
++    search_cases,
++)
+ 
+ router = APIRouter(prefix="/api/v1")
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class DeviceTokenBody(BaseModel):
+     token: str
+@@ -243,17 +249,22 @@ def list_cases(
+     # rows carry internal columns (e.g. pdf_path) from the repository layer —
+     # strip them before they reach the client; the list is a summary with no
+     # PDF field at all.
+     cases = []
+     for row in rows:
+         row = dict(row)
+         row.pop("pdf_path", None)
+         cases.append(row)
+-    return {"cases": cases, "total": total}
++    ids = [c["id"] for c in cases]
++    aggs = case_stats.case_aggregates(ids, user.id)
++    for c in cases:
++        c.update(aggs[c["id"]])
++    counts = library_counts(filters, user.id)
++    return {"cases": cases, "total": total, **counts}
+ 
+ 
+ _CASE_DETAIL_FIELDS = (
+     "id", "case_title", "source_school", "source_year", "industry", "case_type",
+     "difficulty", "difficulty_score", "firm", "page_count",
+     "industry_raw", "industry_display",
+ )
+ 
+@@ -275,16 +286,18 @@ def get_case(case_id: int, request: Request, user: User = Depends(require_auth_a
+     # get_case_by_id() selects internal/admin columns (preview_public_slug,
+     # is_duplicate_case, unique_case_count_eligible, normalized_title,
+     # interviewer_led, created_at, updated_at) not meant for the iOS API
+     # contract — trim to the same field set the list endpoint ships, plus
+     # the two detail-only additions.
+     result = {field: case.get(field) for field in _CASE_DETAIL_FIELDS}
+     result["preview_urls"] = preview_urls
+     result["pdf_url"] = pdf_url
++    agg = case_stats.case_aggregates([case_id], user.id)[case_id]
++    result.update(agg)
+     return result
+ 
+ 
+ def _upcoming_session_json(row: dict) -> dict:
+     """Unified SessionSummary shape (Task 10 iOS contract) for a
+     list_upcoming_for_user() row — scheduled_at/state filled, ended_at/grade
+     null since the session hasn't happened yet."""
+     return {
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index a8482e5..613462e 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -24,16 +24,17 @@ from webapp.auth.guest import (
+ )
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.live_activity import push_live_activity_update
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as feedback_repo
++from webapp.repositories.feedback import RecapGateError
+ from webapp.repositories import pairing_tokens as pairing_repo
+ from webapp.repositories import practice_sessions as repo
+ from webapp.routes.signal_ws import hub
+ from webapp.templating import render
+ from webapp.turn import mint_turn_credentials
+ 
+ router = APIRouter(tags=["practice"])
+ 
+@@ -82,16 +83,22 @@ def _public(session: dict) -> dict:
+ @router.post("/api/practice", dependencies=_MUTATING)
+ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_api)):
+     if user.id not in (body.interviewer_id, body.candidate_id):
+         raise HTTPException(status_code=403, detail="You must be a participant")
+     if body.interviewer_id == body.candidate_id:
+         raise HTTPException(status_code=400, detail="Interviewer and candidate must differ")
+     if get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
++    if user.id == body.candidate_id:
++        try:
++            feedback_repo.assert_candidate_gate_clear(body.candidate_id)
++        except RecapGateError as exc:
++            raise HTTPException(status_code=409,
++                                detail={"blocked_by_recap": exc.blocked_by_recap})
+     if feedback_repo.is_burned(body.candidate_id, body.case_id):
+         # A6: the candidate has already received this case in a finalized
+         # session — it's burned for them.
+         raise HTTPException(status_code=409,
+                             detail="This case is burned for the candidate")
+ 
+     session = repo.create_practice_session(
+         interviewer_id=body.interviewer_id,
+@@ -173,17 +180,21 @@ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_ap
+ def claim_pair_token(body: PairClaimBody, request: Request,
+                      user: User = Depends(require_auth_or_mint_guest)):
+     """Claim a pairing token by token OR short_code (spec §8)."""
+     if not body.token and not body.short_code:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=422, detail="Provide a token or short_code")
+     try:
+         return pairing_repo.claim(candidate_id=user.id, token=body.token,
+-                                  short_code=body.short_code)
++                                  short_code=body.short_code, is_guest=user.is_guest)
++    except RecapGateError as exc:
++        discard_minted_guest(request)
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
+     except TransitionError as exc:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+diff --git a/webapp/routes/practice_feedback.py b/webapp/routes/practice_feedback.py
+index d28ca62..02d6c16 100644
+--- a/webapp/routes/practice_feedback.py
++++ b/webapp/routes/practice_feedback.py
+@@ -15,16 +15,17 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.guest import require_session_participant
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.push.live_activity import push_live_activity_update
++from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as repo
+ from webapp.repositories import reveals as reveals_repo
+ from webapp.routes.practice import _session_or_404
+ from webapp.routes.signal_ws import hub
+ 
+ router = APIRouter(tags=["practice-feedback"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+@@ -84,35 +85,48 @@ def put_rubric(session_id: int, body: RubricDraftBody,
+         "grade_preview": repo.compute_grade(saved["rubric_json"], template_items),
+     }
+ 
+ 
+ @router.post("/api/practice/{session_id}/finalize", dependencies=_MUTATING)
+ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
+                   user: User = Depends(require_session_participant)):
+     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
+-    one transaction. Optional body.grade overrides the computed score."""
++    one transaction. Optional body.grade overrides the computed score. The
++    response + feedback push also seed the candidate's next session (B3 §7.3):
++    next_recommendation (top rec, excluding the just-burned case) + prefill_proposal."""
+     session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
+     try:
+         feedback = repo.finalize(session_id, user.id, body.grade)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
++    # Debrief seeding: recommend the candidate's next case (excluding the one
++    # they just burned) with a prefilled proposal back to the same interviewer.
++    recs = dashboard_repo.recommendations(
++        session["candidate_id"], exclude_case_ids=[session["case_id"]], limit=1)
++    next_rec = recs[0] if recs else None
++    prefill = ({"to_user_id": session["interviewer_id"], "case_id": next_rec["case_id"]}
++               if next_rec else None)
++
+     background.add_task(
+         push_to_user, session["candidate_id"],
+         title="Feedback released",
+         body=f"Your feedback for {session['case_title']} is ready",
+-        data={"kind": "feedback", "session_id": session_id},
++        data={"kind": "feedback", "session_id": session_id,
++              "next_recommendation": next_rec, "prefill_proposal": prefill},
+     )
+     background.add_task(hub.broadcast_session_update, session_id)
+     background.add_task(push_live_activity_update, session_id, event="end")
+     return {
+         "finalized": True,
+         "grade": float(feedback["grade"]),
+         "finalized_at": feedback["finalized_at"],
++        "next_recommendation": next_rec,
++        "prefill_proposal": prefill,
+     }
+ 
+ 
+ @router.get("/api/practice/{session_id}/feedback")
+ def get_feedback(session_id: int, user: User = Depends(require_session_participant)):
+     """T7.3: released feedback — both participants, post-finalize only."""
+     session, _ = _session_or_404(session_id, user.id)
+     if session["state"] != "finalized":
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index 0da49e8..6db4d1f 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -25,16 +25,17 @@ from webapp.auth.guest import (
+ )
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.ics import build_session_ics
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.repositories import proposals as repo
+ from webapp.repositories.cases import get_case_by_id
++from webapp.repositories.feedback import RecapGateError
+ from webapp.repositories.practice_sessions import get_practice_session
+ from webapp.routes.practice import _session_or_404
+ 
+ logger = logging.getLogger(__name__)
+ 
+ router = APIRouter(tags=["proposals"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+@@ -94,31 +95,37 @@ def proposal_inbox(user: User = Depends(require_auth_api)):
+ @router.post("/api/proposals/{proposal_id}/accept", dependencies=_MUTATING)
+ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+                     background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # A3: an over-window proposal (now-ping >2h, or past its earliest start) must expire, not accept
+     try:
+         prop = repo.respond(proposal_id, user.id, accept=True,
+                             scheduled_at=body.scheduled_at, counter_time=body.time)
++    except RecapGateError as exc:
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+-    if prop["session_id"] is None:
+-        # Case-less "interviewer decides" accept — session created in B3
+-        # negotiation; still notify the counterpart the proposal was accepted.
++    if prop.get("needs_negotiation"):
++        # Negotiating session created; no case/time yet → no ICS invite. Notify
++        # the counterpart the proposal was accepted (pre-negotiation).
+         other = (prop["from_user_id"] if user.id == prop["to_user_id"]
+                  else prop["to_user_id"])
+         if other is not None:
+             background.add_task(
+                 push_to_user, other, title="Proposal accepted",
+-                body="Your case session proposal was accepted",
+-                data={"kind": "accepted", "proposal_id": prop["id"]})
+-        return {"accepted": True, "session_id": None, "needs_negotiation": True}
++                body="Your case session proposal was accepted — pick a case",
++                data={"kind": "accepted", "proposal_id": prop["id"],
++                      "session_id": prop["session_id"]})
++        return {"accepted": True, "session_id": prop["session_id"],
++                "needs_negotiation": True}
+ 
++    # Case-set accept (unchanged from B1): ICS invite + accepted push.
+     _send_invites(request, prop["session_id"])
+     other = (prop["from_user_id"] if user.id == prop["to_user_id"]
+              else prop["to_user_id"])
+     background.add_task(
+         push_to_user, other,
+         title="Proposal accepted",
+         body="Your case session proposal was accepted",
+         data={"kind": "accepted", "session_id": prop["session_id"]},
+@@ -130,21 +137,25 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+ 
+ @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+ def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+                    user: User = Depends(require_auth_or_mint_guest)):
+     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+     the creator; guests arrive in B2 by overriding require_auth_api."""
+     try:
+         result = repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
++    except RecapGateError as exc:
++        discard_minted_guest(request)
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
+     except TransitionError as exc:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+-    if result["session_id"] is not None:
++    if result["session_id"] is not None and not result.get("needs_negotiation"):
+         _send_invites(request, result["session_id"])
+         background.add_task(
+             push_to_user, result["from_user_id"],
+             title="Your invite was claimed",
+             body="Someone claimed your session link",
+             data={"kind": "accepted", "session_id": result["session_id"]},
+         )
+     return result
+diff --git a/webapp/routes/session_flow.py b/webapp/routes/session_flow.py
+new file mode 100644
+index 0000000..bf616dd
+--- /dev/null
++++ b/webapp/routes/session_flow.py
+@@ -0,0 +1,254 @@
++"""
++Purpose: B3 session-flow endpoints — case negotiation, feedback recap gate
++         close-out, and role swap — all session-scoped over the existing
++         participant guard + signaling WS.
++Inputs:  practice_sessions/feedback/negotiations/swaps repos; request cookies.
++Outputs: JSON; broadcasts session_update on the signaling hub; APNs pushes.
++Run:     registered in webapp/main.py via include_router(session_flow.router).
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
++from pydantic import BaseModel, Field
++
++from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import require_session_participant
++from webapp.auth.users import User
++from webapp.csrf import require_same_origin
++from webapp.practice_states import TransitionError
++from webapp.push.events import push_to_user
++from webapp.repositories import dashboard as dashboard_repo
++from webapp.repositories import feedback as feedback_repo
++from webapp.repositories import negotiations as nego_repo
++from webapp.repositories import practice_sessions as sessions_repo
++from webapp.repositories import swaps as swap_repo
++from webapp.repositories.cases import get_case_by_id
++from webapp.repositories.feedback import (
++    RecapGateError, assert_candidate_gate_clear, is_burned)
++from webapp.routes.practice import _session_or_404
++from webapp.routes.signal_ws import hub
++
++router = APIRouter(tags=["session-flow"])
++
++_MUTATING = [Depends(require_same_origin)]
++
++
++class ProposeBody(BaseModel):
++    case_id: int
++
++
++class AcceptCaseBody(BaseModel):
++    case_id: int
++
++
++def _case_brief(row: Optional[dict]) -> Optional[dict]:
++    if row is None:
++        return None
++    return {"case_id": row["proposed_case_id"], "title": row.get("case_title"),
++            "case_type": row.get("case_type"), "difficulty": row.get("difficulty")}
++
++
++def _nego_view(session: dict, role: str) -> dict:
++    sid = session["id"]
++    pick = nego_repo.interviewer_pick(sid)
++    counter = nego_repo.candidate_counter(sid)
++    if pick is None:
++        whose_turn = "interviewer"
++    elif counter is None:
++        whose_turn = "candidate"   # candidate may accept or counter once
++    else:
++        whose_turn = "interviewer"  # interviewer resolves (keep or take counter)
++    out = {
++        "session_id": sid,
++        "session_state": session["state"],
++        "your_role": role,
++        "whose_turn": whose_turn if session["state"] == "negotiating" else None,
++        "round_used": 2 if counter else (1 if pick else 0),
++        "current_pick": _case_brief(pick),
++        "candidate_counter": _case_brief(counter),
++        "candidate_requested_case": nego_repo.originating_requested_case(sid),
++    }
++    if role == "interviewer":
++        out["pick_sources"] = {
++            "recommended_for_candidate": dashboard_repo.recommendations(
++                session["candidate_id"], limit=3),
++            "interviewer_done_set": nego_repo.interviewer_done_set(
++                session["interviewer_id"]),
++            "library_allowed": True,
++        }
++    return out
++
++
++@router.get("/api/practice/{session_id}/negotiation")
++def get_negotiation(session_id: int,
++                    user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    return _nego_view(session, role)
++
++
++@router.post("/api/practice/{session_id}/negotiation/propose", dependencies=_MUTATING)
++def propose_case(session_id: int, body: ProposeBody, background: BackgroundTasks,
++                 user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    if session["state"] != "negotiating":
++        raise HTTPException(status_code=409, detail="Session is not in negotiation")
++    if get_case_by_id(body.case_id) is None:
++        raise HTTPException(status_code=404, detail="Case not found")
++    if is_burned(session["candidate_id"], body.case_id):
++        raise HTTPException(status_code=409,
++                            detail="That case is burned for the candidate")
++    pick = nego_repo.interviewer_pick(session_id)
++    counter = nego_repo.candidate_counter(session_id)
++    if role == "interviewer":
++        if pick is not None:
++            raise HTTPException(status_code=409,
++                                detail="You already picked — accept or await a counter")
++        row = nego_repo.record_proposal(session_id, user.id, body.case_id, 1)
++    else:  # candidate
++        if pick is None:
++            raise HTTPException(status_code=403,
++                                detail="The interviewer picks first")
++        if counter is not None:
++            raise HTTPException(status_code=409, detail="You already countered once")
++        row = nego_repo.record_proposal(session_id, user.id, body.case_id, 2)
++    background.add_task(hub.broadcast_session_update, session_id)
++    return _nego_view(*_session_or_404(session_id, user.id))
++
++
++@router.post("/api/practice/{session_id}/negotiation/accept", dependencies=_MUTATING)
++def accept_case(session_id: int, body: AcceptCaseBody, background: BackgroundTasks,
++                user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    if session["state"] != "negotiating":
++        raise HTTPException(status_code=409, detail="Session is not in negotiation")
++    pick = nego_repo.interviewer_pick(session_id)
++    counter = nego_repo.candidate_counter(session_id)
++    proposed = {r["proposed_case_id"] for r in (pick, counter) if r}
++    if body.case_id not in proposed:
++        raise HTTPException(status_code=409,
++                            detail="Choose a case that was proposed in this negotiation")
++    if role == "candidate" and (pick is None or body.case_id != pick["proposed_case_id"]):
++        raise HTTPException(status_code=403,
++                            detail="You may only accept the interviewer's pick")
++    if is_burned(session["candidate_id"], body.case_id):
++        raise HTTPException(status_code=409,
++                            detail="That case is burned for the candidate")
++    template_id = sessions_repo.get_default_rubric_template_id(
++        body.case_id, session["interviewer_id"])
++    try:
++        result = sessions_repo.stamp_negotiated_case(session_id, body.case_id, template_id)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    nego_repo.mark_accepted(session_id, body.case_id)
++    background.add_task(hub.broadcast_session_update, session_id)
++    return result
++
++
++# --- Recap gate close-out ------------------------------------------------
++
++
++class RecapCloseBody(BaseModel):
++    case_rating: int = Field(ge=1, le=5)
++    feedback_thumbs: Optional[bool] = None
++
++
++@router.get("/api/v1/recaps")
++def list_recaps(user: User = Depends(require_auth_api)):
++    """Unread finalized recaps where the caller was candidate, oldest-first."""
++    return {"recaps": feedback_repo.list_unread_recaps(user.id)}
++
++
++def _candidate_or_403(session_id: int, user_id: int) -> dict:
++    session, role = _session_or_404(session_id, user_id)
++    if role != "candidate":
++        raise HTTPException(status_code=403, detail="Only the candidate can do this")
++    return session
++
++
++@router.post("/api/practice/{session_id}/recap/viewed", dependencies=_MUTATING)
++def recap_viewed(session_id: int,
++                 user: User = Depends(require_session_participant)):
++    session = _candidate_or_403(session_id, user.id)
++    if session["state"] != "finalized":
++        raise HTTPException(status_code=409, detail="Feedback is not finalized yet")
++    feedback_repo.mark_recap_viewed(session_id)
++    return {"viewed": True}
++
++
++@router.post("/api/practice/{session_id}/recap/close", dependencies=_MUTATING)
++def recap_close(session_id: int, body: RecapCloseBody,
++                user: User = Depends(require_session_participant)):
++    """Close-out: required 1-5 case_rating clears the gate; feedback_thumbs is
++    recorded only when the interviewer was a real (non-guest) user."""
++    session = _candidate_or_403(session_id, user.id)
++    record_thumbs = not session.get("interviewer_is_guest", False)
++    try:
++        feedback_repo.close_recap(
++            session_id, case_rating=body.case_rating,
++            feedback_thumbs=body.feedback_thumbs, record_thumbs=record_thumbs)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    return {"closed": True, "gate_cleared": feedback_repo.candidate_gate(user.id) is None}
++
++
++# --- Role swap -----------------------------------------------------------
++
++
++@router.post("/api/practice/{session_id}/swap", dependencies=_MUTATING)
++def swap_initiate(session_id: int, background: BackgroundTasks,
++                  user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    if user.is_guest or role != "interviewer":
++        raise HTTPException(status_code=403,
++                            detail="Only the authenticated interviewer can start a swap")
++    if session["state"] not in ("debrief", "finalized"):
++        raise HTTPException(status_code=409,
++                            detail="Swap is available after the debrief")
++    if session.get("candidate_is_guest"):
++        raise HTTPException(status_code=409, detail="Can't swap with a guest")
++    invitee_id = session["candidate_id"]
++    try:
++        invite = swap_repo.create_invite(session_id, user.id, invitee_id)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    background.add_task(
++        push_to_user, invitee_id, title="Swap roles & go again",
++        body="You're invited to interview next", data={
++            "kind": "swap_invite", "session_id": session_id,
++            "swap_invite_id": invite["id"]})
++    return {"swap_invite_id": invite["id"], "invitee_id": invitee_id}
++
++
++@router.post("/api/practice/{session_id}/swap/accept", dependencies=_MUTATING)
++def swap_accept(session_id: int, background: BackgroundTasks,
++                user: User = Depends(require_session_participant)):
++    session, _ = _session_or_404(session_id, user.id)
++    invite = swap_repo.pending_invite(session_id)
++    if invite is None or invite["invitee_id"] != user.id:
++        raise HTTPException(status_code=404, detail="No pending swap invite for you")
++    if user.is_guest:
++        raise HTTPException(status_code=403, detail="Guests cannot swap")
++    # Reversed roles: new interviewer = old candidate, new candidate = old interviewer.
++    new_interviewer = session["candidate_id"]
++    new_candidate = session["interviewer_id"]
++    try:
++        assert_candidate_gate_clear(new_candidate)
++    except RecapGateError as exc:
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
++    # Atomically win the invite before creating anything — a concurrent second
++    # accept loses the claim and gets 409 with no orphan session created.
++    if not swap_repo.claim_invite(invite["id"], user.id):
++        raise HTTPException(status_code=409, detail="Swap already accepted")
++    new_session = sessions_repo.create_negotiating_session(
++        interviewer_id=new_interviewer, candidate_id=new_candidate,
++        mode=session["mode"], swapped_from_session_id=session_id)
++    swap_repo.attach_new_session(invite["id"], new_session["id"])
++    background.add_task(
++        push_to_user, invite["initiator_id"], title="Swap accepted",
++        body="Your rematch is ready — pick a case", data={
++            "kind": "swap_accepted", "session_id": new_session["id"]})
++    return {"accepted": True, "session_id": new_session["id"], "needs_negotiation": True}

@@ -1,0 +1,288 @@
+=== git log ===
+10d2879 Add per-case rating aggregates + open/done counts to Library payloads
+
+=== diff --stat ===
+ tests/test_b3_case_aggregates.py  | 62 +++++++++++++++++++++++++++++++++++++++
+ webapp/repositories/case_stats.py | 44 +++++++++++++++++++++++++++
+ webapp/repositories/cases.py      | 28 ++++++++++++++++++
+ webapp/routes/api_v1.py           | 17 +++++++++--
+ 4 files changed, 149 insertions(+), 2 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b3_case_aggregates.py b/tests/test_b3_case_aggregates.py
+new file mode 100644
+index 0000000..fbb1e19
+--- /dev/null
++++ b/tests/test_b3_case_aggregates.py
+@@ -0,0 +1,62 @@
++"""B3 Task 9: per-case rating aggregates on Library payloads. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++from tests.test_b3_recap_gate import _seed_finalized_session, _purge_session
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestCaseAggregates(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.bob = cls._ctx.__enter__()   # candidate (burned on the case)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        s = create_session(cls.bid, user_agent="b3", ip_address=None)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME, s.id)
++        # Finalized+closed session on a fresh case, rated 5, burned for Bob.
++        cls.sid, cls.case_id = _seed_finalized_session(cls.aid, cls.bid, "B3 Agg Case")
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("UPDATE feedback SET case_rating = 5, closed_at = NOW()"
++                        " WHERE session_id = %s;", (cls.sid,))
++            cur.execute("INSERT INTO burned (user_id, case_id, session_id)"
++                        " VALUES (%s,%s,%s) ON CONFLICT DO NOTHING;",
++                        (cls.bid, cls.case_id, cls.sid))
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _purge_session(cls.sid)   # also deletes the burned row
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_detail_has_aggregates(self):
++        r = self.bob.get(f"/api/v1/cases/{self.case_id}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertEqual(body["avg_rating"], 5.0)
++        self.assertEqual(body["run_count"], 1)
++        self.assertTrue(body["done_for_you"])
++
++    def test_list_has_counts_and_flags(self):
++        r = self.bob.get("/api/v1/cases?q=B3 Agg Case")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertIn("open_count", body)
++        self.assertIn("done_count", body)
++        rows = {c["id"]: c for c in body["cases"]}
++        self.assertTrue(rows[self.case_id]["done_for_you"])
++        self.assertEqual(rows[self.case_id]["avg_rating"], 5.0)
+diff --git a/webapp/repositories/case_stats.py b/webapp/repositories/case_stats.py
+new file mode 100644
+index 0000000..6925d7b
+--- /dev/null
++++ b/webapp/repositories/case_stats.py
+@@ -0,0 +1,44 @@
++"""
++Purpose: Per-case rating aggregates for the Library — average close-out rating,
++         run count (finalized sessions), and whether the case is burned for the
++         requesting user (done_for_you).
++Inputs:  practice_sessions, feedback, burned (via get_pool).
++Outputs: dict keyed by case_id; no side effects.
++Run:     from webapp.repositories import case_stats
++"""
++
++from __future__ import annotations
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++
++def case_aggregates(case_ids: list[int], user_id: int) -> dict[int, dict]:
++    """{case_id: {avg_rating: float|None (1dp), run_count: int, done_for_you: bool}}
++    for the given ids. Cases with no finalized runs get run_count 0 / avg None."""
++    result = {cid: {"avg_rating": None, "run_count": 0, "done_for_you": False}
++              for cid in case_ids}
++    if not case_ids:
++        return result
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT ps.case_id,"
++                "       COUNT(*) AS run_count,"
++                "       ROUND(AVG(f.case_rating)::numeric, 1) AS avg_rating"
++                " FROM practice_sessions ps JOIN feedback f ON f.session_id = ps.id"
++                " WHERE ps.case_id = ANY(%(ids)s) AND ps.state = 'finalized'"
++                " GROUP BY ps.case_id;",
++                {"ids": case_ids})
++            for row in cur.fetchall():
++                result[row["case_id"]].update(
++                    run_count=row["run_count"],
++                    avg_rating=(float(row["avg_rating"])
++                                if row["avg_rating"] is not None else None))
++            cur.execute("SELECT case_id FROM burned WHERE user_id = %(u)s"
++                        " AND case_id = ANY(%(ids)s);",
++                        {"u": user_id, "ids": case_ids})
++            for row in cur.fetchall():
++                result[row["case_id"]]["done_for_you"] = True
++    return result
+diff --git a/webapp/repositories/cases.py b/webapp/repositories/cases.py
+index 3484932..c56bdea 100644
+--- a/webapp/repositories/cases.py
++++ b/webapp/repositories/cases.py
+@@ -366,24 +366,52 @@ def search_cases(filters: SearchFilters, *, limit: int = 100) -> tuple[list[dict
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(search_sql, params)
+             rows = list(cur.fetchall())
+ 
+             cur.execute(count_sql, params)
+             total = cur.fetchone()["total"]
+ 
+     for r in rows:
+         attach_industry_display(r)
+     return rows, total
+ 
+ 
++def library_counts(filters: SearchFilters, user_id: int) -> dict:
++    """{"open_count", "done_count"} over the user's canonical (deduped) library
++    matching `filters` — done = burned for the user. Reuses the search dedup CTE
++    and filter clause so the counts track the active filter set."""
++    raw_distinct = _distinct_raw_industries()
++    params: dict[str, object] = {
++        "q": filters.q, "difficulty": filters.difficulty,
++        "case_type": filters.case_type, "school": filters.school,
++        "user_id": user_id,
++    }
++    params.update(_industry_filter_params(filters, raw_distinct=raw_distinct))
++    sql = f"""
++        {_DEDUP_CTE}
++        SELECT
++            COUNT(*) FILTER (WHERE b.user_id IS NOT NULL) AS done_count,
++            COUNT(*) FILTER (WHERE b.user_id IS NULL)     AS open_count
++        FROM ranked
++        LEFT JOIN burned b ON b.case_id = ranked.id AND b.user_id = %(user_id)s
++        WHERE ranked.rn = 1 AND {_FILTER_WHERE};
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, params)
++            row = cur.fetchone()
++    return {"open_count": int(row["open_count"] or 0),
++            "done_count": int(row["done_count"] or 0)}
++
++
+ def count_all_cases(*, include_duplicates: bool = False) -> int:
+     """Return total case count for the footer / "showing X of Y" text.
+ 
+     Mirrors ``search_cases`` dedup behaviour: by default counts canonicals
+     only, so the public-facing total reflects what's actually browsable.
+     """
+     if include_duplicates:
+         sql = "SELECT COUNT(*) FROM cases;"
+     else:
+         # Same partition rule as SEARCH_SQL_DEDUP, after excluding rows the
+         # operator marked ``is_duplicate_case`` (cross-title dupes).
+         sql = f"""
+diff --git a/webapp/routes/api_v1.py b/webapp/routes/api_v1.py
+index 28e7993..27a06d5 100644
+--- a/webapp/routes/api_v1.py
++++ b/webapp/routes/api_v1.py
+@@ -21,31 +21,37 @@ from webapp.auth.sessions import (
+     clear_session_cookie,
+     create_session,
+     destroy_session,
+ )
+ from webapp.auth.users import User, authenticate
+ from webapp.csrf import require_same_origin
+ from webapp.db import get_pool
+ from webapp import drills
+ from webapp import timeline_service
+ from webapp.preview_urls import preview_page_urls
+ from webapp.push.events import push_to_user
+ from webapp.repositories import availability as availability_repo
++from webapp.repositories import case_stats
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import device_tokens as repo
+ from webapp.repositories import drill_attempts as drills_repo
+ from webapp.repositories import live_activity_tokens as live_activity_repo
+ from webapp.repositories import practice_sessions as sessions_repo
+ from webapp.repositories import proposals as proposals_repo
+-from webapp.repositories.cases import SearchFilters, get_case_by_id, search_cases
++from webapp.repositories.cases import (
++    SearchFilters,
++    get_case_by_id,
++    library_counts,
++    search_cases,
++)
+ 
+ router = APIRouter(prefix="/api/v1")
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class DeviceTokenBody(BaseModel):
+     token: str
+     platform: Literal["ios"] = Field(default="ios")
+ 
+ 
+ class LoginBody(BaseModel):
+@@ -239,25 +245,30 @@ def list_cases(
+     filters = SearchFilters.from_query(
+         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
+     )
+     rows, total = search_cases(filters, limit=limit)
+     # rows carry internal columns (e.g. pdf_path) from the repository layer —
+     # strip them before they reach the client; the list is a summary with no
+     # PDF field at all.
+     cases = []
+     for row in rows:
+         row = dict(row)
+         row.pop("pdf_path", None)
+         cases.append(row)
+-    return {"cases": cases, "total": total}
++    ids = [c["id"] for c in cases]
++    aggs = case_stats.case_aggregates(ids, user.id)
++    for c in cases:
++        c.update(aggs[c["id"]])
++    counts = library_counts(filters, user.id)
++    return {"cases": cases, "total": total, **counts}
+ 
+ 
+ _CASE_DETAIL_FIELDS = (
+     "id", "case_title", "source_school", "source_year", "industry", "case_type",
+     "difficulty", "difficulty_score", "firm", "page_count",
+     "industry_raw", "industry_display",
+ )
+ 
+ 
+ @router.get("/cases/{case_id}")
+ def get_case(case_id: int, request: Request, user: User = Depends(require_auth_api)):
+     case = get_case_by_id(case_id)
+@@ -271,24 +282,26 @@ def get_case(case_id: int, request: Request, user: User = Depends(require_auth_a
+         case_id=case_id, case_row=case, page_count=int(page_count), settings=settings,
+     )
+     pdf_url = f"{settings.pdf_route_prefix}/cases/{case_id}"
+ 
+     # get_case_by_id() selects internal/admin columns (preview_public_slug,
+     # is_duplicate_case, unique_case_count_eligible, normalized_title,
+     # interviewer_led, created_at, updated_at) not meant for the iOS API
+     # contract — trim to the same field set the list endpoint ships, plus
+     # the two detail-only additions.
+     result = {field: case.get(field) for field in _CASE_DETAIL_FIELDS}
+     result["preview_urls"] = preview_urls
+     result["pdf_url"] = pdf_url
++    agg = case_stats.case_aggregates([case_id], user.id)[case_id]
++    result.update(agg)
+     return result
+ 
+ 
+ def _upcoming_session_json(row: dict) -> dict:
+     """Unified SessionSummary shape (Task 10 iOS contract) for a
+     list_upcoming_for_user() row — scheduled_at/state filled, ended_at/grade
+     null since the session hasn't happened yet."""
+     return {
+         "id": row["id"],
+         "role": row["your_role"],
+         "other_user": row["counterpart"],
+         "case_title": row["case_title"],

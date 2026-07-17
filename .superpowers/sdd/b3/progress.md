@@ -47,3 +47,8 @@ Status: plan written + self-reviewed + Opus plan-review (CHANGES-REQUESTED, 0 Cr
 - Task 7: complete (bebc7d5..62b2d65 + race-fix 25fdc3e, review CHANGES-REQUESTED->RESOLVED) — role swap (swaps.py + endpoints). DV-B3-SWAP: interviewer-initiated non-guest, reversed roles, same mode, swapped_from, gate on new candidate (old interviewer). FIX: concurrent double-accept race closed via atomic claim_invite before session create (test_claim_invite_single_winner). 4 swap tests green. Residual (non-blocking, mirrors pairing.claim caveat): rare crash between claim+create -> invite accepted, new_session_id NULL, non-retryable.
 - Task 8: complete (25fdc3e..9006dc5, review CLEAN + docstring minor fixed) — debrief seeding: finalize response + push gain next_recommendation (excl burned) + prefill_proposal {to_user_id: interviewer}. 6 green.
 - Task 9: complete (02e7216..10d2879, review CLEAN) — case_stats.case_aggregates + cases.library_counts; api_v1 list/detail enriched (avg_rating 1dp, run_count, done_for_you, open_count/done_count). case_votes untouched. 2+38 green. Minor: _distinct_raw_industries called twice/req (non-blocking).
+
+## FINAL
+- Full suite: 576 passed, 0 failures (545 baseline + 31 new). Migrations 028/029 idempotent.
+- Whole-branch Opus review: CLEAN (edge cases a-d driven end-to-end; swap->negotiation->lobby verified via HTTP).
+- Report: docs/superpowers/sdd/bgap-b3-report.md. Status DONE. Head after report commit.

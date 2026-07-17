@@ -1,0 +1,266 @@
+=== git log BASE..HEAD ===
+08e0eb6 Add negotiating session state + repo plumbing (LEFT JOIN cases, create/stamp helpers)
+
+=== diff --stat ===
+ tests/test_b3_negotiation.py             | 76 ++++++++++++++++++++++++++++++++
+ webapp/practice_states.py                |  6 ++-
+ webapp/repositories/practice_sessions.py | 70 ++++++++++++++++++++++++++++-
+ 3 files changed, 149 insertions(+), 3 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b3_negotiation.py b/tests/test_b3_negotiation.py
+new file mode 100644
+index 0000000..9a5d94a
+--- /dev/null
++++ b/tests/test_b3_negotiation.py
+@@ -0,0 +1,76 @@
++"""B3 Tasks 2 & 5: case negotiation — repo plumbing + endpoints. Needs seeded
++dev Postgres; skips otherwise. Login/cookie idiom of tests/test_b1_proposals_open.py."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx (TestClient inits the pool)")
++class TestNegotiatingSessionRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()   # run the app lifespan → init the DB pool
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        cls._created = []   # session ids
++        cls._cases = []     # case ids (dropped AFTER sessions — FK order)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            if cls._created:
++                cur.execute("DELETE FROM practice_sessions WHERE id = ANY(%s);",
++                            (cls._created,))
++            if cls._cases:
++                cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls._cases,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_create_negotiating_session_has_null_case_and_state(self):
++        from webapp.repositories import practice_sessions as repo
++        sess = repo.create_negotiating_session(
++            interviewer_id=self.aid, candidate_id=self.bid, mode="remote")
++        self._created.append(sess["id"])
++        self.assertEqual(sess["state"], "negotiating")
++        self.assertIsNone(sess["case_id"])
++        self.assertIsNone(sess["rubric_template_id"])
++
++    def test_get_practice_session_returns_negotiating(self):
++        from webapp.repositories import practice_sessions as repo
++        sess = repo.create_negotiating_session(
++            interviewer_id=self.aid, candidate_id=self.bid, mode="remote")
++        self._created.append(sess["id"])
++        got = repo.get_practice_session(sess["id"])
++        self.assertIsNotNone(got)               # LEFT JOIN keeps case_id-NULL rows
++        self.assertIsNone(got["case_title"])
++        self.assertEqual(got["interviewer_id"], self.aid)
++
++    def test_stamp_negotiated_case_moves_to_lobby(self):
++        import psycopg
++        from webapp.repositories import practice_sessions as repo
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path) VALUES ('B3 Nego Case','b3 nego case',"
++                " 'DevSchool',2094,'Technology','Profitability','Easy',3.0,2,"
++                " 'output/none.pdf') RETURNING id;")
++            case_id = cur.fetchone()[0]
++        self._cases.append(case_id)
++        sess = repo.create_negotiating_session(
++            interviewer_id=self.aid, candidate_id=self.bid)
++        self._created.append(sess["id"])
++        tmpl = repo.get_default_rubric_template_id(case_id, self.aid)
++        out = repo.stamp_negotiated_case(sess["id"], case_id, tmpl)
++        self.assertEqual(out["state"], "lobby")
++        self.assertEqual(out["case_id"], case_id)
+diff --git a/webapp/practice_states.py b/webapp/practice_states.py
+index 5db7b34..fb86a8d 100644
+--- a/webapp/practice_states.py
++++ b/webapp/practice_states.py
+@@ -5,28 +5,32 @@ Pure validation — no DB, no FastAPI — so every edge is unit-testable. The
+ repository applies the transition inside a row lock after this validates.
+ 
+     scheduled → lobby → live → debrief → finalized
+     scheduled|lobby|live → aborted
+ 
+ 'finalized' is deliberately NOT reachable through the generic state endpoint:
+ finalize has its own endpoint (Phase 7) because it computes the grade, writes
+ feedback and burned rows, and releases content in one transaction.
+ """
+ 
+ from __future__ import annotations
+ 
+-STATES = ("scheduled", "lobby", "live", "debrief", "finalized", "aborted")
++STATES = ("negotiating", "scheduled", "lobby", "live", "debrief", "finalized", "aborted", "missed")
+ 
+ # (current, target) -> role allowed to drive the edge ('any' = either participant)
++# ('negotiating','lobby') is deliberately absent — that edge is driven only by
++# stamp_negotiated_case, which sets the case atomically; the generic /state
++# endpoint must not move a case-less session to lobby.
+ _EDGES: dict[tuple[str, str], str] = {
++    ("negotiating", "aborted"): "any",   # bail out of negotiation
+     ("scheduled", "lobby"): "any",
+     ("lobby", "live"): "interviewer",   # A7: state change first, WS admit second
+     ("live", "debrief"): "any",
+     ("scheduled", "aborted"): "any",
+     ("lobby", "aborted"): "any",
+     ("live", "aborted"): "any",
+ }
+ 
+ 
+ class TransitionError(Exception):
+     # NOT a frozen dataclass: Python's re-raise machinery (e.g. contextlib
+     # __exit__) assigns exc.__traceback__, which frozen __setattr__ rejects —
+diff --git a/webapp/repositories/practice_sessions.py b/webapp/repositories/practice_sessions.py
+index d436b45..da521ba 100644
+--- a/webapp/repositories/practice_sessions.py
++++ b/webapp/repositories/practice_sessions.py
+@@ -89,37 +89,103 @@ def create_practice_session(
+             (room_id, interviewer_id, candidate_id, case_id,
+              rubric_template_id, scheduled_at, mode)
+         VALUES (%s, %s, %s, %s, %s, %s, %s)
+         RETURNING {_SESSION_COLS.replace('ps.', '')};
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(sql, (room["id"], interviewer_id, candidate_id,
+                               case_id, rubric_template_id, scheduled_at, mode))
+             return cur.fetchone()
+ 
+ 
++def create_negotiating_session_within(
++    cur, *, interviewer_id: int, candidate_id: int, mode: str = "remote",
++    scheduled_at=None, swapped_from_session_id: int | None = None,
++) -> int:
++    """Create a pre-lobby 'negotiating' session (case undecided) using the
++    caller's already-locked cursor (case-less proposal accept/claim run this
++    inside their proposal lock). Room lookup opens its own idempotent
++    connection (repo convention). case_id/rubric_template_id stay NULL until
++    the interviewer and candidate settle a case (stamp_negotiated_case)."""
++    room = get_or_create_room(interviewer_id)
++    cur.execute(
++        "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++        " case_id, rubric_template_id, state, scheduled_at, mode,"
++        " swapped_from_session_id)"
++        " VALUES (%s, %s, %s, NULL, NULL, 'negotiating', %s, %s, %s)"
++        " RETURNING id;",
++        (room["id"], interviewer_id, candidate_id, scheduled_at, mode,
++         swapped_from_session_id),
++    )
++    return cur.fetchone()["id"]
++
++
++def create_negotiating_session(
++    *, interviewer_id: int, candidate_id: int, mode: str = "remote",
++    scheduled_at=None, swapped_from_session_id: int | None = None,
++) -> dict:
++    """Own-connection variant (pairing claim / swap accept). Returns the row."""
++    room = get_or_create_room(interviewer_id)
++    sql = f"""
++        INSERT INTO practice_sessions
++            (room_id, interviewer_id, candidate_id, case_id, rubric_template_id,
++             state, scheduled_at, mode, swapped_from_session_id)
++        VALUES (%s, %s, %s, NULL, NULL, 'negotiating', %s, %s, %s)
++        RETURNING {_SESSION_COLS.replace('ps.', '')};
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, (room["id"], interviewer_id, candidate_id,
++                              scheduled_at, mode, swapped_from_session_id))
++            return cur.fetchone()
++
++
++def stamp_negotiated_case(session_id: int, case_id: int,
++                          rubric_template_id: int) -> dict:
++    """Settle a negotiating session on a case: stamp case_id + rubric_template_id
++    and move negotiating → lobby (bypasses the generic state machine, which
++    forbids negotiating→lobby, because the case must be set in the same act)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"SELECT {_SESSION_COLS} FROM practice_sessions ps"
++                " WHERE ps.id = %s FOR UPDATE;", (session_id,))
++            row = cur.fetchone()
++            if row is None:
++                raise TransitionError(404, "No such session")
++            if row["state"] != "negotiating":
++                raise TransitionError(409, "Session is not in negotiation")
++            cur.execute(
++                "UPDATE practice_sessions SET case_id = %s, rubric_template_id = %s,"
++                " state = 'lobby', state_changed_at = NOW() WHERE id = %s"
++                f" RETURNING {_SESSION_COLS.replace('ps.', '')};",
++                (case_id, rubric_template_id, session_id),
++            )
++            return cur.fetchone()
++
++
+ def get_practice_session(session_id: int) -> Optional[dict]:
+     """Session row + display names and case metadata for the session UI."""
+     sql = f"""
+         SELECT {_SESSION_COLS},
+                COALESCE(ui.display_name, split_part(ui.email::text, '@', 1)) AS interviewer_name,
+                COALESCE(uc.display_name, split_part(uc.email::text, '@', 1)) AS candidate_name,
+                ui.is_guest AS interviewer_is_guest,
+                uc.is_guest AS candidate_is_guest,
+                c.case_title, r.slug AS room_slug
+         FROM practice_sessions ps
+         JOIN users ui ON ui.id = ps.interviewer_id
+         JOIN users uc ON uc.id = ps.candidate_id
+-        JOIN cases c  ON c.id = ps.case_id
++        LEFT JOIN cases c  ON c.id = ps.case_id
+         JOIN rooms r  ON r.id = ps.room_id
+         WHERE ps.id = %s;
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(sql, (session_id,))
+             return cur.fetchone()
+ 
+ 
+ def role_of(session: dict, user_id: int) -> Optional[str]:
+     if user_id == session["interviewer_id"]:
+         return "interviewer"
+@@ -271,25 +337,25 @@ def sweep_stale_sessions() -> int:
+ 
+     'scheduled' counts too (it is pre-debrief): a no-show 6 h past its
+     scheduled_at, or an unscheduled ("now") session nobody opened within
+     6 h of creation, is dead — otherwise it sits in Upcoming forever.
+     Future-scheduled sessions are untouched."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "UPDATE practice_sessions"
+                 " SET state = 'aborted', ended_at = NOW(), state_changed_at = NOW()"
+                 " WHERE (state IN ('lobby', 'live')"
+                 "        AND state_changed_at < NOW() - INTERVAL '6 hours')"
+-                "    OR (state = 'scheduled'"
++                "    OR (state IN ('scheduled', 'negotiating')"
+                 "        AND COALESCE(scheduled_at, created_at)"
+                 "            < NOW() - INTERVAL '6 hours');"
+             )
+             return cur.rowcount
+ 
+ 
+ def sweep_missed(missed_after_min: int = 60) -> int:
+     """A3: an accepted session never joined (still 'scheduled'/'lobby')
+     missed_after_min past its scheduled start becomes 'missed' — distinct from
+     the 6-h 'aborted' backstop (sweep_stale_sessions). Only scheduled sessions
+     (scheduled_at set) qualify; unscheduled "now" sessions fall to the backstop.
+     Run this BEFORE sweep_stale_sessions so a past-start scheduled session is
