@@ -1,0 +1,280 @@
+=== diff --stat ===
+ tests/test_b1_maintenance.py | 92 ++++++++++++++++++++++++++++++++++++++++++++
+ webapp/main.py               | 24 +++++-------
+ webapp/maintenance.py        | 49 +++++++++++++++++++++++
+ webapp/push/starting_soon.py |  5 ++-
+ 4 files changed, 154 insertions(+), 16 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b1_maintenance.py b/tests/test_b1_maintenance.py
+new file mode 100644
+index 0000000..66fd6d3
+--- /dev/null
++++ b/tests/test_b1_maintenance.py
+@@ -0,0 +1,92 @@
++"""
++B1 Task 7: consolidated 60-s maintenance pass (webapp/maintenance.py). Seeds an
++expired proposal + a missed session, patches push so no network fires, and
++asserts one pass sweeps all of them. Needs seeded dev Postgres.
++"""
++
++from __future__ import annotations
++
++import unittest
++from unittest.mock import patch
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestMaintenancePass(unittest.IsolatedAsyncioTestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Maint Case', 'b1 maint case',"
++                    " 'DevSchool', 2090, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid = ids["a@yale.edu"], ids["b@yale.edu"]
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        from webapp.repositories.rooms import get_or_create_room
++        cls.room_id = get_or_create_room(cls.aid)["id"]
++        cls.template_id = get_default_rubric_template_id(cls.case_id, cls.aid)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    async def test_one_pass_sweeps_expired_and_missed(self):
++        import psycopg
++        from webapp import maintenance
++        from webapp.settings import load_settings
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO proposals (from_user_id, to_user_id, case_id, from_role,"
++                    " proposed_times_json, state, created_at) VALUES"
++                    " (%s, %s, %s, 'interviewer', '[]'::jsonb, 'pending',"
++                    " NOW() - INTERVAL '3 hours') RETURNING id;",
++                    (self.aid, self.bid, self.case_id))
++                prop_id = cur.fetchone()[0]
++                cur.execute(
++                    "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++                    " case_id, rubric_template_id, state, scheduled_at, state_changed_at)"
++                    " VALUES (%s, %s, %s, %s, %s, 'scheduled', NOW() - INTERVAL '2 hours',"
++                    " NOW()) RETURNING id;",
++                    (self.room_id, self.aid, self.bid, self.case_id, self.template_id))
++                sess_id = cur.fetchone()[0]
++
++        async def _no_push(*a, **k):
++            return None
++
++        with patch("webapp.push.starting_soon.push_to_user", _no_push):
++            counts = await maintenance.run_maintenance_pass(load_settings())
++
++        self.assertGreaterEqual(counts["expired"], 1)
++        self.assertGreaterEqual(counts["missed"], 1)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT state FROM proposals WHERE id = %s;", (prop_id,))
++                self.assertEqual(cur.fetchone()[0], "expired")
++                cur.execute("SELECT state FROM practice_sessions WHERE id = %s;", (sess_id,))
++                self.assertEqual(cur.fetchone()[0], "missed")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/main.py b/webapp/main.py
+index f061b0a..90782b1 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -36,30 +36,29 @@ def _load_dotenv(path: Path) -> None:
+         key = key.strip()
+         value = value.strip().strip('"').strip("'")
+         if key and key not in os.environ:
+             os.environ[key] = value
+ 
+ 
+ _load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+ 
+ 
+ # ── App ────────────────────────────────────────────────────────────────────────
+ 
+ from webapp.auth.dependencies import RedirectToLogin
+ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+-from webapp.push.events import push_enabled
+-from webapp.push.starting_soon import starting_soon_loop
++from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+ from webapp.routes import rooms as rooms_routes
+ from webapp.routes import search as search_routes
+@@ -71,43 +70,40 @@ from webapp.settings import load_settings
+ logger = logging.getLogger(__name__)
+ 
+ 
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     """Open the Postgres pool at startup, close it cleanly at shutdown."""
+     settings = load_settings()
+     app.state.settings = settings
+ 
+     init_pool(settings.database_url)
+     logger.info("Connected to Postgres at %s", _safe_url(settings.database_url))
+ 
+     app.state.templates = Jinja2Templates(directory=settings.templates_dir)
+ 
+-    # Single-worker constraint: with multiple workers each would run its own
+-    # loop (wasteful, though still correct — the UPDATE...RETURNING claim in
+-    # notify_starting_soon() is atomic, so no session is ever double-pushed).
+-    starting_soon_task = None
+-    if push_enabled(settings):
+-        starting_soon_task = asyncio.create_task(starting_soon_loop())
++    # DD-3: the maintenance loop (sweeps + starting-soon push) runs even when
++    # APNs is unconfigured — sweeps must fire for app-only clients. push inside
++    # notify_starting_soon() self-guards when push is disabled.
++    maintenance_task = asyncio.create_task(maintenance_loop())
+ 
+     yield
+ 
+-    if starting_soon_task is not None:
+-        starting_soon_task.cancel()
+-        try:
+-            await starting_soon_task
+-        except asyncio.CancelledError:
+-            pass
++    maintenance_task.cancel()
++    try:
++        await maintenance_task
++    except asyncio.CancelledError:
++        pass
+ 
+     close_pool()
+ 
+ 
+ def create_app() -> FastAPI:
+     app = FastAPI(
+         title="Case Repo",
+         description="Consulting cases, searchable.",
+         lifespan=lifespan,
+     )
+ 
+     # Session middleware runs first — sets request.state.user on every
+     # request before any route handler or dependency executes.
+     app.add_middleware(SessionMiddleware)
+diff --git a/webapp/maintenance.py b/webapp/maintenance.py
+new file mode 100644
+index 0000000..38972ad
+--- /dev/null
++++ b/webapp/maintenance.py
+@@ -0,0 +1,49 @@
++"""
++Purpose: Run every background sweep (proposal expiry, missed sessions, stale
++  aborts) plus the starting-soon push on one 60-s cadence, so app-only clients
++  get correct lifecycle without page loads (roadmap §B1).
++Inputs: Settings (proposal_now_expiry_min, session_missed_after_min); the
++  practice_sessions / proposals tables via the repos.
++Outputs: state transitions (expired / missed / aborted), starting-soon pushes.
++Run: maintenance_loop() is spawned from webapp.main's lifespan; run one pass
++  directly with run_maintenance_pass(load_settings()).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import logging
++
++from webapp.push.starting_soon import notify_starting_soon
++from webapp.repositories.practice_sessions import sweep_missed, sweep_stale_sessions
++from webapp.repositories.proposals import sweep_expired
++from webapp.settings import load_settings
++
++logger = logging.getLogger(__name__)
++
++
++async def run_maintenance_pass(settings) -> dict:
++    """One sweep cycle. Order matters: sweep_missed marks past-start scheduled
++    sessions 'missed' before sweep_stale_sessions could abort them at +6 h."""
++    expired = sweep_expired(now_expiry_min=settings.proposal_now_expiry_min)
++    missed = sweep_missed(missed_after_min=settings.session_missed_after_min)
++    aborted = sweep_stale_sessions()
++    starting_soon = await notify_starting_soon()
++    return {"expired": expired, "missed": missed,
++            "aborted": aborted, "starting_soon": starting_soon}
++
++
++async def maintenance_loop(interval_seconds: int = 60) -> None:
++    """Run run_maintenance_pass() every interval_seconds forever. Sleep-FIRST so
++    a short-lived app lifespan (e.g. every TestClient(app) startup) never fires a
++    sweep against the shared dev DB — the 60-s startup delay is harmless in prod.
++    One bad pass is logged and swallowed; CancelledError propagates (including
++    during the sleep) for clean shutdown."""
++    while True:
++        await asyncio.sleep(interval_seconds)
++        try:
++            await run_maintenance_pass(load_settings())
++        except asyncio.CancelledError:
++            raise
++        except Exception:
++            logger.exception("maintenance pass failed")
+diff --git a/webapp/push/starting_soon.py b/webapp/push/starting_soon.py
+index 4e8cf14..8180ae4 100644
+--- a/webapp/push/starting_soon.py
++++ b/webapp/push/starting_soon.py
+@@ -1,22 +1,23 @@
+ """
+ Purpose: Push a "starting soon" alert to both participants of a practice
+   session shortly before it begins.
+ Inputs: practice_sessions rows (state='scheduled', scheduled_at, starting_soon_pushed_at).
+ Outputs: APNs pushes via webapp.push.events.push_to_user; sets
+   practice_sessions.starting_soon_pushed_at so a session is only pushed once.
+-Run: starting_soon_loop() is spawned as a background task from webapp.main's
+-  lifespan (when push is enabled); no CLI entrypoint.
++Run: notify_starting_soon() now runs each pass of the consolidated background
++  loop in webapp/maintenance.py:maintenance_loop (spawned from webapp.main's
++  lifespan); no CLI entrypoint.
+ """
+ 
+ from __future__ import annotations
+ 
+ import asyncio
+ import logging
+ 
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.push.events import push_to_user
+ 
+ logger = logging.getLogger(__name__)
+ 
