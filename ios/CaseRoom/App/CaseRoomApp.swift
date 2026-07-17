@@ -77,8 +77,12 @@ struct CaseRoomApp: App {
     //  -DevLogin         authenticate against the running dev server (seeded user)
     //  -startTab <tab>   home|library|caseTab|community|drills
     //  -avatarOpen       present the avatar sheet in shell context
-    //  -LibraryFixtures  fake auth (no network) + CasesListView swaps in the
-    //                    LibraryFixtures stub service — see LibraryFixtures.swift.
+    //  -LibraryFixtures  fake auth (no network) + CasesListView/CaseDetailView
+    //                    swap in the LibraryFixtures stub service — see
+    //                    LibraryFixtures.swift.
+    //  -startCaseDetail <id>  push .caseDetail(id) onto libraryPath (Task 4
+    //                    screenshot hatch) — apply AFTER fake-auth so the
+    //                    push lands on an already-authenticated shell.
     @MainActor
     private func applyDebugLaunchHatches() async {
         let args = ProcessInfo.processInfo.arguments
@@ -103,6 +107,13 @@ struct CaseRoomApp: App {
         }
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true
+        }
+        if let idx = args.firstIndex(of: "-startCaseDetail"), idx + 1 < args.count,
+           let caseId = Int(args[idx + 1]) {
+            // Runs after the -LibraryFixtures/-DevLogin auth above so the
+            // detail push lands on an authenticated RootShell (not the login
+            // screen); AppRouter.go(to:) also selects the Library tab.
+            AppRouter.shared.go(to: .caseDetail(caseId))
         }
     }
     #endif
