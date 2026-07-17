@@ -1,0 +1,273 @@
+# Final-fixes diff  BASE=9fdf199 HEAD=01bf224
+## git log
+01bf224 Apply B8 whole-branch review fixes (slot guard, discriminating guest test, route board/no-count/CSRF tests, doc/comment nits)
+
+## stat
+ .../notes/2026-07-17-drills-bank-integration.md    |  4 +-
+ tests/test_b8_drills_api.py                        | 47 ++++++++++++++++++++++
+ tests/test_b8_gauntlet_repo.py                     |  8 ++--
+ tests/test_b8_gauntlet_service.py                  |  6 +++
+ webapp/drills.py                                   |  3 +-
+ webapp/gauntlet.py                                 |  8 +++-
+ 6 files changed, 68 insertions(+), 8 deletions(-)
+
+## full diff
+diff --git a/docs/superpowers/notes/2026-07-17-drills-bank-integration.md b/docs/superpowers/notes/2026-07-17-drills-bank-integration.md
+index cac686c..d6c3865 100644
+--- a/docs/superpowers/notes/2026-07-17-drills-bank-integration.md
++++ b/docs/superpowers/notes/2026-07-17-drills-bank-integration.md
+@@ -89,22 +89,22 @@ of two shapes:
+ ```python
+ {"kind": "numeric", "value": <float>, "tolerance_pct": <float>}      # ± percentage band
+ {"kind": "numeric", "value": <float>, "tolerance_factor": <float>}   # order-of-magnitude band (÷f .. ×f)
+ {"kind": "choice",  "correct_index": <int>}                          # multiple choice
+ ```
+ 
+ The server re-scores on submit — the answer is **never** sent to the client.
+ `webapp/drills.py:public_drill` redacts `answer`/`explanation`, leaving only
+ `{slot, drill_type, key, prompt, numbers}` (+ `choices` when present).
+ `webapp/drills.py:score_slot(wire, *, value, choice_index)` does the scoring; a
+-missing answer scores `False`, so the leaderboard can't be gamed by reading the
+-payload.
++missing *submitted* answer scores `False`, so the leaderboard can't be gamed by
++reading the payload.
+ 
+ A bank item must expose the **same `answer` shape** (so `score_slot` scores it
+ unchanged) **or** ship its own `score()` conforming to the `DrillProvider`
+ protocol in §2. Either way the wire contract to the client is unchanged.
+ 
+ ---
+ 
+ ## 5. Persistence contract
+ 
+ A scored submission lands in `drill_attempts` (the 034 columns `score`,
+diff --git a/tests/test_b8_drills_api.py b/tests/test_b8_drills_api.py
+index 7790340..a3ec449 100644
+--- a/tests/test_b8_drills_api.py
++++ b/tests/test_b8_drills_api.py
+@@ -133,20 +133,67 @@ class TestDrillsGauntletApi(unittest.TestCase):
+     def test_group_board_requires_membership(self):
+         # A group the user is not a member of → 403.
+         from webapp.repositories import groups as groups_repo
+         g = groups_repo.create_group("B8 Board Test", self.u2)   # u1 not a member
+         r = self.c1.get(f"/api/v1/drills/boards?scope=group&group_id={g['id']}")
+         self.assertEqual(r.status_code, 403, r.text)
+         import psycopg
+         with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+             cur.execute("DELETE FROM groups WHERE id = %s;", (g["id"],))
+ 
++    def test_group_board_populated_via_route(self):
++        import psycopg
++        from webapp.repositories import groups as groups_repo
++        g = groups_repo.create_group("B8 Board Pop", self.u1)
++        try:
++            groups_repo.join_by_code(g["invite_code"], self.u2)
++            r = self.c1.get(f"/api/v1/drills/boards?scope=group&group_id={g['id']}")
++            self.assertEqual(r.status_code, 200, r.text)
++            body = r.json()
++            self.assertEqual(body["group"]["id"], g["id"])
++            self.assertTrue(body["entries"])
++            for e in body["entries"]:
++                for k in ("user_id", "points", "rank", "streak"):
++                    self.assertIn(k, e)
++            _assert_no_counts(self, body)
++        finally:
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("DELETE FROM groups WHERE id = %s;", (g["id"],))
++
++    def test_school_and_global_boards_populated_no_counts(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("UPDATE users SET school_id = (SELECT id FROM schools ORDER BY id LIMIT 1)"
++                        " WHERE id = %s;", (self.u1,))
++        try:
++            self.c1.post("/api/v1/drills/gauntlet/attempts", json={"answers": _answers_for(self.c1)})
++            rs = self.c1.get("/api/v1/drills/boards?scope=school")
++            self.assertEqual(rs.status_code, 200, rs.text)
++            school = rs.json()
++            _assert_no_counts(self, school)
++            self.assertIsNotNone(school["school"])
++            self.assertIsInstance(school["your_percentile"], (int, float))
++            rg = self.c1.get("/api/v1/drills/boards?scope=global")
++            self.assertEqual(rg.status_code, 200, rg.text)
++            glob = rg.json()
++            _assert_no_counts(self, glob)
++            self.assertIsInstance(glob["your_percentile"], (int, float))
++        finally:
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("UPDATE users SET school_id = NULL WHERE id = %s;", (self.u1,))
++
++    def test_submit_cross_origin_403(self):
++        r = self.c1.post("/api/v1/drills/gauntlet/attempts",
++                         json={"answers": _answers_for(self.c1)},
++                         headers={"Origin": "https://evil.example"})
++        self.assertEqual(r.status_code, 403, r.text)
++
+     def test_trends_shape(self):
+         self.c1.post("/api/v1/drills/gauntlet/attempts", json={"answers": _answers_for(self.c1)})
+         r = self.c1.get("/api/v1/drills/trends")
+         self.assertEqual(r.status_code, 200, r.text)
+         t = r.json()
+         for k in ("daily", "by_type", "weakest"):
+             self.assertIn(k, t)
+         _assert_no_counts(self, t)
+ 
+ 
+diff --git a/tests/test_b8_gauntlet_repo.py b/tests/test_b8_gauntlet_repo.py
+index b566e31..52b31dc 100644
+--- a/tests/test_b8_gauntlet_repo.py
++++ b/tests/test_b8_gauntlet_repo.py
+@@ -91,21 +91,23 @@ class TestGauntletRepo(unittest.TestCase):
+         self.assertEqual(by_type["mental_math"]["accuracy"], 1.0)
+         self.assertEqual(by_type["market_sizing"]["accuracy"], 0.0)
+         self.assertEqual(repo.weakest_type(self.u1), "market_sizing")
+ 
+     def test_guest_excluded_from_percentile(self):
+         import psycopg
+         from webapp.repositories import gauntlet as repo
+         with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+             cur.execute("UPDATE users SET is_guest = TRUE WHERE id = %s;", (self.u2,))
+         try:
+-            repo.record_submission(self.u1, "2026-07-17", self._slots([True, True]))   # score 2
+-            repo.record_submission(self.u2, "2026-07-17", self._slots([True, True, True]))  # guest, score 3
+-            # Only u1 counts → sole non-guest submitter → percent_rank 0.0.
++            repo.record_submission(self.u1, "2026-07-17", self._slots([True, True]))   # non-guest, score 2
++            repo.record_submission(self.u2, "2026-07-17", self._slots([True]))          # guest, score 1 (lower)
++            # If the guest were counted, u1 (higher) would be 100.0; with the guest
++            # excluded u1 is the sole population member → percent_rank 0.0. This
++            # assertion now fails if the guest filter is removed.
+             self.assertEqual(repo.daily_percentile(self.u1, "2026-07-17"), 0.0)
+         finally:
+             with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+                 cur.execute("UPDATE users SET is_guest = FALSE WHERE id = %s;", (self.u2,))
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_b8_gauntlet_service.py b/tests/test_b8_gauntlet_service.py
+index 49b5c47..ae320be 100644
+--- a/tests/test_b8_gauntlet_service.py
++++ b/tests/test_b8_gauntlet_service.py
+@@ -69,20 +69,26 @@ class TestGauntletService(unittest.TestCase):
+         from webapp.repositories import gauntlet as repo
+         gauntlet.submit(self.uid, self._all_correct_answers(), on=self.ON)
+         with self.assertRaises(repo.AlreadySubmitted):
+             gauntlet.submit(self.uid, self._all_correct_answers(), on=self.ON)
+ 
+     def test_submit_wrong_length_raises_invalid(self):
+         from webapp import gauntlet
+         with self.assertRaises(gauntlet.InvalidSubmission):
+             gauntlet.submit(self.uid, [{"slot": 0, "value": 1}], on=self.ON)
+ 
++    def test_submit_answer_without_slot_raises_invalid(self):
++        from webapp import gauntlet
++        bad = [{"value": 1} for _ in range(6)]  # every answer omits `slot`
++        with self.assertRaises(gauntlet.InvalidSubmission):
++            gauntlet.submit(self.uid, bad, on=self.ON)
++
+     def test_results_for_none_before_submit(self):
+         from webapp import gauntlet
+         self.assertIsNone(gauntlet.results_for(self.uid, self.KEY))
+ 
+     def test_trends_shape(self):
+         from webapp import gauntlet
+         gauntlet.submit(self.uid, self._all_correct_answers(), on=self.ON)
+         t = gauntlet.trends(self.uid)
+         self.assertIn("daily", t)
+         self.assertIn("by_type", t)
+diff --git a/webapp/drills.py b/webapp/drills.py
+index dab8567..a5be219 100644
+--- a/webapp/drills.py
++++ b/webapp/drills.py
+@@ -1,18 +1,19 @@
+ """
+ Purpose: Server-side drill template bank + deterministic drill generator for
+          the P4 habit layer — the single source the iOS FM engine mirrors.
+ Inputs:  webapp/drill_templates.json (read once at import); generate_drill()
+          takes a template dict + int seed; daily_drill() takes user_id + date.
++         B8 gauntlet surface: daily_set(on) / public_drill(wire) / score_slot(wire).
+ Outputs: pure in-memory wire-drill dicts; no DB, no files, no clock reads
+          inside generation (the endpoint passes UTC today as `on`).
+-Run:     python -c "from webapp.drills import daily_drill; print(daily_drill(1))"
++Run:     python -c "from webapp.drills import daily_set; print(len(daily_set()))"
+ """
+ 
+ from __future__ import annotations
+ 
+ import hashlib
+ import json
+ import random
+ import re
+ from datetime import date, datetime, timezone
+ 
+diff --git a/webapp/gauntlet.py b/webapp/gauntlet.py
+index 29593a5..e187521 100644
+--- a/webapp/gauntlet.py
++++ b/webapp/gauntlet.py
+@@ -33,39 +33,41 @@ def _today_key(on: date | None) -> tuple[date, str]:
+     day = on or datetime.now(timezone.utc).date()
+     return day, day.isoformat()
+ 
+ 
+ def submit(user_id: int, answers: list[dict], on: date | None = None) -> dict:
+     """Score `answers` against the global daily set, persist one row per slot,
+     and return the results payload. Raises InvalidSubmission on a malformed set;
+     the repo raises AlreadySubmitted on a repeat same-day submission."""
+     day, set_key = _today_key(on)
+     full = drills.daily_set(day)
++    if not all(isinstance(a.get("slot"), int) for a in answers):
++        raise InvalidSubmission("each answer needs an integer slot")
+     slots_seen = sorted(a.get("slot") for a in answers)
+     if slots_seen != list(range(drills.GAUNTLET_SLOTS)):
+         raise InvalidSubmission(f"expected slots 0..{drills.GAUNTLET_SLOTS - 1}, got {slots_seen}")
+ 
+     rows: list[dict] = []
+     for ans in answers:
+         wire = full[ans["slot"]]
+         correct = drills.score_slot(wire, value=ans.get("value"),
+                                     choice_index=ans.get("choice_index"))
+         rows.append({"drill_type": wire["drill_type"], "drill_key": wire["key"],
+                      "correct": correct, "score": 1.0 if correct else 0.0,
+                      "duration_ms": ans.get("duration_ms")})
+     repo.record_submission(user_id, set_key, rows)   # may raise AlreadySubmitted
+     return results_for(user_id, set_key)
+ 
+ 
+ def _group_block(user_id: int) -> dict | None:
+-    """The user's primary joined group (most recently joined — list_my_groups
+-    orders created_at DESC) as a rank+points block — the ONLY scope where literal
++    """The user's primary joined group (most recently created group you belong to
++    (list_my_groups orders by group created_at DESC)) as a rank+points block — the ONLY scope where literal
+     rank/points are exposed. None if unaffiliated."""
+     my = groups_repo.list_my_groups(user_id)
+     if not my:
+         return None
+     gid = my[0]["id"]
+     name = my[0].get("name")
+     board = leaderboards.group_leaderboard(gid)
+     mine = next((e for e in board if e["user_id"] == user_id), None)
+     if mine is None:
+         return None
+@@ -85,20 +87,22 @@ def results_for(user_id: int, set_key: str) -> dict | None:
+     weak = repo.weakest_type(user_id)
+     weak_section = ({"drill_type": weak, "label": GAUNTLET_TYPE_LABELS[weak]}
+                     if weak is not None else None)
+     return {
+         "score": summary["score"],
+         "slots_correct": summary["slots_correct"],
+         "slots": summary["slots"],
+         "points_awarded": int(summary["score"] * leaderboards.POINTS_PER_GAUNTLET_POINT),
+         "daily_percentile": repo.daily_percentile(user_id, set_key),
+         "group": group,
++        # reuses the B6 global percentile (== my_school_standing.your_percentile, the
++        # school-card standing); a within-school population is a future refinement
+         "school_percentile": leaderboards.user_global_percentile(user_id),
+         "vs_peers_delta": group["points_behind_next"] if group else None,
+         "weak_section": weak_section,
+         "streak": drills_repo.streak_days(user_id),
+         "set_key": set_key,
+         "provisional": True,
+     }
+ 
+ 
+ def trends(user_id: int) -> dict:
