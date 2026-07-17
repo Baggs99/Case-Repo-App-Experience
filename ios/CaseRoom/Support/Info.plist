@@ -46,6 +46,12 @@
 	<string>Records the room audio of your in-person practice session for later review.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Archivo-Variable.ttf</string>
+		<string>SourceSerif4-Variable.ttf</string>
+		<string>SourceSerif4-Italic-Variable.ttf</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

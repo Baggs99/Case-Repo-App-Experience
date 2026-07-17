@@ -39,6 +39,10 @@ targets:
           later review.
         UIBackgroundModes: [remote-notification]
         NSSupportsLiveActivities: true
+        UIAppFonts:
+          - Archivo-Variable.ttf
+          - SourceSerif4-Variable.ttf
+          - SourceSerif4-Italic-Variable.ttf
     dependencies:
       - package: WebRTC
       - target: CaseRoomWidgets
@@ -74,6 +78,12 @@ targets:
       - path: CaseRoomTests/Fixtures
         type: folder
         buildPhase: resources
+      # Fonts bundled into the (host-less) test bundle so DSFonts.register()
+      # can load them and TypographyTests can assert the families resolve.
+      - path: CaseRoom/DesignSystem/Fonts
+        buildPhase: resources
+        excludes:
+          - "*.txt"
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

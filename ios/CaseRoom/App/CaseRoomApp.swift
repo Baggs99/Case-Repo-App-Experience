@@ -16,6 +16,9 @@ struct CaseRoomApp: App {
     @State private var sessionStore = SessionStore()
 
     init() {
+        // Register the bundled design fonts before first use (UIAppFonts is the
+        // primary path; this idempotent call is belt-and-suspenders).
+        DSFonts.register()
         // Before any network use: bring an older build's session cookie into
         // the App Group's shared store so an already-logged-in user stays
         // authenticated after upgrading (idempotent, group-container gated).
@@ -24,20 +27,34 @@ struct CaseRoomApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootTabView()
-                .environment(sessionStore)
-                .environment(appDelegate.pushCoordinator)
-                .onAppear {
-                    // Wire once at launch: the same shared PushCoordinator
-                    // instance RootTabView observes, so logout resets its
-                    // registration guard and the next login's post-auth
-                    // .task re-registers the device token for the new user.
-                    let pushCoordinator = appDelegate.pushCoordinator
-                    sessionStore.onLogout = { @MainActor in
-                        pushCoordinator.resetRegistration()
-                    }
-                }
+            #if DEBUG
+            // Debug hatch for F0 screenshot evidence. Does not alter normal
+            // launch or navigation (F1 owns navigation).
+            if ProcessInfo.processInfo.arguments.contains("-DSGallery") {
+                DesignSystemGallery()
+            } else {
+                rootView
+            }
+            #else
+            rootView
+            #endif
         }
+    }
+
+    private var rootView: some View {
+        RootTabView()
+            .environment(sessionStore)
+            .environment(appDelegate.pushCoordinator)
+            .onAppear {
+                // Wire once at launch: the same shared PushCoordinator
+                // instance RootTabView observes, so logout resets its
+                // registration guard and the next login's post-auth
+                // .task re-registers the device token for the new user.
+                let pushCoordinator = appDelegate.pushCoordinator
+                sessionStore.onLogout = { @MainActor in
+                    pushCoordinator.resetRegistration()
+                }
+            }
     }
 
     private static var apiHost: String {
