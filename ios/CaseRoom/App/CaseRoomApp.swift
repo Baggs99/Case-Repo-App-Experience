@@ -4,8 +4,8 @@
  *          registration.
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
  *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
- *         -startTab <tab>, -avatarOpen, -LibraryFixtures, -CommunityFixtures
- *         — see the #if DEBUG blocks).
+ *         -startTab <tab>, -avatarOpen, -LibraryFixtures, -CommunityFixtures,
+ *         -GroupPageFixtures — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -109,6 +109,11 @@ struct CaseRoomApp: App {
     //  -CommunityFixtures  fake auth + selects the community tab; CommunityView
     //                    swaps in a fixture-backed CommunityViewModel — see
     //                    CommunityFixtures.swift.
+    //  -GroupPageFixtures  fake auth + selects the community tab + pushes
+    //                    .groupPage(14) onto communityPath; RootShell's
+    //                    groupPageDestination(id:) swaps in a fixture-backed
+    //                    GroupPageViewModel (admin variant) — see
+    //                    CommunityFixtures.groupDetail/groupProgress.
     //  -startCaseDetail <id>  push .caseDetail(id) onto libraryPath (Task 4
     //                    screenshot hatch) — apply AFTER fake-auth so the
     //                    push lands on an already-authenticated shell.
@@ -143,6 +148,16 @@ struct CaseRoomApp: App {
             // hatch to select the tab on its own).
             sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
             AppRouter.shared.selection = .community
+        }
+        if args.contains("-GroupPageFixtures") {
+            // Fake auth (same fixture user as -CommunityFixtures) + push
+            // .groupPage(14) onto communityPath — RootShell's groupPageDestination
+            // reads the same arg and builds a fixture-backed GroupPageViewModel
+            // (admin variant) from CommunityFixtures.groupDetail/groupProgress,
+            // so the group-page screenshot path needs no dev server either.
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.selection = .community
+            AppRouter.shared.communityPath.append(.groupPage(14))
         }
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true
