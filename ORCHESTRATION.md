@@ -14,8 +14,8 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | MERGED | 55d0f55 | 451 phase / 545 integration |
 | B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | MERGED | c1df02c | 452 phase / 512 integration |
 | B3 sessionflow | bgap/b3-sessionflow | ~/dev/bgap-b3 | DISPATCHED w3 | — | — |
-| B6 community | bgap/b6-community | ~/dev/bgap-b6 | DISPATCHED w3 | — | — |
-| B8 drills-agg | bgap/b8-drills-agg | — | WAITING w4 (needs B6 + OD-B8-1) | — | — |
+| B6 community | bgap/b6-community | ~/dev/bgap-b6 | MERGED | d9291ab | 552 phase / 585 integration |
+| B8 drills-agg | bgap/b8-drills-agg | ~/dev/bgap-b8 | DISPATCHED w4 | — | — |
 
 ## Owner decisions
 
@@ -78,6 +78,13 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   (is_guest OR email IS NOT NULL); domain policy stays application-level
   (schools registry). Obsolete B2 domain test converted to guard the new
   contract + made hermetic. Integration 545 passed (512+33). WAVE 2 DONE.
+
+- 2026-07-17 B6 → feature/backend-gap (phase head d9291ab). Zero conflicts.
+  Applied B6's documented B2 seams at merge: guests excluded from
+  ACTIVITY_POINTS_SQL population + connection targeting (guest joins
+  already 403 at route layer — seam 3 not needed). swap_invite_pending
+  stays hardcoded false until B3 merges (LEFT JOIN seam in B6 report).
+  Integration 585 passed (545+40).
 
 ## Escalations queued for Thomas
 

@@ -44,9 +44,13 @@ def _card(row: dict, *, with_decor: bool = False) -> dict:
 
 
 def _user_exists(user_id: int) -> bool:
+    # Guests are transient session identities (B2) - not valid connection
+    # targets; 404 keeps them indistinguishable from absent users.
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM users WHERE id = %s;", (user_id,))
+            cur.execute(
+                "SELECT 1 FROM users WHERE id = %s AND NOT COALESCE(is_guest, FALSE);",
+                (user_id,))
             return cur.fetchone() is not None
 
 

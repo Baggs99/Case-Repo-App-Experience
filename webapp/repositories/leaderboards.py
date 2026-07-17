@@ -48,7 +48,8 @@ activity_points AS (
         WHERE completed_at > now() - interval '30 days'
         GROUP BY user_id
     ) da ON da.uid = u.id
-    WHERE COALESCE(fs.n, 0) > 0 OR COALESCE(da.n, 0) > 0
+    WHERE (COALESCE(fs.n, 0) > 0 OR COALESCE(da.n, 0) > 0)
+      AND NOT COALESCE(u.is_guest, FALSE)
 )
 """
 
