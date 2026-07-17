@@ -364,4 +364,9 @@ def dashboard(user: User = Depends(require_auth_api)):
         "next_session": next_session,
         "streak_days": drills_repo.streak_days(user.id),
         "drill_done_today": drills_repo.attempted_today(user.id),
+        # B4 §7 Home card: the recommendation engine's two candidate-facing
+        # surfaces travel on the dashboard payload (dimension_averages =
+        # existing web shape, recommendations = canonical item shape).
+        "dimension_averages": dashboard_repo.dimension_averages(user.id),
+        "recommendations": dashboard_repo.recommendations(user.id),
     }

@@ -1,0 +1,148 @@
+diff --git a/tests/test_recommendations.py b/tests/test_recommendations.py
+index ae28dcc..105ba31 100644
+--- a/tests/test_recommendations.py
++++ b/tests/test_recommendations.py
+@@ -168,13 +168,43 @@ class TestRecommendationSurfaces(unittest.TestCase):
+ 
+     def test_web_engine_selection_unchanged(self):
+         # Byte-compat guard: the three rules still select b1/a4/w1 (as
+         # test_dashboard.py asserts) — only the item key label changed.
+         from webapp.repositories import dashboard as repo
+         by_rule = {r["rule"]: r["case_id"] for r in repo.recommendations(self.cid)}
+         self.assertEqual(by_rule["coverage-gap"], self.b1)
+         self.assertEqual(by_rule["difficulty-ladder"], self.a4)
+         self.assertEqual(by_rule["weak-dimension"], self.w1)
+ 
++    # ── Task 2: native list mouth ───────────────────────────────────────────
++
++    def test_api_recommendations_shape(self):
++        r = self.cara.get("/api/v1/recommendations")
++        self.assertEqual(r.status_code, 200, r.text)
++        recs = r.json()["recommendations"]
++        self.assertTrue(recs)
++        for rec in recs:
++            self.assertEqual(set(rec), {"case_id", "title", "case_type",
++                                        "difficulty", "why", "rule"})
++        by_rule = {rec["rule"]: rec["case_id"] for rec in recs}
++        self.assertEqual(by_rule["coverage-gap"], self.b1)
++
++    def test_api_recommendations_exclude(self):
++        r = self.cara.get(f"/api/v1/recommendations?exclude={self.b1}")
++        self.assertEqual(r.status_code, 200, r.text)
++        ids = {rec["case_id"] for rec in r.json()["recommendations"]}
++        self.assertNotIn(self.b1, ids)
++        self.assertIn(self.b2, ids)
++
++    def test_api_recommendations_invalid_exclude_is_400(self):
++        r = self.cara.get("/api/v1/recommendations?exclude=1,abc")
++        self.assertEqual(r.status_code, 400, r.text)
++
++    def test_api_recommendations_requires_auth(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).get("/api/v1/recommendations")
++        self.assertEqual(r.status_code, 401)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/webapp/main.py b/webapp/main.py
+index f061b0a..3584640 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -54,20 +54,21 @@ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
++from webapp.routes import recommendations as recommendations_routes
+ from webapp.routes import rooms as rooms_routes
+ from webapp.routes import search as search_routes
+ from webapp.routes import signal_ws as signal_ws_routes
+ from webapp.routes import votes as votes_routes
+ from webapp.settings import load_settings
+ 
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+@@ -140,20 +141,21 @@ def create_app() -> FastAPI:
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
++    app.include_router(recommendations_routes.router)
+     app.include_router(api_v1_routes.router)
+ 
+     return app
+ 
+ 
+ def _safe_url(url: str) -> str:
+     """Strip the password from a connection URL before logging."""
+     try:
+         from urllib.parse import urlparse, urlunparse
+         u = urlparse(url)
+diff --git a/webapp/routes/recommendations.py b/webapp/routes/recommendations.py
+new file mode 100644
+index 0000000..79f1e1d
+--- /dev/null
++++ b/webapp/routes/recommendations.py
+@@ -0,0 +1,46 @@
++"""
++Purpose: /api/v1/recommendations — the native "Next up for you" mouth of the
++         single §4.8 recommendation engine (spec §7); list + why + exclude.
++Inputs:  session cookie (require_auth_api); optional ?exclude=1,2,3 query.
++Outputs: {"recommendations": [{case_id, title, case_type, difficulty, why, rule}]}.
++Run:     GET /api/v1/recommendations?exclude=12,34  (Cookie: caseroom_session=…)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException, Query
++
++from webapp.auth.dependencies import require_auth_api
++from webapp.auth.users import User
++from webapp.repositories import dashboard as dashboard_repo
++
++router = APIRouter(prefix="/api/v1")
++
++
++def _parse_exclude(raw: str | None) -> list[int]:
++    """Comma-separated case ids → list[int]. Empty/absent → []. A non-integer
++    token is a client error (400), not a silent drop — server-side validation."""
++    if not raw:
++        return []
++    ids: list[int] = []
++    for part in raw.split(","):
++        part = part.strip()
++        if not part:
++            continue
++        try:
++            ids.append(int(part))
++        except ValueError:
++            raise HTTPException(
++                status_code=400,
++                detail="exclude must be comma-separated integers")
++    return ids
++
++
++@router.get("/recommendations")
++def list_recommendations(exclude: str | None = Query(default=None),
++                         user: User = Depends(require_auth_api)):
++    """Spec §7 mouth 1. Identity from the session (T9.3) — never a param;
++    a user only ever sees their own recommendations. `exclude` powers the
++    "Swap recommendation" affordance (client re-calls with the swapped id)."""
++    exclude_ids = _parse_exclude(exclude)
++    return {"recommendations": dashboard_repo.recommendations(user.id, exclude_ids)}
