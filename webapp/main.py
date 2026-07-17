@@ -53,6 +53,7 @@ from webapp.routes import api_v1 as api_v1_routes
 from webapp.routes import auth as auth_routes
 from webapp.routes import auth_oauth as auth_oauth_routes
 from webapp.routes import connections as connections_routes
+from webapp.routes import drills as drills_routes
 from webapp.routes import files as files_routes
 from webapp.routes import guest as guest_routes
 from webapp.routes import exhibits as exhibits_routes
@@ -156,6 +157,7 @@ def create_app() -> FastAPI:
     app.include_router(recommendations_routes.router)
     app.include_router(timeline_routes.router)
     app.include_router(api_v1_routes.router)
+    app.include_router(drills_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(onboarding_routes.router)
     app.include_router(auth_oauth_routes.router)
