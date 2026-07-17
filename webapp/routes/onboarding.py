@@ -14,7 +14,7 @@ from __future__ import annotations
 import ipaddress
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from webapp.auth import otp as otp_mod

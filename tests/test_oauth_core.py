@@ -116,6 +116,30 @@ class TestVerifyIdToken(unittest.TestCase):
             oauth.verify_id_token("google", tampered, self.jwks,
                                   client_id="client-abc", nonce="nn")
 
+    def test_garbage_token_raises_oautherror(self):
+        # Malformed base64/JSON must surface as OAuthError, not a stdlib error.
+        from webapp.auth import oauth
+        with self.assertRaises(oauth.OAuthError):
+            oauth.verify_id_token("google", "not.a.jwt", self.jwks,
+                                  client_id="client-abc", nonce="nn")
+
+    def test_non_int_exp_raises_oautherror(self):
+        # A signed token that reaches the exp check with a non-int exp must
+        # raise OAuthError (not a bare ValueError from the int() cast).
+        from webapp.auth import oauth
+        cfg = oauth.PROVIDERS["google"]
+        header = {"alg": "RS256", "typ": "JWT", "kid": self.kid}
+        payload = {"iss": cfg.issuer, "aud": "client-abc", "sub": "G-1",
+                   "email": "c@yale.edu", "email_verified": True, "nonce": "nn",
+                   "exp": "not-a-number", "iat": int(time.time())}
+        signing_input = (_b64u(json.dumps(header).encode()) + "."
+                         + _b64u(json.dumps(payload).encode())).encode()
+        sig = self.priv.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
+        tok = signing_input.decode() + "." + _b64u(sig)
+        with self.assertRaises(oauth.OAuthError):
+            oauth.verify_id_token("google", tok, self.jwks,
+                                  client_id="client-abc", nonce="nn")
+
 
 class TestEmailVerifiedCoercion(unittest.TestCase):
     """email_verified must be a strict bool: providers (LinkedIn) may emit the

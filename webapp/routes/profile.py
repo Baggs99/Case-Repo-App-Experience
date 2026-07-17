@@ -12,7 +12,8 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from pipeline.storage import get_storage
 from webapp.auth.dependencies import require_auth_api
@@ -38,6 +39,13 @@ class ProfileUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=100)
     bio: Optional[str] = Field(default=None, max_length=2000)
     linkedin_url: Optional[str] = Field(default=None, max_length=300)
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def _linkedin_scheme(cls, v):
+        if v and not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("linkedin_url must be an http(s) URL")
+        return v
 
 
 class NotificationSettingsUpdate(BaseModel):
@@ -105,7 +113,7 @@ async def upload_photo(user: User = Depends(require_auth_api),
     ext = _ALLOWED_IMAGE_TYPES[content_type]
     # Key is derived from the AUTHENTICATED user's id — never from client input.
     key = f"avatars/{user.id}.{ext}"
-    get_storage().write(key, data, content_type=content_type)
+    await run_in_threadpool(get_storage().write, key, data, content_type=content_type)
     profile_repo.set_photo_key(user.id, key)
     return {"photo_url": get_storage().url(key)}
 

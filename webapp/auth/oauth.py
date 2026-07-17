@@ -199,7 +199,10 @@ def verify_id_token(provider: str, id_token: str, jwks: dict, *,
     except ValueError as exc:
         raise OAuthError("malformed id_token") from exc
 
-    header = json.loads(_b64u_decode(header_b64))
+    try:
+        header = json.loads(_b64u_decode(header_b64))
+    except Exception as exc:
+        raise OAuthError("malformed id_token") from exc
     if header.get("alg") != "RS256":
         raise OAuthError(f"unexpected alg: {header.get('alg')}")
 
@@ -216,7 +219,10 @@ def verify_id_token(provider: str, id_token: str, jwks: dict, *,
     except InvalidSignature as exc:
         raise OAuthError("bad id_token signature") from exc
 
-    claims = json.loads(_b64u_decode(payload_b64))
+    try:
+        claims = json.loads(_b64u_decode(payload_b64))
+    except Exception as exc:
+        raise OAuthError("malformed id_token") from exc
 
     iss = claims.get("iss", "")
     expected_iss = _meta(provider)["issuer"]
@@ -228,7 +234,11 @@ def verify_id_token(provider: str, id_token: str, jwks: dict, *,
     if aud != client_id and (not isinstance(aud, list) or client_id not in aud):
         raise OAuthError("audience mismatch")
 
-    if int(claims.get("exp", 0)) <= int(time.time()):
+    try:
+        exp = int(claims.get("exp", 0))
+    except (ValueError, TypeError) as exc:
+        raise OAuthError("bad exp") from exc
+    if exp <= int(time.time()):
         raise OAuthError("id_token expired")
 
     if nonce is not None and claims.get("nonce") != nonce:

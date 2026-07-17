@@ -47,7 +47,12 @@ async def push_to_user(user_id: int, *, title: str, body: str, data: dict | None
         # category="community"; see notification_settings.CATEGORIES.
         if category is not None:
             from webapp.repositories.notification_settings import notifications_allowed
-            if not notifications_allowed(user_id, category):
+            try:
+                allowed = notifications_allowed(user_id, category)
+            except Exception:
+                logger.exception("notification settings lookup failed; sending anyway")
+                allowed = True
+            if not allowed:
                 return
         client = httpx.AsyncClient(http2=True, timeout=10.0)
         try:

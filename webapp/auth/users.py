@@ -45,7 +45,7 @@ class User:
 # ── Domain errors ──────────────────────────────────────────────────────────────
 
 class InvalidEmailDomain(ValueError):
-    """Email isn't on an allowed school domain, isn't the lone Booth guest, or is malformed."""
+    """Email domain isn't in the schools registry, or is malformed."""
 
 
 class EmailAlreadyRegistered(ValueError):
@@ -124,7 +124,7 @@ def create_user(email: str, password: str) -> User:
     """Create a new user with a hashed password. Email must be allowed.
 
     Raises:
-      InvalidEmailDomain — domain / guest rules violated
+      InvalidEmailDomain — email domain not in the schools registry
       WeakPasswordError  — password too short / long
       EmailAlreadyRegistered — email taken
     """

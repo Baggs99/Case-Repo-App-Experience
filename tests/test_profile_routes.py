@@ -94,6 +94,16 @@ class TestProfileRoutes(unittest.TestCase):
         r = self.alice.put("/api/v1/profile", json={"bio": "x" * 2001})
         self.assertEqual(r.status_code, 422)
 
+    def test_put_profile_rejects_non_http_linkedin(self):
+        # A non-http(s) scheme (e.g. javascript:) must be rejected.
+        r = self.alice.put("/api/v1/profile",
+                           json={"linkedin_url": "javascript:alert(1)"})
+        self.assertEqual(r.status_code, 422)
+        # A valid https:// URL is still accepted.
+        r = self.alice.put("/api/v1/profile",
+                           json={"linkedin_url": "https://li/in/alice"})
+        self.assertEqual(r.status_code, 200, r.text)
+
     def test_photo_upload_happy_path_and_key(self):
         r = self.alice.post("/api/v1/profile/photo",
                             files={"file": ("a.png", _png_bytes(), "image/png")})

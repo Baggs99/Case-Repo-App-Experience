@@ -24,6 +24,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from pipeline.storage import get_storage
 from webapp.auth import oauth
@@ -252,7 +253,8 @@ async def oauth_callback(provider: str, request: Request,
     if newly_linked:
         import_oauth_name(user.id, identity.name)
         if identity.picture:
-            _import_avatar(user.id, identity.picture)  # best-effort, never raises
+            # best-effort, never raises
+            await run_in_threadpool(_import_avatar, user.id, identity.picture)
     mark_email_verified(user.id)  # provider asserted the email (verified path only)
 
     session = create_session(user.id, user_agent=request.headers.get("user-agent"),
