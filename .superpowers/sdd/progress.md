@@ -28,3 +28,5 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 - BASE for Task 6 = 5df69bb
 - Task 6: complete (commits b9686ad..50e8be3, review APPROVE). IMPORTANT (unbounded file.read before size check → authed OOM) FIXED in 0a21dbe (file.size early-reject + read(cap+1) bounded read; 9/9 tests). MINORs (ledger): jpeg/webp sniff branches + CSRF-reject + filename-traversal IDOR not separately tested (structurally safe).
 - BASE for Task 7 = 0a21dbe
+- Task 7: complete (commits 58bd77f..1dfe849, review APPROVE). MINORs (ledger): onboarding.py unused `Response` import; NO rate-limit on otp/request (email-bombing/unbounded codes — recommend follow-up; brute force already mitigated by newest-code-only + 3-attempt cap); two test-strength nits (cap test uses wrong code on 4th; no verify test for unregistered email).
+- BASE for Task 8 = 1dfe849
