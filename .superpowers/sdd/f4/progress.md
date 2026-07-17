@@ -55,3 +55,10 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
 - Task 3 REVIEW: APPROVE (A spec/canvas + B quality). 3 Minors: (1) hex-in-comment in
   LibraryRowView.swift:12-15 → reword before final review (grep-clean); (2) "Market Sizing"
   case_type filter unverified vs live DB (documented seam); (3) report wording nit (no change).
+- Task 4 (case detail 5a): CODE complete + COMPILES (TEST BUILD SUCCEEDED), committed 6aec73c.
+  CaseDetailContent (shared phone/tablet) + CaseDetailView (migrated to LibraryService, plain
+  ‹ Library back) + -startCaseDetail hatch + CaseDetailContentTests. Rubric clean (no hex/SF Symbols),
+  all verbatim copy present. PLAN CORRECTION: CasesViewModel.swift KEPT (PairCreateView/ProposeNowView/
+  its tests still use old CasesService — plan's "last reference" premise wrong; coexistence is fine).
+  GATED (env): task4 screenshots + focused/full test-green — simctl + test-without-building wedge under
+  F2 thrash (2+ hrs, load 9.9); batch at end when F2 quiet. Review proceeds on code+copy via diff.
