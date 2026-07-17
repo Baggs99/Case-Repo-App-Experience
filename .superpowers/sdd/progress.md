@@ -36,3 +36,9 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 - BASE for Task 10 = 203bc01
 - Task 10: complete (commits 643805f..8657cf3, review APPROVE). IMPORTANT (LinkedIn-style string email_verified defeats the gate: bool("false")==True) FIXED in 0a19216 (_coerce_bool + 4 coercion tests). MINOR (state cookie missing secure) FIXED same commit (secure=_cookie_secure()). Remaining MINOR (ledger): no test for unverified+new-registered create path (structurally blocked); avatar fetch follow_redirects SSRF-shape mitigated by provider-signed picture URL.
 - All 10 implementation tasks complete. Proceeding to full-suite + final whole-branch review.
+
+## Final
+- Full suite: 420 passed / 0 failed (baseline 360). Migrations 022/023/024 idempotent (re-applied clean). .env untracked.
+- Final whole-branch review (b0552de..HEAD): APPROVE, 0 CRITICAL/0 IMPORTANT, 11 MINOR. 6 in-scope minors hardened in 4be7f9f (threadpool blocking I/O, linkedin_url scheme, fail-open push, clean OAuth errors, docstrings, unused import), re-reviewed clean.
+- Report: docs/superpowers/sdd/bgap-b5-report.md (incl. THOMAS MANUAL for live OAuth + DEFERRED follow-ups).
+- STATUS: DONE.

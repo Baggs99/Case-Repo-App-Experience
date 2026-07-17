@@ -1,0 +1,449 @@
+=== fix commit ===
+4be7f9f Harden B5 per final review: threadpool blocking I/O, linkedin_url scheme, fail-open push, clean OAuth errors, docstrings
+
+=== stat ===
+ tests/test_oauth_core.py     | 24 ++++++++++++++++++++++++
+ tests/test_profile_routes.py | 10 ++++++++++
+ webapp/auth/oauth.py         | 16 +++++++++++++---
+ webapp/auth/users.py         |  4 ++--
+ webapp/push/events.py        |  7 ++++++-
+ webapp/routes/auth_oauth.py  |  4 +++-
+ webapp/routes/onboarding.py  |  2 +-
+ webapp/routes/profile.py     | 12 ++++++++++--
+ 8 files changed, 69 insertions(+), 10 deletions(-)
+
+=== diff -U12 ===
+diff --git a/tests/test_oauth_core.py b/tests/test_oauth_core.py
+index 51ad694..833ef1a 100644
+--- a/tests/test_oauth_core.py
++++ b/tests/test_oauth_core.py
+@@ -107,24 +107,48 @@ class TestVerifyIdToken(unittest.TestCase):
+ 
+     def test_tampered_signature_rejected(self):
+         from webapp.auth import oauth
+         cfg = oauth.PROVIDERS["google"]
+         tok = _make_signed_id_token(kid=self.kid, priv=self.priv, iss=cfg.issuer,
+                                     aud="client-abc", sub="G-1",
+                                     email="c@yale.edu", nonce="nn")
+         tampered = tok[:-4] + ("AAAA" if not tok.endswith("AAAA") else "BBBB")
+         with self.assertRaises(oauth.OAuthError):
+             oauth.verify_id_token("google", tampered, self.jwks,
+                                   client_id="client-abc", nonce="nn")
+ 
++    def test_garbage_token_raises_oautherror(self):
++        # Malformed base64/JSON must surface as OAuthError, not a stdlib error.
++        from webapp.auth import oauth
++        with self.assertRaises(oauth.OAuthError):
++            oauth.verify_id_token("google", "not.a.jwt", self.jwks,
++                                  client_id="client-abc", nonce="nn")
++
++    def test_non_int_exp_raises_oautherror(self):
++        # A signed token that reaches the exp check with a non-int exp must
++        # raise OAuthError (not a bare ValueError from the int() cast).
++        from webapp.auth import oauth
++        cfg = oauth.PROVIDERS["google"]
++        header = {"alg": "RS256", "typ": "JWT", "kid": self.kid}
++        payload = {"iss": cfg.issuer, "aud": "client-abc", "sub": "G-1",
++                   "email": "c@yale.edu", "email_verified": True, "nonce": "nn",
++                   "exp": "not-a-number", "iat": int(time.time())}
++        signing_input = (_b64u(json.dumps(header).encode()) + "."
++                         + _b64u(json.dumps(payload).encode())).encode()
++        sig = self.priv.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
++        tok = signing_input.decode() + "." + _b64u(sig)
++        with self.assertRaises(oauth.OAuthError):
++            oauth.verify_id_token("google", tok, self.jwks,
++                                  client_id="client-abc", nonce="nn")
++
+ 
+ class TestEmailVerifiedCoercion(unittest.TestCase):
+     """email_verified must be a strict bool: providers (LinkedIn) may emit the
+     claim as a JSON string, and bool('false') is True in Python."""
+ 
+     def _verified(self, value):
+         from webapp.auth.oauth import identity_from_claims
+         claims = {"sub": "S-1", "email": "c@yale.edu"}
+         if value is not _MISSING:
+             claims["email_verified"] = value
+         return identity_from_claims(claims).email_verified
+ 
+diff --git a/tests/test_profile_routes.py b/tests/test_profile_routes.py
+index 11e146c..5bcf0ae 100644
+--- a/tests/test_profile_routes.py
++++ b/tests/test_profile_routes.py
+@@ -85,24 +85,34 @@ class TestProfileRoutes(unittest.TestCase):
+         self.assertEqual(body["school"]["domain"], "yale.edu")
+         self.assertIn("photo_url", body)
+ 
+     def test_put_profile_updates_and_validates(self):
+         r = self.alice.put("/api/v1/profile",
+                            json={"bio": "MBA '26", "linkedin_url": "https://li/in/a"})
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertEqual(r.json()["bio"], "MBA '26")
+         # too-long bio rejected
+         r = self.alice.put("/api/v1/profile", json={"bio": "x" * 2001})
+         self.assertEqual(r.status_code, 422)
+ 
++    def test_put_profile_rejects_non_http_linkedin(self):
++        # A non-http(s) scheme (e.g. javascript:) must be rejected.
++        r = self.alice.put("/api/v1/profile",
++                           json={"linkedin_url": "javascript:alert(1)"})
++        self.assertEqual(r.status_code, 422)
++        # A valid https:// URL is still accepted.
++        r = self.alice.put("/api/v1/profile",
++                           json={"linkedin_url": "https://li/in/alice"})
++        self.assertEqual(r.status_code, 200, r.text)
++
+     def test_photo_upload_happy_path_and_key(self):
+         r = self.alice.post("/api/v1/profile/photo",
+                             files={"file": ("a.png", _png_bytes(), "image/png")})
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertIn("photo_url", r.json())
+         with psycopg.connect(_DB_URL) as conn:
+             with conn.cursor() as cur:
+                 cur.execute("SELECT photo_key FROM users WHERE id = %s;", (self.aid,))
+                 key = cur.fetchone()[0]
+         # IDOR: key is bound to the authenticated user's id, not client input.
+         self.assertEqual(key, f"avatars/{self.aid}.png")
+ 
+diff --git a/webapp/auth/oauth.py b/webapp/auth/oauth.py
+index 6b1290c..b073827 100644
+--- a/webapp/auth/oauth.py
++++ b/webapp/auth/oauth.py
+@@ -190,54 +190,64 @@ def _rsa_key_from_jwk(jwk: dict) -> rsa.RSAPublicKey:
+ def verify_id_token(provider: str, id_token: str, jwks: dict, *,
+                     client_id: str, nonce: Optional[str] = None) -> dict:
+     """Verify an RS256 id_token against `jwks` and return its claims.
+ 
+     Checks: signature, alg==RS256, iss matches the provider, aud==client_id,
+     exp in the future, and nonce (if provided) matches.
+     """
+     try:
+         header_b64, payload_b64, sig_b64 = id_token.split(".")
+     except ValueError as exc:
+         raise OAuthError("malformed id_token") from exc
+ 
+-    header = json.loads(_b64u_decode(header_b64))
++    try:
++        header = json.loads(_b64u_decode(header_b64))
++    except Exception as exc:
++        raise OAuthError("malformed id_token") from exc
+     if header.get("alg") != "RS256":
+         raise OAuthError(f"unexpected alg: {header.get('alg')}")
+ 
+     kid = header.get("kid")
+     jwk = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
+     if jwk is None:
+         raise OAuthError("no matching JWK for kid")
+ 
+     pub = _rsa_key_from_jwk(jwk)
+     signing_input = f"{header_b64}.{payload_b64}".encode()
+     try:
+         pub.verify(_b64u_decode(sig_b64), signing_input,
+                    padding.PKCS1v15(), hashes.SHA256())
+     except InvalidSignature as exc:
+         raise OAuthError("bad id_token signature") from exc
+ 
+-    claims = json.loads(_b64u_decode(payload_b64))
++    try:
++        claims = json.loads(_b64u_decode(payload_b64))
++    except Exception as exc:
++        raise OAuthError("malformed id_token") from exc
+ 
+     iss = claims.get("iss", "")
+     expected_iss = _meta(provider)["issuer"]
+     # Google also emits 'accounts.google.com' (no scheme); accept either form.
+     if iss not in (expected_iss, expected_iss.replace("https://", "")):
+         raise OAuthError("issuer mismatch")
+ 
+     aud = claims.get("aud")
+     if aud != client_id and (not isinstance(aud, list) or client_id not in aud):
+         raise OAuthError("audience mismatch")
+ 
+-    if int(claims.get("exp", 0)) <= int(time.time()):
++    try:
++        exp = int(claims.get("exp", 0))
++    except (ValueError, TypeError) as exc:
++        raise OAuthError("bad exp") from exc
++    if exp <= int(time.time()):
+         raise OAuthError("id_token expired")
+ 
+     if nonce is not None and claims.get("nonce") != nonce:
+         raise OAuthError("nonce mismatch")
+ 
+     return claims
+ 
+ 
+ def _coerce_bool(value) -> bool:
+     """Coerce an OIDC claim that may be a real bool or a JSON string
+     ('true'/'false', as LinkedIn emits) into a strict Python bool. Anything
+     not clearly truthy is False — the safe default for email_verified."""
+diff --git a/webapp/auth/users.py b/webapp/auth/users.py
+index 9af2a62..8fedc3a 100644
+--- a/webapp/auth/users.py
++++ b/webapp/auth/users.py
+@@ -36,25 +36,25 @@ class User:
+     email_verified_at: Optional[datetime]
+     created_at: datetime
+     last_login_at: Optional[datetime]
+ 
+     @property
+     def is_verified(self) -> bool:
+         return self.email_verified_at is not None
+ 
+ 
+ # ── Domain errors ──────────────────────────────────────────────────────────────
+ 
+ class InvalidEmailDomain(ValueError):
+-    """Email isn't on an allowed school domain, isn't the lone Booth guest, or is malformed."""
++    """Email domain isn't in the schools registry, or is malformed."""
+ 
+ 
+ class EmailAlreadyRegistered(ValueError):
+     """Tried to create a user with an email that already exists."""
+ 
+ 
+ class InvalidCurrentPassword(ValueError):
+     """Current password didn't match in a password-change attempt."""
+ 
+ 
+ class SamePasswordError(ValueError):
+     """User tried to change their password to the same value as the current one.
+@@ -115,25 +115,25 @@ def _row_to_user(row: dict) -> User:
+         id=row["id"],
+         email=row["email"],
+         email_verified_at=row["email_verified_at"],
+         created_at=row["created_at"],
+         last_login_at=row["last_login_at"],
+     )
+ 
+ 
+ def create_user(email: str, password: str) -> User:
+     """Create a new user with a hashed password. Email must be allowed.
+ 
+     Raises:
+-      InvalidEmailDomain — domain / guest rules violated
++      InvalidEmailDomain — email domain not in the schools registry
+       WeakPasswordError  — password too short / long
+       EmailAlreadyRegistered — email taken
+     """
+     e = validate_email(email)
+     validate_password(password)
+     pwd_hash = hash_password(password)
+ 
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             try:
+                 cur.execute(
+                     """
+diff --git a/webapp/push/events.py b/webapp/push/events.py
+index f3a142d..f05afcb 100644
+--- a/webapp/push/events.py
++++ b/webapp/push/events.py
+@@ -38,25 +38,30 @@ async def push_to_user(user_id: int, *, title: str, body: str, data: dict | None
+     410 (dead token) response. Never raises — a push failure must not break
+     the caller.
+     """
+     try:
+         settings = load_settings()
+         if not push_enabled(settings):
+             return
+         # Choke point: honor the user's per-category notification settings.
+         # category=None (legacy callers) is never filtered. B6 passes
+         # category="community"; see notification_settings.CATEGORIES.
+         if category is not None:
+             from webapp.repositories.notification_settings import notifications_allowed
+-            if not notifications_allowed(user_id, category):
++            try:
++                allowed = notifications_allowed(user_id, category)
++            except Exception:
++                logger.exception("notification settings lookup failed; sending anyway")
++                allowed = True
++            if not allowed:
+                 return
+         client = httpx.AsyncClient(http2=True, timeout=10.0)
+         try:
+             for token in tokens_for_user(user_id):
+                 try:
+                     status = await send_push(
+                         token, title=title, body=body, data=data,
+                         interruption_level=interruption_level,
+                         settings=settings, client=client,
+                     )
+                 except Exception:
+                     # One token's transient failure (e.g. a connect timeout)
+diff --git a/webapp/routes/auth_oauth.py b/webapp/routes/auth_oauth.py
+index 8c113b7..09da629 100644
+--- a/webapp/routes/auth_oauth.py
++++ b/webapp/routes/auth_oauth.py
+@@ -15,24 +15,25 @@ from __future__ import annotations
+ import base64
+ import hashlib
+ import hmac
+ import json
+ import logging
+ import os
+ import time
+ from typing import Optional
+ 
+ import httpx
+ from fastapi import APIRouter, Request
+ from fastapi.responses import JSONResponse, RedirectResponse
++from starlette.concurrency import run_in_threadpool
+ 
+ from pipeline.storage import get_storage
+ from webapp.auth import oauth
+ from webapp.auth.sessions import _cookie_secure, attach_session_cookie, create_session
+ from webapp.auth.users import (
+     create_school_user,
+     get_user_by_email,
+     get_user_by_oauth_sub,
+     import_oauth_name,
+     link_oauth_sub,
+     mark_email_verified,
+     normalize_email,
+@@ -243,21 +244,22 @@ async def oauth_callback(provider: str, request: Request,
+         elif domain_is_registered(_domain(identity.email)):
+             user = create_school_user(identity.email, display_name=identity.name)
+             link_oauth_sub(user.id, provider, identity.sub)
+             newly_linked = True
+         # 4) New identity on an unregistered domain -> bounce to sign-up.
+         else:
+             return RedirectResponse("/login?oauth_error=needs_signup", status_code=302)
+ 
+     # Import name + photo on first link only (idempotent; not re-run every login).
+     if newly_linked:
+         import_oauth_name(user.id, identity.name)
+         if identity.picture:
+-            _import_avatar(user.id, identity.picture)  # best-effort, never raises
++            # best-effort, never raises
++            await run_in_threadpool(_import_avatar, user.id, identity.picture)
+     mark_email_verified(user.id)  # provider asserted the email (verified path only)
+ 
+     session = create_session(user.id, user_agent=request.headers.get("user-agent"),
+                              ip_address=None)
+     response = RedirectResponse("/", status_code=302)
+     attach_session_cookie(response, session)
+     response.delete_cookie(cookie_name, path="/")
+     return response
+diff --git a/webapp/routes/onboarding.py b/webapp/routes/onboarding.py
+index d7e813b..d81c7d1 100644
+--- a/webapp/routes/onboarding.py
++++ b/webapp/routes/onboarding.py
+@@ -5,25 +5,25 @@ Purpose: /api/v1 onboarding entry — email+passcode OTP and the school-email
+ Inputs:  session-cookie auth infra; OTP module; schools registry; email
+          verification infra.
+ Outputs: sends OTP / sign-up emails; may create school users; sets a session
+          cookie on OTP verify.
+ Run:     registered in webapp/main.py; e.g. POST /api/v1/auth/otp/request.
+ """
+ 
+ from __future__ import annotations
+ 
+ import ipaddress
+ 
+ from fastapi import APIRouter, Depends, Request
+-from fastapi.responses import JSONResponse, Response
++from fastapi.responses import JSONResponse
+ from pydantic import BaseModel
+ 
+ from webapp.auth import otp as otp_mod
+ from webapp.auth.email_sender import build_verification_email, get_email_sender
+ from webapp.auth.email_verification import issue_verification_token
+ from webapp.auth.sessions import attach_session_cookie, create_session
+ from webapp.auth.users import (
+     EmailAlreadyRegistered,
+     InvalidEmailDomain,
+     get_or_create_school_user,
+     get_user_by_id,
+     normalize_email,
+diff --git a/webapp/routes/profile.py b/webapp/routes/profile.py
+index d017172..eefd5ca 100644
+--- a/webapp/routes/profile.py
++++ b/webapp/routes/profile.py
+@@ -3,25 +3,26 @@ Purpose: /api/v1 profile, avatar upload, and notification-settings endpoints.
+ Inputs:  session-cookie auth (require_auth_api); multipart avatar upload; JSON
+          bodies for profile + settings; STORAGE_* env for the avatar backend.
+ Outputs: UPDATEs users profile fields, writes avatars/{user_id}.{ext} to storage,
+          UPSERTs notification_settings.
+ Run:     registered in webapp/main.py; e.g. GET /api/v1/profile.
+ """
+ 
+ from __future__ import annotations
+ 
+ from typing import Optional
+ 
+ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+-from pydantic import BaseModel, Field
++from pydantic import BaseModel, Field, field_validator
++from starlette.concurrency import run_in_threadpool
+ 
+ from pipeline.storage import get_storage
+ from webapp.auth.dependencies import require_auth_api
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.repositories import notification_settings as notif_repo
+ from webapp.repositories import profile as profile_repo
+ 
+ router = APIRouter(prefix="/api/v1")
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+@@ -30,24 +31,31 @@ _ALLOWED_IMAGE_TYPES = {
+     "image/jpeg": "jpg",
+     "image/png": "png",
+     "image/webp": "webp",
+ }
+ _MAX_PHOTO_BYTES = 5 * 1024 * 1024  # 5 MB
+ 
+ 
+ class ProfileUpdate(BaseModel):
+     display_name: Optional[str] = Field(default=None, max_length=100)
+     bio: Optional[str] = Field(default=None, max_length=2000)
+     linkedin_url: Optional[str] = Field(default=None, max_length=300)
+ 
++    @field_validator("linkedin_url")
++    @classmethod
++    def _linkedin_scheme(cls, v):
++        if v and not (v.startswith("http://") or v.startswith("https://")):
++            raise ValueError("linkedin_url must be an http(s) URL")
++        return v
++
+ 
+ class NotificationSettingsUpdate(BaseModel):
+     proposals: Optional[bool] = None
+     session_reminders: Optional[bool] = None
+     feedback: Optional[bool] = None
+     free_now: Optional[bool] = None
+     community: Optional[bool] = None
+ 
+ 
+ def _profile_json(user_id: int) -> dict:
+     p = profile_repo.get_profile(user_id)
+     if p is None:
+@@ -96,25 +104,25 @@ async def upload_photo(user: User = Depends(require_auth_api),
+     if file.size is not None and file.size > _MAX_PHOTO_BYTES:
+         raise HTTPException(status_code=413, detail="file_too_large")
+ 
+     data = await file.read(_MAX_PHOTO_BYTES + 1)
+     if len(data) > _MAX_PHOTO_BYTES:
+         raise HTTPException(status_code=413, detail="file_too_large")
+     if not _sniff_ok(content_type, data):
+         raise HTTPException(status_code=415, detail="content_does_not_match_type")
+ 
+     ext = _ALLOWED_IMAGE_TYPES[content_type]
+     # Key is derived from the AUTHENTICATED user's id — never from client input.
+     key = f"avatars/{user.id}.{ext}"
+-    get_storage().write(key, data, content_type=content_type)
++    await run_in_threadpool(get_storage().write, key, data, content_type=content_type)
+     profile_repo.set_photo_key(user.id, key)
+     return {"photo_url": get_storage().url(key)}
+ 
+ 
+ @router.get("/settings/notifications")
+ def get_notifications(user: User = Depends(require_auth_api)):
+     return notif_repo.get_settings(user.id)
+ 
+ 
+ @router.put("/settings/notifications", dependencies=_MUTATING)
+ def put_notifications(body: NotificationSettingsUpdate,
+                       user: User = Depends(require_auth_api)):
