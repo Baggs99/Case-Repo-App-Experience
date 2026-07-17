@@ -70,13 +70,26 @@ struct DSTextStyle {
 
     // §1 phone type scale.
     static let h1Tab           = DSTextStyle(font: .archivo(28, weight: 800), tracking: -0.84, lineSpacing: 0)  // -.03em
+    // iPad Home header greeting (canvas 2a: 24px/800/-.03em, smaller than the
+    // phone/tab-label h1Tab because it shares the top row with wordmark+avatar).
+    static let h1TabSmall       = DSTextStyle(font: .archivo(24, weight: 800), tracking: -0.72, lineSpacing: 0)  // -.03em
     static let takeoverDisplay = DSTextStyle(font: .archivo(32, weight: 800), tracking: -1.12, lineSpacing: 0)  // -.035em
     static let cardTitle       = DSTextStyle(font: .archivo(20, weight: 700), tracking: -0.2,  lineSpacing: 0)
     static let rowTitle        = DSTextStyle(font: .archivo(14, weight: 600), tracking: 0,     lineSpacing: 0)
     static let rowTitleStrong  = DSTextStyle(font: .archivo(14.5, weight: 700), tracking: 0,   lineSpacing: 0)
     static let kicker          = DSTextStyle(font: .archivo(10, weight: 600), tracking: 1.6,   lineSpacing: 0)  // .16em caps
     static let meta            = DSTextStyle(font: .archivo(11.5, weight: 400), tracking: 0,   lineSpacing: 0)
+    // Small underlined text actions (canvas: Details/Re-read/Add a firm 11–11.5/600).
+    static let actionLabel     = DSTextStyle(font: .archivo(11.5, weight: 600), tracking: 0,   lineSpacing: 0)
     static let timerLarge      = DSTextStyle(font: .archivo(34, weight: 700), tracking: 0,     lineSpacing: 0)
+
+    // Stepped-timeline label grid (canvas 3a 1484-1497 / 7b 365-377). The days
+    // count is the hero (14/700 tabular ink); firm·date and the readiness tag are
+    // muted small-caps kickers — inverted from the pre-F0 hierarchy.
+    static let timelineFirmKicker  = DSTextStyle(font: .archivo(9, weight: 600),  tracking: 0.9, lineSpacing: 0)  // 9 × .1em caps
+    static let timelineDays        = DSTextStyle(font: .archivo(14, weight: 700), tracking: 0,   lineSpacing: 0)  // tabular hero
+    static let timelineTag         = DSTextStyle(font: .archivo(8, weight: 600),  tracking: 0.8, lineSpacing: 0)  // 8 × .1em caps
+    static let timelineTodayLabel  = DSTextStyle(font: .archivo(8.5, weight: 600), tracking: 1.19, lineSpacing: 0) // 8.5 × .14em caps
 
     static func serif(_ size: CGFloat, italic: Bool = false, weight: CGFloat = 400) -> DSTextStyle {
         DSTextStyle(font: .serifVoice(size, weight: weight, italic: italic), tracking: 0, lineSpacing: size * 0.5)

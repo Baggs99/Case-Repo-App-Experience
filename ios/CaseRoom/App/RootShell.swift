@@ -16,6 +16,7 @@ struct RootShell: View {
     @Environment(SessionStore.self) private var sessionStore
     @Environment(PushCoordinator.self) private var pushCoordinator
     @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.dsPalette) private var palette
     @State private var router = AppRouter.shared
     // The shell owns the drill sheet so the caseroom://drill widget + StartDrillIntent
     // open it reliably regardless of which tab (or a cold launch) is mounted.
@@ -62,7 +63,19 @@ struct RootShell: View {
                 HStack {
                     WordmarkChip()
                     Spacer()
-                    Text(router.selection.label.capitalized).dsText(.h1Tab)
+                    if router.selection == .home {
+                        // Canvas 2a: date kicker stacked over the greeting,
+                        // centered — replaces the plain "Home" tab label.
+                        VStack(spacing: 2) {
+                            Text(HomeViewModel.dateKicker(for: Date())).dsText(.kicker).foregroundStyle(palette.muted)
+                            Text(HomeViewModel.greeting(
+                                hour: Calendar.current.component(.hour, from: Date()),
+                                displayName: sessionStore.user?.name)
+                            ).dsText(.h1TabSmall).foregroundStyle(palette.ink)
+                        }
+                    } else {
+                        Text(router.selection.label.capitalized).dsText(.h1Tab)
+                    }
                     Spacer()
                     avatarButton
                 }
@@ -125,7 +138,14 @@ struct RootShell: View {
     private var selectedTab: some View {
         switch router.selection {
         case .home:
-            TodayView(selectedTab: $router.selection)
+            NavigationStack(path: $router.homePath) {
+                HomeView()
+                    .navigationDestination(for: AppRoute.self) { route in
+                        if case .timelineDetail = route {
+                            TimelineDetailView()
+                        }
+                    }
+            }
         case .library:
             CasesListView()
         case .caseTab:
