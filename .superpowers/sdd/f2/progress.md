@@ -10,13 +10,16 @@ Base commit: 72c4351 (cut from feature/backend-gap after F1 merge)
 - Env: DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer for all xcode* calls. venv = /Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/bin/python.
 
 ## Now
-Plan drafted; plan-review pending.
+Plan-review PASS (after fixes). Executing task loop.
+Order: T1 DS primitives → T2 API → T4 Timeline detail → T3 Home phone → T5 Tablet → T6 close-out.
 
 ## Done
-- (bootstrap above)
+- Bootstrap (above): backend 655, iOS 313.
+- Plan written + committed (c019546).
+- Plan-review (Opus): REQUEST_CHANGES → 2 IMPORTANT (I-1 add profile() for identity/cohort rank; I-2 T4-before-T3 ordering, no stub) + 6 MINOR all fixed in plan. Re-commit pending.
 
 ## Tasks
-(populated after plan-review)
+- (T1..T6 pending)
 
 ## Blocked / decisions needed
 - (none yet)
