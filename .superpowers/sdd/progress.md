@@ -26,3 +26,5 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 - BASE for Task 5 = b5d8bfa
 - Task 5: complete (commits 23b1b0e..5df69bb, review APPROVE). MINORs (ledger): update_settings read-merge-write TOCTOU (per-user toggle, negligible); events.py choke fails-closed on DB error (best-effort push, infra-failure only); dead UPDATE-0-rows setup line in test_no_category_always_sent; "import cycle" comment overstated.
 - BASE for Task 6 = 5df69bb
+- Task 6: complete (commits b9686ad..50e8be3, review APPROVE). IMPORTANT (unbounded file.read before size check → authed OOM) FIXED in 0a21dbe (file.size early-reject + read(cap+1) bounded read; 9/9 tests). MINORs (ledger): jpeg/webp sniff branches + CSRF-reject + filename-traversal IDOR not separately tested (structurally safe).
+- BASE for Task 7 = 0a21dbe
