@@ -26,3 +26,5 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
   - Minor for final triage: reweight_payload calls dimension_averages twice (once via readiness_signal, once inside recommendations) — low-freq path, plan-verbatim.
 - Task 4: complete (commits 49e1639..293d41b, review clean SPEC+CODE PASS). dashboard.diagnostic() additive (+59/-0), regression guard green. Suite 434→437.
   - Minor for final triage: strengths/weaknesses overlap when <4 dims (acceptable snapshot; fixture seeds 5 so untriggered).
+- Task 5: complete (commits bbbe7c6..9bd3e37, review clean SPEC+CODE PASS). timeline_service + router + main.py registration (additive +2). IDOR exhaustively verified: no hole. Suite 437→448.
+  - Minors for final triage: no explicit cross-origin 403 test on mutating routes; GET /timeline/firms 401 not directly asserted (mechanism proven elsewhere).
