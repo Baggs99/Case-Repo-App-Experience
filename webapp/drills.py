@@ -127,3 +127,78 @@ def daily_drill(user_id: int, on: date | None = None) -> dict:
 def bank_document() -> dict:
     """The raw bank JSON ({version, templates}) — the device offline cache."""
     return _BANK
+
+
+# ── B8: global daily gauntlet (date-seeded, same set for everyone) ──────────
+# SEAMS ONLY (OD-B8-1): 6 slots served by the 3 existing generator types (2 each),
+# every payload flagged provisional. daily_set() is the swap-point the future
+# question-bank provider replaces — see docs/superpowers/notes/2026-07-17-drills-bank-integration.md.
+
+#: The gauntlet fills this many slots. "Six types" is the future (bank) vision;
+#: today it is 6 slots drawn from the 3 generator types, 2 of each.
+GAUNTLET_SLOTS: int = 6
+
+
+def _slot_seed(day: date, i: int) -> int:
+    """Per-slot deterministic seed from the DATE ONLY (never the user) so the set
+    is identical for everyone and stable all day, but each slot draws distinctly."""
+    return int(hashlib.sha256(f"gauntlet:{day.isoformat()}:{i}".encode()).hexdigest()[:8], 16)
+
+
+def daily_set(on: date | None = None) -> list[dict]:
+    """Today's global gauntlet: `GAUNTLET_SLOTS` full wire drills (with answers,
+    for server-side scoring), each carrying its `slot` index. Date-only seeded —
+    the SAME set for every user, deterministic across a day. Types are spread
+    evenly (2 of each of the 3 generator types)."""
+    day = on or datetime.now(timezone.utc).date()
+    day_seed = int(hashlib.sha256(f"gauntlet:{day.isoformat()}".encode()).hexdigest()[:8], 16)
+    out: list[dict] = []
+    for i in range(GAUNTLET_SLOTS):
+        dtype = _TYPES[(day_seed + i) % len(_TYPES)]  # 6 slots / 3 types → 2 each
+        sub = _slot_seed(day, i)
+        candidates = [t for t in _BANK["templates"] if t["drill_type"] == dtype]
+        template = random.Random(sub).choice(candidates)
+        drill = generate_drill(template, sub)
+        drill["slot"] = i
+        out.append(drill)
+    return out
+
+
+def public_drill(wire: dict) -> dict:
+    """Wire-safe view of a gauntlet slot for the client: prompt + choices + the
+    numeric literals, but NEVER the answer/explanation (the server re-scores on
+    submit, so the leaderboard can't be gamed by reading the payload)."""
+    pub = {
+        "slot": wire["slot"],
+        "drill_type": wire["drill_type"],
+        "key": wire["key"],
+        "prompt": wire["prompt"],
+        "numbers": wire["numbers"],
+    }
+    if "choices" in wire:
+        pub["choices"] = wire["choices"]
+    return pub
+
+
+def score_slot(wire: dict, *, value: float | None = None,
+               choice_index: int | None = None) -> bool:
+    """Score one submitted slot answer against its generated wire drill. Numeric
+    drills accept a percentage band (`tolerance_pct`) or an order-of-magnitude
+    band (`tolerance_factor`); choice drills compare the selected index. A missing
+    answer is always wrong."""
+    ans = wire["answer"]
+    if ans["kind"] == "numeric":
+        if value is None:
+            return False
+        target = float(ans["value"])
+        if "tolerance_pct" in ans:
+            tol = abs(target) * float(ans["tolerance_pct"]) / 100.0
+            return abs(float(value) - target) <= tol
+        if "tolerance_factor" in ans:
+            f = float(ans["tolerance_factor"])
+            lo, hi = sorted((target / f, target * f))  # sorted() so a negative target still bands correctly
+            return lo <= float(value) <= hi
+        return float(value) == target
+    if ans["kind"] == "choice":
+        return choice_index is not None and int(choice_index) == int(ans["correct_index"])
+    return False
