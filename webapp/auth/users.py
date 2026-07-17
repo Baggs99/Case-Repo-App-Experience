@@ -340,3 +340,54 @@ def mark_email_verified(user_id: int) -> None:
                 (user_id,),
             )
     logger.info("Marked user id=%d as email-verified", user_id)
+
+
+# ── OAuth (OIDC) linking ────────────────────────────────────────────────────────
+
+_OAUTH_SUB_COLUMNS = {"google": "google_sub", "linkedin": "linkedin_sub"}
+
+
+def _oauth_column(provider: str) -> str:
+    col = _OAUTH_SUB_COLUMNS.get(provider)
+    if col is None:
+        raise ValueError(f"unknown oauth provider: {provider!r}")
+    return col
+
+
+def get_user_by_oauth_sub(provider: str, sub: str) -> Optional[User]:
+    """Return the user linked to this provider `sub`, or None. The column name
+    comes from a fixed whitelist (never interpolated user input)."""
+    column = _oauth_column(provider)
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"SELECT id, email, email_verified_at, created_at, last_login_at "
+                f"FROM users WHERE {column} = %s;",
+                (sub,),
+            )
+            row = cur.fetchone()
+    return _row_to_user(row) if row else None
+
+
+def link_oauth_sub(user_id: int, provider: str, sub: str) -> None:
+    """Attach a provider `sub` to a user (idempotent). Column from whitelist."""
+    column = _oauth_column(provider)
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE users SET {column} = %s WHERE id = %s;",
+                (sub, user_id),
+            )
+
+
+def import_oauth_name(user_id: int, name: Optional[str]) -> None:
+    """Set display_name from the provider only if the user has none yet."""
+    if not name:
+        return
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET display_name = %s "
+                "WHERE id = %s AND display_name IS NULL;",
+                (name, user_id),
+            )
