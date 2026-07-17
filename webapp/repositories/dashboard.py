@@ -168,7 +168,6 @@ def _rule_difficulty_ladder(cur, user_id: int,
     if not row or row["n"] < 3 or row["mean_grade"] is None \
             or float(row["mean_grade"]) < LADDER_MIN_GRADE:
         return None
-    mean_grade = float(row["mean_grade"])
 
     cur.execute(
         """
@@ -202,7 +201,7 @@ def _rule_difficulty_ladder(cur, user_id: int,
     )
     row = cur.fetchone()
     if row:
-        row["why"] = (f"You're averaging {mean_grade:.1f} on recent cases "
+        row["why"] = (f"You're consistently scoring well on recent cases "
                       f"— ready to step up to {row['difficulty']} "
                       f"{row['case_type']}.")
     return row
