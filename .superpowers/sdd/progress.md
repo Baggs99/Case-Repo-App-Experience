@@ -20,3 +20,5 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 - BASE for Task 2 = 83f7da6
 - Task 2: complete (commits c322094..f5c0e15, review APPROVE, no findings).
 - BASE for Task 3 = f5c0e15
+- Task 3: complete (commits a0f25f9..fe1f03c, review APPROVE). MINORs (ledger): stale "Booth guest" docstrings in users.py (InvalidEmailDomain, create_user); signup.html/base.html Booth invite-only copy stale under registry model (template copy, out of B5 code scope).
+- BASE for Task 4 = fe1f03c

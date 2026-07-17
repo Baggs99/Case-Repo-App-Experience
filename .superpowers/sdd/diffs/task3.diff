@@ -1,0 +1,302 @@
+=== log ===
+fe1f03c Add schools registry repo and registry-backed email validation
+
+=== stat ===
+ tests/test_auth_email_domains.py | 55 ++++++++++++++++++++++++++++-----------
+ tests/test_schools_registry.py   | 56 ++++++++++++++++++++++++++++++++++++++++
+ webapp/auth/users.py             | 48 +++++++++++++++++++---------------
+ webapp/repositories/schools.py   | 47 +++++++++++++++++++++++++++++++++
+ 4 files changed, 170 insertions(+), 36 deletions(-)
+
+=== diff -U10 ===
+diff --git a/tests/test_auth_email_domains.py b/tests/test_auth_email_domains.py
+index 7363e60..b4cd2d3 100644
+--- a/tests/test_auth_email_domains.py
++++ b/tests/test_auth_email_domains.py
+@@ -1,27 +1,52 @@
+-"""Tests for school-email domain allowlist."""
++"""
++Tests for registry-backed school-email validation (OD-B5-2). The schools
++registry (migration 023) is the allowlist; validate_email now hits the DB.
++"""
+ 
+-import pytest
++from __future__ import annotations
+ 
+-from webapp.auth.users import InvalidEmailDomain, validate_email
++import unittest
+ 
++from tests.test_ws_integration import _READY
+ 
+-def test_yale_edu_allowed():
+-    assert validate_email("student@yale.edu") == "student@yale.edu"
+ 
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestEmailDomains(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
+ 
+-def test_umich_edu_allowed():
+-    assert validate_email("rossmba@umich.edu") == "rossmba@umich.edu"
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
+ 
++    def test_yale_edu_allowed(self):
++        from webapp.auth.users import validate_email
++        self.assertEqual(validate_email("student@yale.edu"), "student@yale.edu")
+ 
+-def test_booth_guest_allowed():
+-    assert validate_email("acannata@chicagobooth.edu") == "acannata@chicagobooth.edu"
++    def test_umich_edu_allowed(self):
++        from webapp.auth.users import validate_email
++        self.assertEqual(validate_email("rossmba@umich.edu"), "rossmba@umich.edu")
+ 
++    def test_booth_domain_now_registered(self):
++        # Registry model: chicagobooth.edu is a full school domain now.
++        from webapp.auth.users import validate_email
++        self.assertEqual(validate_email("anyone@chicagobooth.edu"),
++                         "anyone@chicagobooth.edu")
+ 
+-def test_other_booth_rejected():
+-    with pytest.raises(InvalidEmailDomain, match="invited"):
+-        validate_email("other@chicagobooth.edu")
++    def test_unregistered_domain_rejected(self):
++        from webapp.auth.users import InvalidEmailDomain, validate_email
++        with self.assertRaises(InvalidEmailDomain):
++            validate_email("user@gmail.com")
+ 
++    def test_malformed_rejected(self):
++        from webapp.auth.users import InvalidEmailDomain, validate_email
++        with self.assertRaises(InvalidEmailDomain):
++            validate_email("not-an-email")
+ 
+-def test_random_domain_rejected():
+-    with pytest.raises(InvalidEmailDomain):
+-        validate_email("user@gmail.com")
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_schools_registry.py b/tests/test_schools_registry.py
+new file mode 100644
+index 0000000..b5cbf6f
+--- /dev/null
++++ b/tests/test_schools_registry.py
+@@ -0,0 +1,56 @@
++"""
++Purpose: schools registry lookups + registry-backed validate_email.
++Inputs:  seeded dev Postgres via tests.test_ws_integration (_DB_URL/_READY);
++         schools seeded by migration 023.
++Outputs: no writes; read-only.
++Run:     .venv/bin/python -m pytest tests/test_schools_registry.py -q
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestSchoolsRegistry(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()  # opens the pool via app lifespan
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def test_get_school_by_domain(self):
++        from webapp.repositories.schools import get_school_by_domain
++        s = get_school_by_domain("yale.edu")
++        self.assertIsNotNone(s)
++        self.assertEqual(s["domain"], "yale.edu")
++        self.assertIn("Yale", s["name"])
++
++    def test_domain_is_registered(self):
++        from webapp.repositories.schools import domain_is_registered
++        self.assertTrue(domain_is_registered("umich.edu"))
++        self.assertFalse(domain_is_registered("gmail.com"))
++
++    def test_validate_email_registry_backed(self):
++        from webapp.auth.users import validate_email, InvalidEmailDomain
++        self.assertEqual(validate_email("Someone@Yale.edu"), "someone@yale.edu")
++        with self.assertRaises(InvalidEmailDomain):
++            validate_email("user@gmail.com")
++
++    def test_school_id_for_email(self):
++        from webapp.auth.users import school_id_for_email
++        from webapp.repositories.schools import get_school_by_domain
++        self.assertEqual(school_id_for_email("x@umich.edu"),
++                         get_school_by_domain("umich.edu")["id"])
++        self.assertIsNone(school_id_for_email("x@gmail.com"))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/auth/users.py b/webapp/auth/users.py
+index 7700f38..895a21a 100644
+--- a/webapp/auth/users.py
++++ b/webapp/auth/users.py
+@@ -17,25 +17,22 @@ from webapp.auth.passwords import (
+     hash_password,
+     needs_rehash,
+     validate_password,
+     verify_password,
+ )
+ from webapp.db import get_pool
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+-# School domains: any address on these suffixes. Chicago Booth: one guest only.
+-# Enforced here and via CHECK constraint on users.email (see db/schema.sql).
+-ALLOWED_DOMAIN_SUFFIXES = ("@yale.edu", "@umich.edu")
+-ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
+-BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
++# Allowed domains now live in the `schools` registry (migration 023), enforced
++# server-side. To add a school, INSERT a schools row — no code change (OD-B5-2).
+ 
+ 
+ @dataclass(frozen=True)
+ class User:
+     id: int
+     email: str
+     email_verified_at: Optional[datetime]
+     created_at: datetime
+     last_login_at: Optional[datetime]
+ 
+@@ -66,46 +63,55 @@ class SamePasswordError(ValueError):
+     """
+ 
+ 
+ # ── Validation ─────────────────────────────────────────────────────────────────
+ 
+ def normalize_email(email: str) -> str:
+     """Lowercase + strip. Returns the canonical form."""
+     return (email or "").strip().lower()
+ 
+ 
++def domain_of(email: str) -> str:
++    """Return the lowercase domain part of a normalized email ('' if malformed)."""
++    e = normalize_email(email)
++    return e.split("@", 1)[1] if e.count("@") == 1 else ""
++
++
+ def validate_email(email: str) -> str:
+-    """Return the normalized email iff it's on an allowed school domain or Booth guest.
++    """Return the normalized email iff its domain is in the schools registry.
+ 
+-    Conservative: single '@', suffix / allow-list checks. Verification email
+-    is the actual proof of inbox control.
++    The registry IS the school allowlist (OD-B5-2): a domain is allowed exactly
++    when a schools row exists for it. Verification of inbox control happens via
++    the sign-up link / OTP code.
++
++    Raises InvalidEmailDomain for a malformed address or an unregistered domain.
+     """
++    from webapp.repositories.schools import domain_is_registered  # avoid import cycle
++
+     e = normalize_email(email)
+     if "@" not in e or e.count("@") != 1:
+         raise InvalidEmailDomain("Email address looks malformed.")
+-    local = e.split("@")[0]
++    local, domain = e.split("@", 1)
+     if not local:
+         raise InvalidEmailDomain("Email address is missing the local part.")
+-
+-    if any(e.endswith(suffix) for suffix in ALLOWED_DOMAIN_SUFFIXES):
+-        return e
+-    if e == ALLOWED_BOOTH_EMAIL:
+-        return e
+-    if e.endswith(BOOTH_DOMAIN_SUFFIX):
++    if not domain_is_registered(domain):
+         raise InvalidEmailDomain(
+-            "Chicago Booth sign-up is limited to invited addresses on this site."
++            "Sign-up is restricted to registered school email addresses."
+         )
+-    domains = ", ".join(ALLOWED_DOMAIN_SUFFIXES)
+-    raise InvalidEmailDomain(
+-        f"Sign-up is restricted to {domains} addresses "
+-        "and authorized Booth collaborators."
+-    )
++    return e
++
++
++def school_id_for_email(email: str) -> Optional[int]:
++    """Return the school id for the email's domain, or None if unregistered."""
++    from webapp.repositories.schools import get_school_by_domain
++    school = get_school_by_domain(domain_of(email))
++    return school["id"] if school else None
+ 
+ 
+ # ── CRUD ───────────────────────────────────────────────────────────────────────
+ 
+ def _row_to_user(row: dict) -> User:
+     return User(
+         id=row["id"],
+         email=row["email"],
+         email_verified_at=row["email_verified_at"],
+         created_at=row["created_at"],
+diff --git a/webapp/repositories/schools.py b/webapp/repositories/schools.py
+new file mode 100644
+index 0000000..bcfaec9
+--- /dev/null
++++ b/webapp/repositories/schools.py
+@@ -0,0 +1,47 @@
++"""
++Purpose: Read access to the schools registry (domain -> school). The registry is
++         the source of truth for which email domains may sign up (OD-B5-2).
++Inputs:  schools table (migration 023); DATABASE_URL-backed pool.
++Outputs: no writes; add a school by inserting a row (no code change needed).
++Run:     imported by webapp.auth.users and the onboarding/profile routes.
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++
++def get_school_by_domain(domain: str) -> Optional[dict]:
++    """Return {id, name, domain} for a registered domain, else None."""
++    d = (domain or "").strip().lower()
++    if not d:
++        return None
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT id, name, domain FROM schools WHERE domain = %s;",
++                (d,),
++            )
++            return cur.fetchone()
++
++
++def get_school_by_id(school_id: int) -> Optional[dict]:
++    """Return {id, name, domain} for a school id, else None."""
++    if school_id is None:
++        return None
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT id, name, domain FROM schools WHERE id = %s;",
++                (school_id,),
++            )
++            return cur.fetchone()
++
++
++def domain_is_registered(domain: str) -> bool:
++    """True iff `domain` matches a schools row."""
++    return get_school_by_domain(domain) is not None
