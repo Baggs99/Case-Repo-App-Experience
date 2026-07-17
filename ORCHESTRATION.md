@@ -13,7 +13,7 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | MERGED 7b119ec | 0e978d5 | 420 phase / 478 integration |
 | B2 guest | bgap/b2-guest | ~/dev/bgap-b2 | MERGED | 55d0f55 | 451 phase / 545 integration |
 | B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | MERGED | c1df02c | 452 phase / 512 integration |
-| B3 sessionflow | bgap/b3-sessionflow | ~/dev/bgap-b3 | DISPATCHED w3 | — | — |
+| B3 sessionflow | bgap/b3-sessionflow | ~/dev/bgap-b3 | MERGED | 390ef3b | 576 phase / 616 integration |
 | B6 community | bgap/b6-community | ~/dev/bgap-b6 | MERGED | d9291ab | 552 phase / 585 integration |
 | B8 drills-agg | bgap/b8-drills-agg | ~/dev/bgap-b8 | DISPATCHED w4 | — | — |
 
@@ -85,6 +85,13 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   already 403 at route layer — seam 3 not needed). swap_invite_pending
   stays hardcoded false until B3 merges (LEFT JOIN seam in B6 report).
   Integration 585 passed (545+40).
+
+- 2026-07-17 B3 → feature/backend-gap (phase head 390ef3b). Zero conflicts.
+  Wired B6's swap_invite_pending seam at merge (EXISTS against
+  swap_invites in connections.list_accepted — EXISTS not LEFT JOIN to
+  avoid row dup when both directions have pending invites). Integration
+  616 passed (585+31). B3 DEFERRED notes incl. the Task-7 residual
+  (banked earlier) live in bgap-b3-report. 7 of 8 phases merged.
 
 ## Escalations queued for Thomas
 

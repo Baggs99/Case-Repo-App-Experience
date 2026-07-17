@@ -37,9 +37,7 @@ def _card(row: dict, *, with_decor: bool = False) -> dict:
            "photo_url": _photo_url(row["photo_key"]), "bio": row["bio"]}
     if with_decor:
         out["free_now"] = bool(row["free_now"])
-        # B3 (session swap) is unmerged — no swap table exists on this branch.
-        # This decoration lights up only once B3 lands a swap-invite table.
-        out["swap_invite_pending"] = False
+        out["swap_invite_pending"] = bool(row.get("swap_invite_pending"))
     return out
 
 

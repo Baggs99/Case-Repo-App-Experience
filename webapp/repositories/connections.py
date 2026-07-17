@@ -98,7 +98,12 @@ def list_accepted(user_id: int) -> list[dict]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"SELECT other.id AS user_id, {_CARD.replace('u.', 'other.')},"
-                f"       (av.user_id IS NOT NULL) AS free_now"
+                f"       (av.user_id IS NOT NULL) AS free_now,"
+                f"       EXISTS (SELECT 1 FROM swap_invites si"
+                f"               WHERE si.state = 'pending'"
+                f"                 AND ((si.initiator_id = other.id AND si.invitee_id = %(u)s)"
+                f"                   OR (si.initiator_id = %(u)s AND si.invitee_id = other.id))"
+                f"       ) AS swap_invite_pending"
                 f" FROM connections c"
                 f" JOIN users other ON other.id ="
                 f"      CASE WHEN c.user_id = %(u)s THEN c.friend_id ELSE c.user_id END"
