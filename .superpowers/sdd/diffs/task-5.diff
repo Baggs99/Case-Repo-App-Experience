@@ -1,0 +1,459 @@
+=== diff --stat ===
+ tests/test_b1_proposals_open.py  | 128 +++++++++++++++++++++++++++++++++++++++
+ webapp/repositories/proposals.py |  91 ++++++++++++++++++++--------
+ webapp/routes/proposals.py       |  43 ++++++++++++-
+ 3 files changed, 236 insertions(+), 26 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 4f65ebb..01f611c 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -183,16 +183,144 @@ class TestClaim(unittest.TestCase):
+     def test_claim_case_less_now_needs_negotiation(self):
+         tok = self._mk_open(self.alice, case_id=None)
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertTrue(r.json()["accepted"])
+         self.assertIsNone(r.json()["session_id"])
+         self.assertTrue(r.json()["needs_negotiation"])
+ 
+     def test_double_claim_409(self):
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
+         self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
+ 
+ 
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestCounter(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Counter Case', 'b1 counter case',"
++                    " 'DevSchool', 2092, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _propose_to_bob(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
++        return self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": self.case_id,
++            "from_role": "interviewer", "proposed_times": [when.isoformat()],
++        }).json()["id"]
++
++    def test_recipient_counters_then_proposer_accepts(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
++        r = self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
++        self.assertEqual(r.status_code, 200, r.text)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT state, counter_by FROM proposals WHERE id = %s;", (pid,))
++                state, counter_by = cur.fetchone()
++        self.assertEqual(state, "countered")
++        self.assertEqual(counter_by, self.bid)
++        # Original proposer (Alice) accepts a counter time -> session created.
++        r = self.alice.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
++        self.assertEqual(r.status_code, 200, r.text)
++        sid = r.json()["session_id"]
++        self.assertIsNotNone(sid)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT scheduled_at FROM practice_sessions WHERE id = %s;", (sid,))
++                sched = cur.fetchone()[0]
++        self.assertEqual(sched.astimezone(timezone.utc), t1)
++
++    def test_only_recipient_may_counter(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
++        # Proposer cannot counter their own proposal; existence undisclosed -> 404.
++        self.assertEqual(self.alice.post(f"/api/proposals/{pid}/counter",
++                                         json={"times": [t1]}).status_code, 404)
++        # Third party cannot either.
++        self.assertEqual(self.cara.post(f"/api/proposals/{pid}/counter",
++                                        json={"times": [t1]}).status_code, 404)
++
++    def test_one_round_only(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
++        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
++                                       json={"times": [t1]}).status_code, 200)
++        # A second counter (from 'countered') is rejected — one round only.
++        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
++                                       json={"times": [t1]}).status_code, 409)
++
++    def test_counter_times_capped_at_three(self):
++        pid = self._propose_to_bob()
++        times = [(datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
++                 for d in range(2, 6)]  # 4 times
++        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
++                                       json={"times": times}).status_code, 422)
++
++    def test_accept_of_counter_requires_a_listed_time(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
++        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
++        bogus = (datetime.now(timezone.utc) + timedelta(days=9)).isoformat()
++        r = self.alice.post(f"/api/proposals/{pid}/accept", json={"time": bogus})
++        self.assertEqual(r.status_code, 409)
++
++    def test_recipient_cannot_accept_countered(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
++        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
++        # Only the original proposer accepts from 'countered'; Bob gets 404.
++        r = self.bob.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
++        self.assertEqual(r.status_code, 404)
++
++    def test_accept_case_less_scheduled_needs_negotiation(self):
++        # DD-1: a case-less ("interviewer decides") scheduled proposal accepted
++        # via POST /accept marks accepted with no session (B3 negotiation).
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
++        pid = self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": None,
++            "from_role": "interviewer", "proposed_times": [when.isoformat()],
++        }).json()["id"]
++        r = self.bob.post(f"/api/proposals/{pid}/accept",
++                          json={"scheduled_at": when.isoformat()})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNone(r.json()["session_id"])
++        self.assertTrue(r.json()["needs_negotiation"])
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index 1cfc91d..29a7b14 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -106,28 +106,56 @@ def claim_proposal(token: str, user_id: int) -> dict:
+                 cur.execute("UPDATE proposals SET state = 'accepted',"
+                             " responded_at = NOW() WHERE id = %s;", (prop["id"],))
+                 result.update(state="accepted", session_id=None,
+                               accepted=True, needs_negotiation=True)
+                 return result
+ 
+             session_id = _create_session_within(cur, prop, None)
+             cur.execute("UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                         " session_id = %s WHERE id = %s;", (session_id, prop["id"]))
+             result.update(state="accepted", session_id=session_id,
+                           accepted=True, needs_negotiation=False)
+             return result
+ 
+ 
++def counter_proposal(proposal_id: int, user_id: int,
++                     times: list[datetime]) -> dict:
++    """Recipient's one-round "Suggest new time" (spec §5.2). Only the recipient,
++    only from 'pending'. Returns the countered row (incl. from_user_id, for the
++    proposal_countered push to the proposer)."""
++    if not times:
++        raise TransitionError(400, "Provide at least one counter time")
++    if len(times) > MAX_PROPOSED_TIMES:
++        raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} counter times")
++    iso = [t.isoformat() for t in times]
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
++                        " FOR UPDATE;", (proposal_id,))
++            prop = cur.fetchone()
++            if prop is None or user_id != prop["to_user_id"]:
++                raise TransitionError(404, "No such proposal")
++            if prop["state"] != "pending":
++                raise TransitionError(409, f"Proposal is already {prop['state']}")
++            cur.execute(
++                "UPDATE proposals SET state = 'countered', counter_times_json = %s,"
++                " counter_by = %s, countered_at = NOW() WHERE id = %s"
++                f" RETURNING {_COLS.replace('p.', '')};",
++                (Jsonb(iso), user_id, proposal_id),
++            )
++            return cur.fetchone()
++
++
+ def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
+                     case_id: Optional[int], from_role: str,
+                     message: Optional[str],
+                     proposed_times: list[datetime]) -> dict:
+     if to_user_id is not None and from_user_id == to_user_id:
+         raise TransitionError(400, "You can't propose to yourself")
+     if len(proposed_times) > MAX_PROPOSED_TIMES:
+         raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} proposed times")
+     # Burned only checkable when both case and candidate are known up front;
+     # open-link / case-less proposals defer the check to claim/accept.
+     if case_id is not None and to_user_id is not None:
+         if is_burned(candidate_of(from_user_id, to_user_id, from_role), case_id):
+             raise TransitionError(409, "This case is burned for the would-be candidate")
+ 
+@@ -177,63 +205,78 @@ def inbox(user_id: int) -> list[dict]:
+             return cur.fetchall()
+ 
+ 
+ def pending_count(user_id: int) -> int:
+     """Nav badge. Uses idx_proposals_inbox; called on every page render."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute("SELECT COUNT(*) FROM proposals"
+                         " WHERE to_user_id = %s AND state = 'pending';",
+                         (user_id,))
+             return cur.fetchone()[0]
+ 
+ 
+ def respond(proposal_id: int, user_id: int, *, accept: bool,
+-            scheduled_at: Optional[datetime]) -> dict:
+-    """Accept (creates + links the session) or decline. Only the recipient,
+-    only while pending. Returns the proposal row (with session_id on accept).
++            scheduled_at: Optional[datetime] = None,
++            counter_time: Optional[datetime] = None) -> dict:
++    """Accept or decline. 'pending' → the recipient acts (existing flow).
++    'countered' → the original proposer acts, choosing counter_time from the
++    stored counter times (spec §5.2). Case-less accepts mark the proposal
++    accepted with session_id NULL and needs_negotiation=True (B3 negotiation).
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
+                         " FOR UPDATE;", (proposal_id,))
+             prop = cur.fetchone()
+-            if prop is None or user_id != prop["to_user_id"]:
+-                # Existence undisclosed to non-recipients (DV-11 philosophy).
++            if prop is None:
+                 raise TransitionError(404, "No such proposal")
+-            if prop["state"] != "pending":
+-                raise TransitionError(409, f"Proposal is already {prop['state']}")
++
++            state = prop["state"]
++            if state == "pending":
++                if user_id != prop["to_user_id"]:
++                    raise TransitionError(404, "No such proposal")
++            elif state == "countered":
++                if user_id != prop["from_user_id"]:
++                    raise TransitionError(404, "No such proposal")
++            else:
++                # DV-11: existence undisclosed to non-participants — a stranger
++                # gets the same 404 as a missing proposal, only a participant
++                # sees the 409 "already {state}".
++                if user_id not in (prop["from_user_id"], prop["to_user_id"]):
++                    raise TransitionError(404, "No such proposal")
++                raise TransitionError(409, f"Proposal is already {state}")
+ 
+             if not accept:
+                 cur.execute(
+                     "UPDATE proposals SET state = 'declined', responded_at = NOW()"
+                     f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                     (proposal_id,),
+                 )
+                 return cur.fetchone()
+ 
+-            if prop["from_role"] == "interviewer":
+-                interviewer_id, candidate_id = prop["from_user_id"], prop["to_user_id"]
++            if state == "countered":
++                allowed = {datetime.fromisoformat(s)
++                           for s in (prop["counter_times_json"] or [])}
++                if counter_time is None or counter_time not in allowed:
++                    raise TransitionError(409, "Chosen time must be one of the counter times")
++                use_scheduled = counter_time
+             else:
+-                interviewer_id, candidate_id = prop["to_user_id"], prop["from_user_id"]
+-
+-            if is_burned(candidate_id, prop["case_id"]):
+-                raise TransitionError(409, "This case is burned for the would-be candidate")
++                use_scheduled = scheduled_at
+ 
+-            # Resolved outside the locked insert: both are idempotent.
+-            room = get_or_create_room(interviewer_id)
+-            template_id = get_default_rubric_template_id(prop["case_id"], interviewer_id)
++            if prop["case_id"] is None:
++                cur.execute(
++                    "UPDATE proposals SET state = 'accepted', responded_at = NOW()"
++                    f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
++                    (proposal_id,),
++                )
++                row = cur.fetchone()
++                row["needs_negotiation"] = True
++                return row
+ 
+-            cur.execute(
+-                "INSERT INTO practice_sessions (room_id, interviewer_id,"
+-                " candidate_id, case_id, rubric_template_id, scheduled_at)"
+-                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
+-                (room["id"], interviewer_id, candidate_id, prop["case_id"],
+-                 template_id, scheduled_at),
+-            )
+-            session_id = cur.fetchone()["id"]
++            session_id = _create_session_within(cur, prop, use_scheduled)
+             cur.execute(
+                 "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                 f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                 (session_id, proposal_id),
+             )
+             return cur.fetchone()
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index 80c5e7e..b351d1d 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -35,28 +35,33 @@ router = APIRouter(tags=["proposals"])
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class ProposalBody(BaseModel):
+     to_user_id: Optional[int] = None
+     case_id: Optional[int] = None
+     from_role: str = Field(pattern="^(interviewer|candidate)$")
+     message: Optional[str] = Field(default=None, max_length=500)
+     proposed_times: list[datetime] = Field(default_factory=list,
+                                            max_length=repo.MAX_PROPOSED_TIMES)
+ 
+ 
+ class RespondBody(BaseModel):
+     scheduled_at: Optional[datetime] = None
++    time: Optional[datetime] = None  # chosen counter time (counter-accept)
++
++
++class CounterBody(BaseModel):
++    times: list[datetime] = Field(min_length=1, max_length=repo.MAX_PROPOSED_TIMES)
+ 
+ 
+ @router.post("/api/proposals", dependencies=_MUTATING)
+ def create_proposal(body: ProposalBody, background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+     if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     try:
+         proposal = repo.create_proposal(
+             from_user_id=user.id, to_user_id=body.to_user_id,
+             case_id=body.case_id, from_role=body.from_role,
+             message=body.message, proposed_times=body.proposed_times,
+         )
+     except TransitionError as exc:
+@@ -77,35 +82,49 @@ def create_proposal(body: ProposalBody, background: BackgroundTasks,
+ 
+ @router.get("/api/proposals/inbox")
+ def proposal_inbox(user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # T8.3: page loads stand in for cron
+     return {"proposals": repo.inbox(user.id)}
+ 
+ 
+ @router.post("/api/proposals/{proposal_id}/accept", dependencies=_MUTATING)
+ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+                     background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # an 8-day-old proposal must expire, not accept
+     try:
+         prop = repo.respond(proposal_id, user.id, accept=True,
+-                            scheduled_at=body.scheduled_at)
++                            scheduled_at=body.scheduled_at, counter_time=body.time)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
++    if prop["session_id"] is None:
++        # Case-less "interviewer decides" accept — session created in B3
++        # negotiation; still notify the counterpart the proposal was accepted.
++        other = (prop["from_user_id"] if user.id == prop["to_user_id"]
++                 else prop["to_user_id"])
++        if other is not None:
++            background.add_task(
++                push_to_user, other, title="Proposal accepted",
++                body="Your case session proposal was accepted",
++                data={"kind": "accepted", "proposal_id": prop["id"]})
++        return {"accepted": True, "session_id": None, "needs_negotiation": True}
++
+     _send_invites(request, prop["session_id"])
++    other = (prop["from_user_id"] if user.id == prop["to_user_id"]
++             else prop["to_user_id"])
+     background.add_task(
+-        push_to_user, prop["from_user_id"],
++        push_to_user, other,
+         title="Proposal accepted",
+         body="Your case session proposal was accepted",
+         data={"kind": "accepted", "session_id": prop["session_id"]},
+     )
+     return {"accepted": True, "session_id": prop["session_id"],
+             "session_url": f"/session/{prop['session_id']}",
+             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
+ 
+ 
+ @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+ def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+                    user: User = Depends(require_auth_api)):
+     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+     the creator; guests arrive in B2 by overriding require_auth_api."""
+@@ -123,28 +142,48 @@ def claim_proposal(claim_token: str, request: Request, background: BackgroundTas
+             data={"kind": "accepted", "session_id": result["session_id"]},
+         )
+     return result
+ 
+ 
+ @router.post("/api/proposals/{proposal_id}/decline", dependencies=_MUTATING)
+ def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
+     try:
+         repo.respond(proposal_id, user.id, accept=False, scheduled_at=None)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"declined": True}
+ 
+ 
++@router.post("/api/proposals/{proposal_id}/counter", dependencies=_MUTATING)
++def counter_proposal(proposal_id: int, body: CounterBody, background: BackgroundTasks,
++                     user: User = Depends(require_auth_api)):
++    """Recipient's one-round "Suggest new time" (spec §5.2). Pushes
++    proposal_countered to the proposer — the pattern B3 reuses for swap invites.
++    """
++    try:
++        prop = repo.counter_proposal(proposal_id, user.id, body.times)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    background.add_task(
++        push_to_user, prop["from_user_id"],
++        title="New times suggested",
++        body="Your proposal got a counter — pick a time",
++        data={"kind": "proposal_countered", "proposal_id": prop["id"]},
++    )
++    return {"countered": True, "proposal_id": prop["id"],
++            "counter_times": prop["counter_times_json"]}
++
++
+ @router.get("/ics/session-{session_id}.ics")
+ def session_ics(session_id: int, request: Request,
+                 user: User = Depends(require_auth_api)):
+     """Download link for the invite (spec §4.7) — participants only."""
+     session, _ = _session_or_404(session_id, user.id)
+     ics = _build_ics_for(request, session)
+     return Response(
+         ics, media_type="text/calendar; charset=utf-8; method=REQUEST",
+         headers={"Content-Disposition":
+                  f'attachment; filename="caseroom-session-{session_id}.ics"'},
+     )
+ 
+ 
+ def _build_ics_for(request: Request, session: dict) -> str:
