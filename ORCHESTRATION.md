@@ -96,3 +96,15 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   (is_estimate=TRUE) — replace with real 2026-27 cycle dates before launch.
 - B5 DEFERRED (tracked, unscheduled): OTP/signup rate-limiting,
   login_otp_codes reaping, orphaned-avatar cleanup, stale Booth template copy.
+
+## Relayed review verdicts (for phase leads / merge-time checks)
+
+- B3 Task 7 Important #1 (concurrent double-accept race): RESOLVED per
+  relayed Opus re-review (2026-07-17) — claim_invite single-winner under
+  READ COMMITTED verified, loser 409s pre-create, gate precedes claim,
+  SQL parameterized, guards intact; tests/test_b3_swap.py 4 passed.
+  RESIDUAL (non-blocking, check at B3 merge): if create_negotiating_session
+  raises after claim, invite is left state='accepted' w/ null session and
+  invitee cannot retry (404). Optional hardening: one txn around
+  claim+create+attach, or reset invite to pending on create failure.
+  If absent from bgap-b3-report DEFERRED, add at merge.
