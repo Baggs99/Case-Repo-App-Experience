@@ -92,7 +92,11 @@ async def upload_photo(user: User = Depends(require_auth_api),
     if content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=415, detail="unsupported_media_type")
 
-    data = await file.read()
+    # Reject before buffering: never let the read exceed the cap in memory.
+    if file.size is not None and file.size > _MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="file_too_large")
+
+    data = await file.read(_MAX_PHOTO_BYTES + 1)
     if len(data) > _MAX_PHOTO_BYTES:
         raise HTTPException(status_code=413, detail="file_too_large")
     if not _sniff_ok(content_type, data):

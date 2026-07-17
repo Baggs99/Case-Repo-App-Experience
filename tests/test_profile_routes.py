@@ -117,6 +117,14 @@ class TestProfileRoutes(unittest.TestCase):
                             files={"file": ("a.png", big, "image/png")})
         self.assertEqual(r.status_code, 413)
 
+    def test_photo_oversize_still_413_bounded(self):
+        # A body far larger than the cap is still rejected — the handler now
+        # bounds its read to cap+1 instead of buffering the whole upload.
+        big = _png_bytes() + b"\x00" * (6 * 1024 * 1024)
+        r = self.alice.post("/api/v1/profile/photo",
+                            files={"file": ("a.png", big, "image/png")})
+        self.assertEqual(r.status_code, 413)
+
     def test_photo_rejects_spoofed_magic_bytes(self):
         r = self.alice.post("/api/v1/profile/photo",
                             files={"file": ("a.png", b"not-a-real-png", "image/png")})
