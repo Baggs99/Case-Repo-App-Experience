@@ -147,7 +147,9 @@ struct FirmResult: Codable, Equatable {
 }
 
 struct Reweight: Codable, Equatable {
-    let focusDimension: String
+    // Nullable: readiness.py derives focus_dimension from dims[0] and emits null
+    // for a user with no finalized candidate sessions (empty dimension_averages).
+    let focusDimension: String?
     let suggestedDrillType: String
     let extraCases: [Int]
 }

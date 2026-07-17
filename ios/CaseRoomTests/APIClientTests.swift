@@ -701,6 +701,23 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(result.reweight?.extraCases, [12, 19])
     }
 
+    // readiness.py emits focus_dimension: null for a user with no finalized
+    // candidate sessions — the whole FirmResult must still decode.
+    func testFirmResultNoOfferReweightAllowsNullFocusDimension() async throws {
+        stubJSON(#"""
+        {"outcome": "no_offer", "status": "rejected",
+         "reweight": {"focus_dimension": null, "suggested_drill_type": "market_sizing",
+           "extra_cases": []}}
+        """#)
+
+        let result = try await client.firmResult(firmId: 3, outcome: "no_offer")
+
+        XCTAssertEqual(result.outcome, "no_offer")
+        XCTAssertNil(result.reweight?.focusDimension)
+        XCTAssertEqual(result.reweight?.suggestedDrillType, "market_sizing")
+        XCTAssertEqual(result.reweight?.extraCases, [])
+    }
+
     func testFirmResultWaitingOutcomeDecodesSnoozeUntil() async throws {
         stubJSON(#"{"outcome": "waiting", "status": "interviewed", "snooze_until": "2026-07-24"}"#)
 
