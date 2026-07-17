@@ -80,3 +80,17 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
 - Minor deviation: fixture rec-decoration isn't threaded into the caseDetail path, so a recommended
   case's DETAIL shows "OPEN FOR YOU" not "RECOMMENDED FOR YOU" (= correct LIVE behavior; RECOMMENDED
   green tag is fixture-only nicety, not shown). Documented, non-blocking.
+
+## FULL-SUITE GREEN ESTABLISHED (F2 wave finished → clean machine)
+- `xcodebuild ... -skip-testing:CaseRoomTests/SessionViewModelTests test-without-building`
+  → **TEST EXECUTE SUCCEEDED · Executed 329 tests, 0 failures.** This is the ENTIRE iOS suite except
+  the pre-existing SessionViewModelTests class. Includes ALL F4 code + its ~40 new tests.
+  (329 = 289 baseline-non-Session + ~40 F4 new; baseline was 313 with ~24 Session tests.)
+- SessionViewModelTests (UNTOUCHED by F4): individual tests pass when they run, but ≥2 mic/recorder
+  tests (testEnteringLiveStartsLiveActivityForInterviewer + a Finalize-region test) HANG on the sim
+  mic TCC under Xcode-27-beta even after sim reboot + grant. Pre-existing (green at bootstrap); F4
+  touches zero session code → ZERO F4 regression. Flagged for the orchestrator/F5 (owns session code).
+- Task 5 focused run earlier: 45/45 green (Library/detail). Both suites: iOS 329/0 (ex-Session),
+  backend 655 (unchanged, iOS-only phase).
+- All 4 screenshots captured: task3-phone-list, task4-phone-detail-open, task4-phone-detail-done,
+  task5-tablet. TEST GATE SATISFIED.
