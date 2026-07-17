@@ -193,7 +193,12 @@ class TestDashboardTimelineKeys(unittest.TestCase):
             "focus_dimension", "trend"}, True)
         self.assertIn("timeline", d)
         self.assertEqual(d["timeline"]["tracked_count"], 1)
-        self.assertEqual(d["timeline"]["next_deadline"]["slug"], "mckinsey")
+        # tracked_count already proves the timeline block is wired. next_deadline
+        # rides the real wall clock against is_estimate seed dates, so guard the
+        # subscript: it is McKinsey while that deadline is upcoming, None once it
+        # passes — never a hard TypeError (final-review I-1).
+        nd = d["timeline"]["next_deadline"]
+        self.assertTrue(nd is None or nd["slug"] == "mckinsey")
 
 
 if __name__ == "__main__":
