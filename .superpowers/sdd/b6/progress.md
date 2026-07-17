@@ -39,3 +39,4 @@ Migration numbers: 030 (connections), 031 (groups+members), 033 (leaderboard ind
 - Task 2: complete (commits bcadc28..b8dc4fb, review SPEC PASS / CODE CHANGES_REQUESTED→fixed→clean). Connections router + main.py registration (additive +2). api 7/7 green.
   - IMPORTANT fixed (b8dc4fb): push fired on idempotent re-request → added `created` bool to `request()`, router now gates push on `created` (no self-notification spam). Also strengthened accept-IDOR test (third client). connections_repo now 8/8.
   - Deferred MINOR (final triage): TOCTOU `_user_exists`→FK INSERT (500 not 404 if user deleted between) — negligible.
+- Task 3: complete (commit c2af3a9, review SPEC+CODE PASS, zero findings). Groups migration 031 (groups+group_members+school_leaders+invite_code+schools.campus_city) + repo. 7/7 green, idempotent. C2 (same-cursor role read) + I1 (self-transfer no-op) verified correct.
