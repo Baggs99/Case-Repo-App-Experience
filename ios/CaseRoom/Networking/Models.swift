@@ -116,6 +116,17 @@ struct AcceptedSession: Codable, Equatable {
 // Shared/AvailabilityModels.swift so the widget extension's ToggleFreeNowIntent
 // can decode them too (Task 10).
 
+// The `school` binding on a profile: a {id, name, domain} object (or null for a
+// user with no school_id). Confirmed against webapp/repositories/profile.py:34-42
+// and the B5 contract (bgap-b5-plan §Task "get_profile … school = {id,name,domain}
+// or None"). It is NOT a bare string — a String? here fails to decode the object
+// for any seeded/registered user, which stalls every screen that loads /profile.
+struct SchoolRef: Codable, Equatable {
+    let id: Int
+    let name: String
+    let domain: String
+}
+
 // B5 GET/PUT /api/v1/profile — school & photo_url read-only from the client's view.
 struct ProfileDetail: Codable, Equatable {
     let id: Int
@@ -123,7 +134,7 @@ struct ProfileDetail: Codable, Equatable {
     let displayName: String?
     let bio: String?
     let linkedinUrl: String?
-    let school: String?
+    let school: SchoolRef?
     let photoUrl: String?
 }
 

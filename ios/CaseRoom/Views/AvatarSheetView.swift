@@ -37,7 +37,7 @@ struct AvatarSheetView: View {
             row(label: "Linked accounts", badge: viewModel.linkedAccountsLinked ? "LINKED" : nil)
             rowDivider
             row(label: "School", badge: viewModel.schoolVerified ? "VERIFIED" : nil,
-                detail: viewModel.profile?.school)
+                detail: viewModel.profile?.school?.name)
             rowDivider
             notificationsRow
             rowDivider

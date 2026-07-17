@@ -52,7 +52,7 @@ final class AvatarSheetViewModelTests: XCTestCase {
 }
 
 private final class FakeProfileService: ProfileService, @unchecked Sendable {
-    var school: String? = "Wharton"
+    var school: SchoolRef? = SchoolRef(id: 1, name: "Wharton", domain: "wharton.upenn.edu")
     var failWrites = false
     var lastWritten: NotificationSettings?
 

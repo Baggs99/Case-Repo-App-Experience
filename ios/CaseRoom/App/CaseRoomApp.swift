@@ -182,7 +182,8 @@ private struct F2HomeTabletHatch: View {
 private enum PreviewHomeTabletFixture {
     static let profile = ProfileDetail(
         id: 1, email: "amara.osei@wharton.upenn.edu", displayName: "Amara Osei",
-        bio: "MBA '27", linkedinUrl: "https://linkedin.com/in/amara-osei", school: "Wharton", photoUrl: nil)
+        bio: "MBA '27", linkedinUrl: "https://linkedin.com/in/amara-osei",
+        school: SchoolRef(id: 1, name: "Wharton", domain: "wharton.upenn.edu"), photoUrl: nil)
 
     static let gauntlet = Gauntlet(
         date: "2026-07-17", setKey: "set-2026-07-17", provisional: false,
@@ -269,7 +270,7 @@ private struct PreviewProfileService: ProfileService {
         ProfileDetail(id: 1, email: "amara.osei@wharton.upenn.edu",
                       displayName: "Amara Osei", bio: "MBA '27",
                       linkedinUrl: "https://linkedin.com/in/amara-osei",
-                      school: "Wharton", photoUrl: nil)
+                      school: SchoolRef(id: 1, name: "Wharton", domain: "wharton.upenn.edu"), photoUrl: nil)
     }
     func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail {
         try await profile()

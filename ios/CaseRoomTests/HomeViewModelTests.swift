@@ -368,7 +368,8 @@ private extension GroupBoard {
 private extension ProfileDetail {
     static let fixture = ProfileDetail(
         id: 1, email: "amara.osei@wharton.upenn.edu", displayName: "Amara Osei",
-        bio: "MBA '27", linkedinUrl: nil, school: "Wharton", photoUrl: nil)
+        bio: "MBA '27", linkedinUrl: nil,
+        school: SchoolRef(id: 1, name: "Wharton", domain: "wharton.upenn.edu"), photoUrl: nil)
 }
 
 private extension TimelineDetail {

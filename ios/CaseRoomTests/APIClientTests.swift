@@ -414,6 +414,20 @@ final class APIClientTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(stats.sessionsFinalized, 0)
     }
 
+    // Regression: the live /api/v1/profile payload sends `school` as a
+    // {id, name, domain} object for any user with a school_id (per the B5
+    // contract). Modeling `ProfileDetail.school` as String? threw a typeMismatch
+    // here, which propagated up HomeViewModel.load()'s single catch and left the
+    // Home tab stuck on "Loading your day…" forever. Captured from the fresh
+    // integration DB (caserepo_bgap_integration, seeded a@yale.edu).
+    func testRealFixture_profileSchoolObject() throws {
+        let data = try loadFixture("profile")
+        let profile = try fixtureDecoder().decode(ProfileDetail.self, from: data)
+        XCTAssertEqual(profile.email, "a@yale.edu")
+        XCTAssertEqual(profile.school?.name, "Yale School of Management")
+        XCTAssertEqual(profile.school?.domain, "yale.edu")
+    }
+
     // MARK: - App Group session configuration
 
     // The default APIClient session must have a cookie store — the group store
@@ -469,20 +483,22 @@ final class APIClientTests: XCTestCase {
     // MARK: - Profile
 
     func testProfileDecodesNullableFields() async throws {
-        stubJSON(#"{"id":5,"email":"a@yale.edu","display_name":"Amara Osei","bio":null,"linkedin_url":"https://linkedin.com/in/amara","school":"Wharton","photo_url":"/avatars/5.jpg"}"#)
+        // `school` is a {id, name, domain} object per the B5 contract, never a
+        // bare string (the earlier string stub masked the live-payload decode bug).
+        stubJSON(#"{"id":5,"email":"a@yale.edu","display_name":"Amara Osei","bio":null,"linkedin_url":"https://linkedin.com/in/amara","school":{"id":2,"name":"Wharton","domain":"wharton.upenn.edu"},"photo_url":"/avatars/5.jpg"}"#)
         let p = try await client.profile()
         XCTAssertEqual(p.id, 5)
         XCTAssertEqual(p.displayName, "Amara Osei")
         XCTAssertNil(p.bio)
         XCTAssertEqual(p.linkedinUrl, "https://linkedin.com/in/amara")
-        XCTAssertEqual(p.school, "Wharton")
+        XCTAssertEqual(p.school?.name, "Wharton")
         XCTAssertEqual(p.photoUrl, "/avatars/5.jpg")
         XCTAssertEqual(StubURLProtocol.recordedRequests.first?.url?.path, "/api/v1/profile")
         XCTAssertEqual(StubURLProtocol.recordedRequests.first?.httpMethod, "GET")
     }
 
     func testUpdateProfileEncodesSnakeCase() async throws {
-        stubJSON(#"{"id":5,"email":"a@yale.edu","display_name":"New Name","bio":"hi","linkedin_url":null,"school":"Wharton","photo_url":null}"#)
+        stubJSON(#"{"id":5,"email":"a@yale.edu","display_name":"New Name","bio":"hi","linkedin_url":null,"school":{"id":2,"name":"Wharton","domain":"wharton.upenn.edu"},"photo_url":null}"#)
         _ = try await client.updateProfile(displayName: "New Name", bio: "hi", linkedinUrl: nil)
         let request = StubURLProtocol.recordedRequests.first!
         XCTAssertEqual(request.url?.path, "/api/v1/profile")

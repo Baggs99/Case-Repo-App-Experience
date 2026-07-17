@@ -23,7 +23,7 @@ final class AvatarSheetViewModel {
         self.service = service
     }
 
-    var schoolVerified: Bool { !(profile?.school ?? "").isEmpty }
+    var schoolVerified: Bool { profile?.school != nil }
     var linkedAccountsLinked: Bool { !(profile?.linkedinUrl ?? "").isEmpty }
 
     func load() async {
