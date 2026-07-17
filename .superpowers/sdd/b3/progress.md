@@ -40,3 +40,4 @@ Status: plan written + self-reviewed + Opus plan-review (CHANGES-REQUESTED, 0 Cr
 ## Task ledger (per subagent-driven-development)
 - Task 1: complete (2a55674..e2551fe, review CLEAN) — migrations 028/029 applied+idempotent, 4 tests green.
 - Task 2: complete (52ad8b2..08e0eb6, review CLEAN + header-doc minor fixed) — STATES/edges, LEFT JOIN cases, create/stamp negotiating helpers, sweep. 17+30 tests green.
+- Task 3: complete (8ea0733..23e8863, review CLEAN) — recap gate repo (candidate_gate/assert/list/viewed/close + RecapGateError). 4+5 green. Minor logged: list oldest-first test under-covers ordering (correct SQL; later tests cover).
