@@ -7,7 +7,8 @@ Inputs:  reads feedback + practice_sessions + drill_attempts + group_members +
 Outputs: dict rows for the API layer; no writes.
 Run:     from webapp.repositories import leaderboards; leaderboards.school_standings()
 Seam:    ACTIVITY_POINTS_SQL + scope_user_ids() are the scoping CTEs B8 reuses;
-         B8 extends the points expression with drill scores (migration 034).
+         the gauntlet run-score term (COALESCE(ga.score,0) * POINTS_PER_GAUNTLET_POINT)
+         is now live — set_key rows feed points, practice drills count as before.
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ from webapp.repositories.drill_attempts import streak_days
 # Weights are tunable; kept as trusted int constants (safe to f-string into SQL).
 POINTS_PER_SESSION: int = 10
 POINTS_PER_DRILL: int = 1
+# Gauntlet run-score weight (B8). Applied to SUM(gauntlet score) so drill
+# *performance*, not raw attempt volume, drives points. Tunable.
+POINTS_PER_GAUNTLET_POINT: int = 2
 
 # CTE body (named `activity_points`) yielding (user_id, points) for every user
 # active in the last 30 days: >=1 finalized session as candidate OR >=1 drill.
@@ -33,7 +37,8 @@ ACTIVITY_POINTS_SQL: str = f"""
 activity_points AS (
     SELECT u.id AS user_id,
            COALESCE(fs.n, 0) * {POINTS_PER_SESSION}
-         + COALESCE(da.n, 0) * {POINTS_PER_DRILL} AS points
+         + COALESCE(da.n, 0) * {POINTS_PER_DRILL}
+         + COALESCE(ga.score, 0) * {POINTS_PER_GAUNTLET_POINT} AS points
     FROM users u
     LEFT JOIN (
         SELECT ps.candidate_id AS uid, COUNT(*) AS n
@@ -46,9 +51,17 @@ activity_points AS (
         SELECT user_id AS uid, COUNT(*) AS n
         FROM drill_attempts
         WHERE completed_at > now() - interval '30 days'
+          AND set_key IS NULL
         GROUP BY user_id
     ) da ON da.uid = u.id
-    WHERE (COALESCE(fs.n, 0) > 0 OR COALESCE(da.n, 0) > 0)
+    LEFT JOIN (
+        SELECT user_id AS uid, SUM(score) AS score
+        FROM drill_attempts
+        WHERE completed_at > now() - interval '30 days'
+          AND set_key IS NOT NULL
+        GROUP BY user_id
+    ) ga ON ga.uid = u.id
+    WHERE (COALESCE(fs.n, 0) > 0 OR COALESCE(da.n, 0) > 0 OR COALESCE(ga.score, 0) > 0)
       AND NOT COALESCE(u.is_guest, FALSE)
 )
 """

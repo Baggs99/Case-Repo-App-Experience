@@ -1,0 +1,150 @@
+# Drills-bank integration contract (B8 seam)
+
+**Status:** SEAMS ONLY (OD-B8-1). The question bank is a separate track. B8 ships a
+global daily gauntlet over the **3 existing generator types**; this note is the
+contract the future bank swaps in against. Every `file:symbol` below resolves
+against the code shipped in B8 Tasks 1–6.
+
+---
+
+## 1. What ships today
+
+`webapp/drills.py:daily_set(on)` returns **6 slots** drawn from the 3 generator
+types in `webapp/drills.py:_TYPES` (`mental_math`, `market_sizing`,
+`framework_recall`), **2 of each**, date-seeded so the set is identical for every
+user and stable across the day. Each slot dict is a full `generate_drill(...)`
+wire drill plus its `"slot"` index. Every gauntlet payload is flagged
+`"provisional": true` (set in `webapp/gauntlet.py:results_for`) — the honest
+signal that these are stand-in generator drills, not bank items.
+
+Migration **019 is RESERVED** for the drills-bank track. B8 deliberately does not
+touch it: B8's own migrations are **034** (`drill_attempts` scoring columns) and
+**035** (rank indexes). When the bank lands, its schema goes in migration 019.
+
+The existing per-user endpoints (`/api/v1/drills/daily`, `/templates`,
+`POST /attempts`) and `webapp/drills.py:daily_drill` / `generate_drill` /
+`bank_document` are untouched — iOS P4 ships against them.
+
+---
+
+## 2. Provider interface
+
+The bank's provider interface is a `DrillProvider` protocol. Today's three pure functions in
+`webapp/drills.py` are its inline stand-in implementation; the bank swaps a real
+one in behind them.
+
+```python
+from typing import Protocol
+from datetime import date
+
+class DrillProvider(Protocol):
+    def daily_set(self, on: date) -> list[Drill]: ...
+        # global, date-seeded, N slots; full drills incl. answers (server-side only)
+    def template_for_user(self, user_id: int, on: date) -> Drill | None: ...
+        # per-user selection hook (spaced repetition / weakness targeting)
+    def score(self, wire: Drill, submitted: SlotAnswer) -> bool: ...
+        # attempt-scoring hook
+```
+
+Each protocol method maps to the function it replaces today:
+
+| Protocol method     | Replaces today                                         |
+|---------------------|--------------------------------------------------------|
+| `daily_set`         | `webapp/drills.py:daily_set`                           |
+| `score`             | `webapp/drills.py:score_slot`                          |
+| `template_for_user` | future per-user selection — today `webapp/drills.py:daily_drill` is user-seeded, but there is no real selection; the bank swaps in genuine targeting |
+
+The gauntlet uses the **global** `daily_set`; `template_for_user` is for the solo
+daily surface, not the shared gauntlet (see §3).
+
+---
+
+## 3. Per-user template selection
+
+The gauntlet stays **global** (one set for everyone — the leaderboard depends on
+it). Per-user selection plugs in at `webapp/drills.py:daily_drill` (the solo
+daily), which the bank's `template_for_user` replaces.
+
+A smart selector already has signals to draw on today, no new plumbing required:
+
+- **Drill-type weakness (gauntlet history):**
+  `webapp/repositories/gauntlet.py:per_type_accuracy` returns
+  `[{drill_type, attempts, correct, accuracy}]` over the user's gauntlet rows;
+  `webapp/repositories/gauntlet.py:weakest_type` returns the lowest-accuracy type
+  (ties break by `_TYPES` order).
+- **Dimension-based weakness (rubric):**
+  `webapp/readiness.py:suggested_drill_type(dimension)` maps a weak rubric
+  dimension to one of the 3 generator types.
+
+A bank-backed `template_for_user` would combine these (weak type/dimension +
+spaced-repetition recency) to pick the next item.
+
+---
+
+## 4. Attempt-scoring interface
+
+Slots carry a wire `answer` produced by `webapp/drills.py:generate_drill`, in one
+of two shapes:
+
+```python
+{"kind": "numeric", "value": <float>, "tolerance_pct": <float>}      # ± percentage band
+{"kind": "numeric", "value": <float>, "tolerance_factor": <float>}   # order-of-magnitude band (÷f .. ×f)
+{"kind": "choice",  "correct_index": <int>}                          # multiple choice
+```
+
+The server re-scores on submit — the answer is **never** sent to the client.
+`webapp/drills.py:public_drill` redacts `answer`/`explanation`, leaving only
+`{slot, drill_type, key, prompt, numbers}` (+ `choices` when present).
+`webapp/drills.py:score_slot(wire, *, value, choice_index)` does the scoring; a
+missing *submitted* answer scores `False`, so the leaderboard can't be gamed by
+reading the payload.
+
+A bank item must expose the **same `answer` shape** (so `score_slot` scores it
+unchanged) **or** ship its own `score()` conforming to the `DrillProvider`
+protocol in §2. Either way the wire contract to the client is unchanged.
+
+---
+
+## 5. Persistence contract
+
+A scored submission lands in `drill_attempts` (the 034 columns `score`,
+`duration_ms`, `set_key`) via `webapp/repositories/gauntlet.py:record_submission`:
+
+- **One row per slot**, `source='server'`, `set_key = <date ISO string>` (e.g.
+  `2026-07-17`), `score` = `1.0`/`0.0` per slot, `duration_ms` per slot.
+- **Run score** = `SUM(score)` per `(user_id, set_key)`.
+- **One-per-day guard** = the per-user **advisory lock**
+  (`pg_advisory_xact_lock`) in `record_submission`, which re-checks for an
+  existing `set_key` row inside the transaction and raises `AlreadySubmitted`.
+  (A UNIQUE index can't express it — the 6 slot rows share `(user_id, set_key)`.)
+
+The leaderboard picks the run score up automatically via
+`webapp/repositories/leaderboards.py:ACTIVITY_POINTS_SQL`: its `ga` subquery sums
+`score` over `set_key IS NOT NULL` rows and weights it by
+`webapp/repositories/leaderboards.py:POINTS_PER_GAUNTLET_POINT`. Practice-drill
+counts (`set_key IS NULL`) are unaffected, so B6 numbers are byte-identical.
+
+A bank-backed provider writes the **same three columns the same way** — no schema
+change, no leaderboard change.
+
+---
+
+## 6. When the bank lands
+
+The concrete checklist for when the bank lands — do these steps, in order:
+
+1. **Land migration 019** — the bank tables (the reserved slot; B8 left it free).
+2. **Implement `DrillProvider`** (§2) over the bank store.
+3. **Point `daily_set` / `score` at the provider** behind a settings flag; keep
+   the 3-type generator (`webapp/drills.py`) as the dev/offline fallback.
+4. **Drop `"provisional": true`** in `webapp/gauntlet.py:results_for` (or gate it
+   on the provider) once real bank items serve the gauntlet.
+5. **Widen the type spread from 3 → 6** in `webapp/drills.py:daily_set` as real
+   question types arrive (the `GAUNTLET_SLOTS = 6` / "2 of each" split is a
+   generator-era stand-in).
+6. **Add per-user selection** via `template_for_user`, wiring the §3 signals
+   (`per_type_accuracy` / `weakest_type` / `suggested_drill_type`).
+7. **Extend `tests/test_b8_gauntlet_gen.py`** to cover the new provider.
+
+Nothing in the API payloads or the `drill_attempts` schema needs to change — the
+seam is entirely internal to the generation/scoring layer.
