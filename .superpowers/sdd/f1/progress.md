@@ -23,11 +23,15 @@ Branch: `fe/f1-shell` · Worktree: `/Users/thomaskgould/dev/fe-f1` · Base: `000
 Locked by tests: `IntentsTests` (URL parse + push fold), `PushRouteTests` (payload parse). Legacy `AppRoute` enum → renamed `DeepLink`; new pinned `AppRoute` = destination registry.
 
 ## Now
-Plan APPROVED (2 rounds; round-2 sync review caught a 4th C1 site + C2 cold-launch, both folded — be346f2). Dispatching T1 implementer (opus, synchronous). All subagents run synchronously per orchestrator.
+T1 DONE + APPROVED (78e7e4e; 304 tests/0 fail = 289+15 AppRouterTests). Dispatching T2 (sonnet). All subagents synchronous.
+
+## Deferred MINOR nits (sweep at close-out)
+- IntentsTests.swift:2 header still says "AppRoute" (tests now exercise DeepLink) — cosmetic, file persists.
+- RootTabView.swift header stale — moot, deleted in T4.
 
 ## Tasks
 - [x] Plan review (Opus) — APPROVED after 2 rounds (be346f2)
-- [ ] T1 AppRoute registry + AppRouter + remap (opus)
+- [x] T1 AppRoute registry + AppRouter + remap (opus) — 78e7e4e, APPROVE
 - [ ] T2 profile/settings models + APIClient (sonnet)
 - [ ] T3 avatar sheet 7a + VM (opus)
 - [ ] T4 RootShell: chrome + re-home + wire (opus)
