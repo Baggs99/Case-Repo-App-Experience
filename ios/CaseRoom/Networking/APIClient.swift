@@ -186,6 +186,22 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         try await send(path: "/api/v1/cases/\(id)", method: "GET")
     }
 
+    // F4 Library screen (Task 1): same /api/v1/cases endpoint as cases(query:)
+    // above, but decodes the full page shape (open_count/done_count) that
+    // drives the retired-done divider + count line. cases(query:) is left
+    // untouched — CasesViewModel/CaseDetailView still use it until Task 4
+    // migrates them onto LibraryService, per the plan's compile-order note.
+    func library(query: CaseQuery = CaseQuery()) async throws -> LibraryPage {
+        var items: [URLQueryItem] = []
+        if let q = query.q { items.append(URLQueryItem(name: "q", value: q)) }
+        if let difficulty = query.difficulty { items.append(URLQueryItem(name: "difficulty", value: difficulty)) }
+        if let industry = query.industry { items.append(URLQueryItem(name: "industry", value: industry)) }
+        if let caseType = query.caseType { items.append(URLQueryItem(name: "case_type", value: caseType)) }
+        if let school = query.school { items.append(URLQueryItem(name: "school", value: school)) }
+        if let limit = query.limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
+        return try await send(path: "/api/v1/cases", method: "GET", queryItems: items)
+    }
+
     // Preview/PDF URLs from the API may be relative same-origin paths;
     // resolve them against baseURL so AsyncImage/ShareLink get absolute URLs.
     nonisolated func resolveURL(_ path: String) -> URL? {
