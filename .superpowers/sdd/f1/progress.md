@@ -1,0 +1,42 @@
+# F1 — Shell & Navigation · Ledger
+
+Branch: `fe/f1-shell` · Worktree: `/Users/thomaskgould/dev/fe-f1` · Base: `000f0c8`
+
+## Bootstrap (DONE)
+- DB `caserepo_fe_f1` created; `db/schema.sql` + all 32 `db/migrations/0*.sql` applied clean (no errors).
+- Worktree `.env` copied from main checkout; `DATABASE_URL=postgresql://localhost/caserepo_fe_f1`; gitignored.
+- Seeded dev users a/b/c@yale.edu (`caseroom-dev-1`) + dummy case via `scripts/seed_caseroom_dev.py`.
+- **Backend baseline: 655 passed / 0 failed** (`$PY -m pytest tests/ -q`, 10.5s). GREEN.
+- **iOS baseline: 289 passed / 0 failed** (`xcodebuild ... -destination id=A10D5A1D-D389-4A71-9523-551C4D08A113 test`). GREEN. `** TEST SUCCEEDED **`.
+- `xcodegen generate` idempotent; `.xcodeproj` gitignored (repo convention).
+- Sim iPhone 17 (A10D5A1D…) booted, mic granted (study.mycase / .CaseRoomTests / com.apple.dt.xctest.tool).
+
+## Entry-point audit (COMPLETE — 8 distinct steering sources; all remapped in Task 1)
+1. `caseroom://drill` (Streak widget widgetURL) → drillRun (Home + drill token)
+2. `caseroom://sessions` (NextSession widget widgetURL) → caseTab
+3. `caseroom://freenow` (tested; no live emitter) → caseTab
+4. push `proposal` → caseTab
+5. push `accepted`/`knock`/`feedback`/`starting_soon` (session_id) → caseTab
+6. push `free_now` (user_id) → caseTab + ProposeNow sheet
+7. `StartDrillIntent` (Siri/Shortcuts) → drillRun ; `NextSessionIntent` (spoken, no nav) ; `ToggleFreeNowIntent` (Siri/Action/widget button, no nav)
+8. APNs device registration (AppDelegate.didRegister…, registerDevice) — unchanged
+Locked by tests: `IntentsTests` (URL parse + push fold), `PushRouteTests` (payload parse). Legacy `AppRoute` enum → renamed `DeepLink`; new pinned `AppRoute` = destination registry.
+
+## Now
+Plan written (`docs/superpowers/plans/2026-07-17-fe-f1-plan.md`). Awaiting Opus plan-review before task dispatch.
+
+## Tasks
+- [ ] Plan review (Opus)
+- [ ] T1 AppRoute registry + AppRouter + remap (opus)
+- [ ] T2 profile/settings models + APIClient (sonnet)
+- [ ] T3 avatar sheet 7a + VM (opus)
+- [ ] T4 RootShell: chrome + re-home + wire (opus)
+- [ ] T5 iPad variant (opus)
+- [ ] Close-out: suites green → whole-branch review → report
+
+## Assumptions (to confirm at review)
+- Notifications = single master pill (writes all 5 B5 categories); granular screen deferred (Decisions §6).
+- Linked-accounts LINKED derived from `linkedin_url` presence — GET /profile lacks OAuth sub flags (backend gap; report recommends follow-up).
+- School VERIFIED ⇐ non-empty `profile.school`.
+- Drill run stays Home-hosted transitionally (F7 moves to Drills tab).
+- "Administer a group" → `.community` seam until F8's create-group route lands.
