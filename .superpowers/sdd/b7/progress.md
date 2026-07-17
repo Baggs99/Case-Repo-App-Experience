@@ -32,3 +32,6 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
   - Minor for final triage: TestDashboardTimelineKeys asserts next_deadline.slug=='mckinsey' via real clock — time-bomb after 2026-09-12 (seed dates are is_estimate stand-ins). Consider guarding next_deadline-None at final review; flag to Thomas.
 - Task 7: complete (commits 0a231b2..e56d529, review clean SPEC+CODE PASS). maintenance.py: sweep_deadline_prompts + daily guard + B5 seam (fail-open). b1-maintenance regression green. Suite 449→452.
   - Minor for final triage: test_daily_guard_runs_once_per_day doesn't isolate guard from snooze throttle (1-then-0 holds even without guard). Could clear snooze between r1/r2. Low value.
+- Task 8: complete (commits 0b21950..ce7c3d7, review clean SPEC+CODE PASS). readiness-signal-seams.md — all 24 file:symbol citations resolve, factually accurate. No new tests (doc).
+
+## Full suite (post all tasks)
