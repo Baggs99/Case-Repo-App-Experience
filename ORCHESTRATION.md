@@ -10,7 +10,7 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 |---|---|---|---|---|---|
 | B1 scheduling | bgap/b1-scheduling | ~/dev/bgap-b1 | DISPATCHED w1 | — | — |
 | B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | DISPATCHED w1 | — | — |
-| B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | PENDING owner answers | — | — |
+| B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | DISPATCHED w1 | — | — |
 | B2 guest | bgap/b2-guest | — | WAITING w2 (needs B1 merged) | — | — |
 | B7 timeline | bgap/b7-timeline | — | WAITING w2 (needs B4 merged) | — | — |
 | B3 sessionflow | bgap/b3-sessionflow | — | WAITING w3 (needs B1,B2,B4) | — | — |
@@ -19,12 +19,12 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 
 ## Owner decisions
 
-| ID | Question | Answer |
+| ID | Question | Answer (2026-07-17) |
 |---|---|---|
-| OD-B5-1 | LinkedIn OAuth at launch? | PENDING (default: skip, Google+OTP only) |
-| OD-B5-2 | School registry scope | PENDING (default: curated seed) |
-| OD-B7-1 | Readiness-signal definition | PENDING (default: dimension-avg threshold) |
-| OD-B8-1 | Gauntlet now vs after drills bank | PENDING (default: seams only) |
+| OD-B5-1 | LinkedIn OAuth at launch? | ALL THREE: Google + LinkedIn OAuth + email OTP. Thomas supplies provider creds later; code 503s cleanly without them. |
+| OD-B5-2 | School registry scope | Whitelist-gated sign-up LINK is the entry step (registry expandable by row insert); verified link → account completion incl. Google/LinkedIn. Follow Dan's existing email-verification code. |
+| OD-B7-1 | Readiness-signal definition | Stand-in OK (threshold default); MUST ship seams doc: what it computes + code access points for future data-driven versions. |
+| OD-B8-1 | Gauntlet now vs after drills bank | Seams only + bank-integration contract doc ("super easy" plug-in for the eventual per-user question DB call). |
 
 ## Merge log
 

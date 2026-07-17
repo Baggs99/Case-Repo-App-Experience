@@ -292,19 +292,38 @@ Anchors: `webapp/auth/users.py:27` (domain whitelist CHECK — also
 (Resend), `webapp/auth/email_verification.py` (token pattern to reuse),
 R2 storage layer (find via `grep -rn "R2\|boto\|s3" webapp/ --include=*.py -l`).
 
-OWNER DECISIONS pending at dispatch time (orchestrator will inject answers
-into your dispatch prompt; if absent, use defaults): OD-B5-1 LinkedIn OAuth
-(default: skip — Google + OTP only, leave `linkedin_url` a plain profile
-field); OD-B5-2 school registry scope (default: curated seed — Yale,
-UMich, Chicago Booth — plus admin-insertable rows, NOT open .edu).
+OWNER DECISIONS — RESOLVED 2026-07-17 (these override the spec §9 ordering;
+record as deviation DV-B5-1 in your plan):
+- OD-B5-1: build ALL THREE — Google OAuth, LinkedIn OAuth, email+passcode
+  OTP. Both OAuth flows: hand-rolled OIDC via httpx, env-config
+  (`GOOGLE_CLIENT_ID/SECRET`, `LINKEDIN_CLIENT_ID/SECRET`), 503 with a
+  clear message when creds absent (dev), token exchange mocked in tests.
+  Thomas provides the provider apps later — nothing may hard-require live
+  creds.
+- OD-B5-2 (owner's words, binding): "the only way a person should be able
+  to get a sign-up link is if they enter their email account and it is
+  verified that their school address is whitelisted. This whitelist is
+  built to be expanded. But for now, providing the email is the first
+  verification step. That step leads to the ability to make an account
+  using your linkedin account and/or google account. Dan has already
+  added email capability. Follow the existing code's lead."
+  Concretely: signup entry = school email → domain must match the schools
+  registry (expandable by inserting rows — no code change to add a school)
+  → sign-up link sent via the EXISTING email-verification infra
+  (`webapp/auth/email_verification.py` + Resend sender — extend, don't
+  replace) → the verified link opens account completion: password (existing
+  path) and/or link Google/LinkedIn. `users.school_id` is stamped from the
+  verified email's domain at completion — the whitelist IS the school
+  verification; no separate later verify step, no code-entry flow.
 
 Migration 022: users gain `bio TEXT`, `photo_key TEXT`, `linkedin_url TEXT`,
-`google_sub TEXT UNIQUE NULL`, `school_id INTEGER NULL REFERENCES schools`;
-DROP the email-domain CHECK constraint (signup validation moves to the
-schools registry, server-side).
-Migration 023: `schools (id, name, domain TEXT UNIQUE, created_at)` +
-seed rows; `school_verifications (id, user_id, school_id, email, code_hash,
-expires_at, verified_at)`.
+`google_sub TEXT UNIQUE NULL`, `linkedin_sub TEXT UNIQUE NULL`,
+`school_id INTEGER NULL REFERENCES schools`; replace the hardcoded
+email-domain CHECK constraint (schema.sql:88, users.py:27) with
+registry-backed server-side validation.
+Migration 023: `schools (id, name, domain TEXT UNIQUE, created_at)` seeded
+yale.edu / umich.edu / chicagobooth.edu; backfill existing users'
+school_id from their email domains.
 Migration 024: `notification_settings (user_id PK/FK, proposals BOOL DEFAULT
 TRUE, session_reminders BOOL DEFAULT TRUE, feedback BOOL DEFAULT TRUE,
 free_now BOOL DEFAULT TRUE, community BOOL DEFAULT TRUE)`.
@@ -329,12 +348,17 @@ Deliver:
   Google's JWKS, upsert on `google_sub`, import name/photo on first link.
   Config via env (`GOOGLE_CLIENT_ID/SECRET`, absent in dev → endpoints 503
   with clear message; tests mock the token exchange).
-- School verification: `POST /api/v1/school/verify/request {email}` —
-  email domain must match a schools row; sends code via existing Resend
-  sender (console in dev) — + `POST /api/v1/school/verify/confirm {code}`
-  → sets `users.school_id`. Signup no longer requires a whitelisted domain
-  (any email can register; school binding is the optional verified step).
-  KEEP existing seeded users working (a/b/c@yale.edu, passwords unchanged).
+- Signup flow per OD-B5-2: `POST /api/v1/signup/request {email}` — domain
+  must match a schools row (404-style neutral error otherwise, no
+  enumeration); sends the sign-up link through the existing verification
+  infra. Link target completes the account (password and/or OAuth link)
+  and stamps school_id. Web `/signup` follows the same gate. LinkedIn
+  OAuth mirrors the Google deliverable above (`/auth/linkedin` +
+  callback, upsert on `linkedin_sub`, OIDC id_token via LinkedIn JWKS).
+  OAuth completion/link is only reachable for a verified school email —
+  an OAuth identity whose email isn't registry-verified gets a clear
+  "request a sign-up link first" error. KEEP existing seeded users
+  working (a/b/c@yale.edu, passwords unchanged).
 
 Produces: `users.school_id` + `schools` (B6 leaderboards/groups),
 `users.photo_key`/`bio`/`linkedin_url` (B6 profiles/forum),
@@ -364,9 +388,17 @@ upgrade endpoint (B3 gates swap on `is_guest`).
 
 ### B7 — Timeline & home diagnostic (roadmap §B7; spec §4-Home, §9.4) — branch `bgap/b7-timeline`
 Consumes: B4's dashboard/recs shapes (merged).
-OWNER DECISION pending: OD-B7-1 readiness-signal definition (orchestrator
-injects; default = per-firm readiness from dimension averages vs a fixed
-threshold, labeled "on track" / "needs work").
+OWNER DECISION — RESOLVED 2026-07-17 (OD-B7-1): the readiness signal is an
+acknowledged STAND-IN until real usage data exists. Build the default
+(dimension averages vs a fixed threshold + minimum recent-case count,
+labeled "on track" / "needs work") as ONE swap-point function in a new
+`webapp/readiness.py` that every caller goes through. REQUIRED deliverable:
+`docs/superpowers/notes/2026-07-17-readiness-signal-seams.md` documenting
+(1) exactly what the stand-in computes, (2) the swap-point signature,
+(3) every data access point available in code today (rubric dimension
+averages, session history, drill attempts, timeline statuses — file:symbol
+each) that a future, smarter computation can draw on. The doc is reviewed
+like code.
 
 Migration 026: `firms (id, name, slug)` seeded Bain/BCG/McKinsey + Big-4 +
 common T2 (curate ~12); `firm_deadlines (id, firm_id, cycle_label,
@@ -479,12 +511,17 @@ Produces: `connections` (UX picker), group/school leaderboard queries
 (B8 reuses the scoping CTEs — put them in `webapp/repositories/leaderboards.py`).
 
 ### B8 — Drills aggregation (roadmap §B8; spec §4-Drills) — branch `bgap/b8-drills-agg`
-Consumes: B6 leaderboard scoping. OWNER DECISION OD-B8-1 (orchestrator
-injects): gauntlet now with the existing 3 generator types, or aggregation
-seams only until the drills bank lands. Default: seams only — build
-`daily_set()` (date-seeded, same for all users, N slots) behind the
-existing `/api/v1/drills` seam but return the 3 existing types filling 6
-slots, clearly marked `"provisional": true`.
+Consumes: B6 leaderboard scoping. OWNER DECISION — RESOLVED 2026-07-17
+(OD-B8-1): SEAMS ONLY. Build `daily_set()` (date-seeded, same for all
+users, N slots) behind the existing `/api/v1/drills` seam returning the 3
+existing generator types filling 6 slots, marked `"provisional": true`.
+REQUIRED deliverable: `docs/superpowers/notes/2026-07-17-drills-bank-integration.md`
+— the exact contract the future question-bank DB plugs into: `daily_set()`
+signature and provider interface, per-user template selection hooks,
+attempt-scoring interface, the migration-019 reservation, and a worked
+"when the bank lands, do these N steps" checklist. Owner intent: "build
+documentation and connections to make it super easy for the eventual call
+from the questions database for each user." The doc is reviewed like code.
 Migration 034: `drill_attempts` gains `score REAL NULL`, `duration_ms INT
 NULL`, `set_key TEXT NULL` (e.g. `2026-07-17` for gauntlet membership).
 Migration 035: indexes for rank queries.
