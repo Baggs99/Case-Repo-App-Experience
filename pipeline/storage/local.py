@@ -38,6 +38,12 @@ class LocalStorage(Storage):
     def size(self, key: str) -> int:
         return self._full_path(key).stat().st_size
 
+    def write(self, key: str, data: bytes, *, content_type: str) -> None:
+        _ = content_type  # local disk stores no MIME metadata; route sets it
+        path = self._full_path(key)  # validates key (rejects '..', absolute, backslash)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
     def url(
         self,
         key: str,
