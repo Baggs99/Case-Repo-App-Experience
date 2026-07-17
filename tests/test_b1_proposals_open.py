@@ -194,5 +194,133 @@ class TestClaim(unittest.TestCase):
         self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
 
 
+@unittest.skipUnless(_READY, "requires seeded dev Postgres")
+@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+class TestCounter(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+
+        cls._ctx = TestClient(app)
+        cls.alice = cls._ctx.__enter__()
+        cls.bob = TestClient(app)
+        cls.cara = TestClient(app)
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
+                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
+                ids = dict(cur.fetchall())
+                cur.execute(
+                    "INSERT INTO cases (case_title, normalized_title, source_school,"
+                    " source_year, industry, case_type, difficulty, difficulty_score,"
+                    " page_count, pdf_path) VALUES ('B1 Counter Case', 'b1 counter case',"
+                    " 'DevSchool', 2092, 'Technology', 'Profitability', 'Easy', 3.0,"
+                    " 2, 'output/none.pdf') RETURNING id;")
+                cls.case_id = cur.fetchone()[0]
+        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
+        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
+            s = create_session(uid, user_agent="b1-test", ip_address=None)
+            client.cookies.set(SESSION_COOKIE_NAME, s.id)
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
+                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
+                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
+        cls._ctx.__exit__(None, None, None)
+
+    def _propose_to_bob(self):
+        when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
+        return self.alice.post("/api/proposals", json={
+            "to_user_id": self.bid, "case_id": self.case_id,
+            "from_role": "interviewer", "proposed_times": [when.isoformat()],
+        }).json()["id"]
+
+    def test_recipient_counters_then_proposer_accepts(self):
+        pid = self._propose_to_bob()
+        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+        r = self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
+        self.assertEqual(r.status_code, 200, r.text)
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT state, counter_by FROM proposals WHERE id = %s;", (pid,))
+                state, counter_by = cur.fetchone()
+        self.assertEqual(state, "countered")
+        self.assertEqual(counter_by, self.bid)
+        # Original proposer (Alice) accepts a counter time -> session created.
+        r = self.alice.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
+        self.assertEqual(r.status_code, 200, r.text)
+        sid = r.json()["session_id"]
+        self.assertIsNotNone(sid)
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT scheduled_at FROM practice_sessions WHERE id = %s;", (sid,))
+                sched = cur.fetchone()[0]
+        self.assertEqual(sched.astimezone(timezone.utc), t1)
+
+    def test_only_recipient_may_counter(self):
+        pid = self._propose_to_bob()
+        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+        # Proposer cannot counter their own proposal; existence undisclosed -> 404.
+        self.assertEqual(self.alice.post(f"/api/proposals/{pid}/counter",
+                                         json={"times": [t1]}).status_code, 404)
+        # Third party cannot either.
+        self.assertEqual(self.cara.post(f"/api/proposals/{pid}/counter",
+                                        json={"times": [t1]}).status_code, 404)
+
+    def test_one_round_only(self):
+        pid = self._propose_to_bob()
+        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
+                                       json={"times": [t1]}).status_code, 200)
+        # A second counter (from 'countered') is rejected — one round only.
+        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
+                                       json={"times": [t1]}).status_code, 409)
+
+    def test_counter_times_capped_at_three(self):
+        pid = self._propose_to_bob()
+        times = [(datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
+                 for d in range(2, 6)]  # 4 times
+        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
+                                       json={"times": times}).status_code, 422)
+
+    def test_accept_of_counter_requires_a_listed_time(self):
+        pid = self._propose_to_bob()
+        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
+        bogus = (datetime.now(timezone.utc) + timedelta(days=9)).isoformat()
+        r = self.alice.post(f"/api/proposals/{pid}/accept", json={"time": bogus})
+        self.assertEqual(r.status_code, 409)
+
+    def test_recipient_cannot_accept_countered(self):
+        pid = self._propose_to_bob()
+        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
+        # Only the original proposer accepts from 'countered'; Bob gets 404.
+        r = self.bob.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
+        self.assertEqual(r.status_code, 404)
+
+    def test_accept_case_less_scheduled_needs_negotiation(self):
+        # DD-1: a case-less ("interviewer decides") scheduled proposal accepted
+        # via POST /accept marks accepted with no session (B3 negotiation).
+        when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
+        pid = self.alice.post("/api/proposals", json={
+            "to_user_id": self.bid, "case_id": None,
+            "from_role": "interviewer", "proposed_times": [when.isoformat()],
+        }).json()["id"]
+        r = self.bob.post(f"/api/proposals/{pid}/accept",
+                          json={"scheduled_at": when.isoformat()})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNone(r.json()["session_id"])
+        self.assertTrue(r.json()["needs_negotiation"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -117,6 +117,34 @@ def claim_proposal(token: str, user_id: int) -> dict:
             return result
 
 
+def counter_proposal(proposal_id: int, user_id: int,
+                     times: list[datetime]) -> dict:
+    """Recipient's one-round "Suggest new time" (spec §5.2). Only the recipient,
+    only from 'pending'. Returns the countered row (incl. from_user_id, for the
+    proposal_countered push to the proposer)."""
+    if not times:
+        raise TransitionError(400, "Provide at least one counter time")
+    if len(times) > MAX_PROPOSED_TIMES:
+        raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} counter times")
+    iso = [t.isoformat() for t in times]
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
+                        " FOR UPDATE;", (proposal_id,))
+            prop = cur.fetchone()
+            if prop is None or user_id != prop["to_user_id"]:
+                raise TransitionError(404, "No such proposal")
+            if prop["state"] != "pending":
+                raise TransitionError(409, f"Proposal is already {prop['state']}")
+            cur.execute(
+                "UPDATE proposals SET state = 'countered', counter_times_json = %s,"
+                " counter_by = %s, countered_at = NOW() WHERE id = %s"
+                f" RETURNING {_COLS.replace('p.', '')};",
+                (Jsonb(iso), user_id, proposal_id),
+            )
+            return cur.fetchone()
+
+
 def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
                     case_id: Optional[int], from_role: str,
                     message: Optional[str],
@@ -188,20 +216,35 @@ def pending_count(user_id: int) -> int:
 
 
 def respond(proposal_id: int, user_id: int, *, accept: bool,
-            scheduled_at: Optional[datetime]) -> dict:
-    """Accept (creates + links the session) or decline. Only the recipient,
-    only while pending. Returns the proposal row (with session_id on accept).
+            scheduled_at: Optional[datetime] = None,
+            counter_time: Optional[datetime] = None) -> dict:
+    """Accept or decline. 'pending' → the recipient acts (existing flow).
+    'countered' → the original proposer acts, choosing counter_time from the
+    stored counter times (spec §5.2). Case-less accepts mark the proposal
+    accepted with session_id NULL and needs_negotiation=True (B3 negotiation).
     """
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
                         " FOR UPDATE;", (proposal_id,))
             prop = cur.fetchone()
-            if prop is None or user_id != prop["to_user_id"]:
-                # Existence undisclosed to non-recipients (DV-11 philosophy).
+            if prop is None:
                 raise TransitionError(404, "No such proposal")
-            if prop["state"] != "pending":
-                raise TransitionError(409, f"Proposal is already {prop['state']}")
+
+            state = prop["state"]
+            if state == "pending":
+                if user_id != prop["to_user_id"]:
+                    raise TransitionError(404, "No such proposal")
+            elif state == "countered":
+                if user_id != prop["from_user_id"]:
+                    raise TransitionError(404, "No such proposal")
+            else:
+                # DV-11: existence undisclosed to non-participants — a stranger
+                # gets the same 404 as a missing proposal, only a participant
+                # sees the 409 "already {state}".
+                if user_id not in (prop["from_user_id"], prop["to_user_id"]):
+                    raise TransitionError(404, "No such proposal")
+                raise TransitionError(409, f"Proposal is already {state}")
 
             if not accept:
                 cur.execute(
@@ -211,26 +254,26 @@ def respond(proposal_id: int, user_id: int, *, accept: bool,
                 )
                 return cur.fetchone()
 
-            if prop["from_role"] == "interviewer":
-                interviewer_id, candidate_id = prop["from_user_id"], prop["to_user_id"]
+            if state == "countered":
+                allowed = {datetime.fromisoformat(s)
+                           for s in (prop["counter_times_json"] or [])}
+                if counter_time is None or counter_time not in allowed:
+                    raise TransitionError(409, "Chosen time must be one of the counter times")
+                use_scheduled = counter_time
             else:
-                interviewer_id, candidate_id = prop["to_user_id"], prop["from_user_id"]
+                use_scheduled = scheduled_at
 
-            if is_burned(candidate_id, prop["case_id"]):
-                raise TransitionError(409, "This case is burned for the would-be candidate")
+            if prop["case_id"] is None:
+                cur.execute(
+                    "UPDATE proposals SET state = 'accepted', responded_at = NOW()"
+                    f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                    (proposal_id,),
+                )
+                row = cur.fetchone()
+                row["needs_negotiation"] = True
+                return row
 
-            # Resolved outside the locked insert: both are idempotent.
-            room = get_or_create_room(interviewer_id)
-            template_id = get_default_rubric_template_id(prop["case_id"], interviewer_id)
-
-            cur.execute(
-                "INSERT INTO practice_sessions (room_id, interviewer_id,"
-                " candidate_id, case_id, rubric_template_id, scheduled_at)"
-                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
-                (room["id"], interviewer_id, candidate_id, prop["case_id"],
-                 template_id, scheduled_at),
-            )
-            session_id = cur.fetchone()["id"]
+            session_id = _create_session_within(cur, prop, use_scheduled)
             cur.execute(
                 "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
                 f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
