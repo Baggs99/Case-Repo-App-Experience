@@ -54,6 +54,7 @@ from webapp.routes import api_v1 as api_v1_routes
 from webapp.routes import auth as auth_routes
 from webapp.routes import files as files_routes
 from webapp.routes import exhibits as exhibits_routes
+from webapp.routes import onboarding as onboarding_routes
 from webapp.routes import pages as pages_routes
 from webapp.routes import practice as practice_routes
 from webapp.routes import practice_exhibits as practice_exhibits_routes
@@ -150,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(exhibits_routes.router)
     app.include_router(api_v1_routes.router)
     app.include_router(profile_routes.router)
+    app.include_router(onboarding_routes.router)
 
     return app
 

@@ -5,6 +5,7 @@ Users — domain object and the SQL that touches the `users` table.
 from __future__ import annotations
 
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -150,6 +151,50 @@ def create_user(email: str, password: str) -> User:
 
     logger.info("Created user id=%d email=%s", row["id"], row["email"])
     return _row_to_user(row)
+
+
+def create_school_user(email: str, *, display_name: Optional[str] = None) -> User:
+    """Create a user for a registry-whitelisted email with NO usable password.
+
+    Used by OTP / OAuth / sign-up completion where the user proves control via a
+    code or provider, not a password. The password hash is a random unguessable
+    value so authenticate() can never match; the user can set a real password
+    later via the reset flow. school_id is stamped from the email's domain.
+
+    Raises InvalidEmailDomain if the domain isn't registered.
+    """
+    e = validate_email(email)
+    school_id = school_id_for_email(e)
+    unusable_hash = hash_password(secrets.token_urlsafe(32))
+
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO users (email, password_hash, display_name, school_id)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, email, email_verified_at, created_at, last_login_at;
+                    """,
+                    (e, unusable_hash, display_name, school_id),
+                )
+            except psycopg.errors.UniqueViolation as exc:
+                raise EmailAlreadyRegistered(
+                    "An account with that email already exists."
+                ) from exc
+            row = cur.fetchone()
+
+    logger.info("Created school user id=%d email=%s", row["id"], row["email"])
+    return _row_to_user(row)
+
+
+def get_or_create_school_user(email: str, *, display_name: Optional[str] = None) -> User:
+    """Return the existing user for `email`, or create a school user if the
+    domain is registered. Raises InvalidEmailDomain if new + unregistered."""
+    existing = get_user_by_email(email)
+    if existing is not None:
+        return existing
+    return create_school_user(email, display_name=display_name)
 
 
 def get_user_by_email(email: str) -> Optional[User]:
