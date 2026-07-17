@@ -14,7 +14,6 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from webapp.auth.dependencies import require_auth_api
 from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin

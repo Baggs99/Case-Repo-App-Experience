@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from pipeline.storage import get_storage, to_storage_key
-from webapp.auth.dependencies import require_auth, require_verified_user
+from webapp.auth.dependencies import require_verified_user
 from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin

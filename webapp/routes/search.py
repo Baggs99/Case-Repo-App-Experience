@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from webapp.auth.dependencies import require_auth
 from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.repositories.cases import (

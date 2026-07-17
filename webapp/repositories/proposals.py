@@ -68,7 +68,7 @@ def _create_session_within(cur, prop: dict, scheduled_at) -> int:
     return cur.fetchone()["id"]
 
 
-def claim_proposal(token: str, user_id: int) -> dict:
+def claim_proposal(token: str, user_id: int, is_guest: bool = False) -> dict:
     """Claim an open ('send a link') proposal. The claimer becomes to_user_id.
     Scheduled proposals stay 'pending' (claimer now responds); "now" proposals
     (no proposed_times) auto-accept — creating a session when a case is set, or
@@ -89,6 +89,12 @@ def claim_proposal(token: str, user_id: int) -> dict:
                 raise TransitionError(409, "This link has already been claimed")
             if user_id == prop["from_user_id"]:
                 raise TransitionError(409, "You can't claim your own link")
+            if is_guest and (prop["proposed_times_json"] or prop["case_id"] is None):
+                raise TransitionError(
+                    409,
+                    "Guests can only claim an instant, ready-to-run session link. "
+                    "Create an account to schedule or negotiate a case.",
+                )
 
             cur.execute(
                 "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",

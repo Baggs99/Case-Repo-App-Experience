@@ -41,7 +41,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from webapp.auth.dependencies import get_current_user, require_auth
+from webapp.auth.dependencies import get_current_user
 from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.email_sender import (
     build_password_reset_email,

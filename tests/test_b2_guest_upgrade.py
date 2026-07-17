@@ -99,6 +99,7 @@ class TestGuestUpgrade(unittest.TestCase):
         r = guest.post("/api/v1/auth/upgrade", json={"email": email, "password": "correct horse battery staple"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["upgraded"])
+        self.assertEqual(r.json()["email"], email)
         # After upgrade: same cookie now authenticates a real user.
         me = guest.get("/api/v1/me")
         self.assertEqual(me.status_code, 200, me.text)

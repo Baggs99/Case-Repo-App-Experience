@@ -86,7 +86,7 @@ class TestGuestCrud(unittest.TestCase):
         from fastapi import HTTPException, Request
         from webapp.auth.guest import require_guest
         from webapp.auth.users import User
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         def _req(user):
             scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
@@ -95,9 +95,9 @@ class TestGuestCrud(unittest.TestCase):
             return r
 
         guest = User(id=1, email=None, email_verified_at=None,
-                     created_at=datetime.utcnow(), last_login_at=None, is_guest=True)
-        real = User(id=2, email="a@yale.edu", email_verified_at=datetime.utcnow(),
-                    created_at=datetime.utcnow(), last_login_at=None, is_guest=False)
+                     created_at=datetime.now(timezone.utc), last_login_at=None, is_guest=True)
+        real = User(id=2, email="a@yale.edu", email_verified_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(timezone.utc), last_login_at=None, is_guest=False)
 
         self.assertIs(require_guest(_req(guest)), guest)
         with self.assertRaises(HTTPException) as ctx_real:

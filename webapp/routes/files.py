@@ -30,7 +30,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from pipeline.storage import get_storage, to_storage_key, validate_key
-from webapp.auth.dependencies import require_auth
 from webapp.auth.guest import require_auth_no_guest, require_case_access
 from webapp.auth.users import User
 from webapp.previews import existing_preview_file, preview_media_type

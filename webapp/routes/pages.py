@@ -12,7 +12,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from webapp.auth.dependencies import require_auth
 from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.preview_urls import preview_knit_url

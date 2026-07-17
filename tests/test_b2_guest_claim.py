@@ -221,6 +221,27 @@ class TestGuestClaim(unittest.TestCase):
         self.assertEqual(r.status_code, 422, r.text)
         self.assertEqual(_gcount(), before)
 
+    def test_guest_cannot_claim_scheduled_link(self):
+        # Spec §6.2: a guest may claim only an instant ready-to-run link. A
+        # scheduled open-link 409s and leaves no orphan guest (reaped).
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from datetime import datetime, timedelta, timezone
+        import psycopg
+        def _gcount():
+            with psycopg.connect(_DB_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
+                    return cur.fetchone()[0]
+        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        tok = self.bob.post("/api/proposals", json={
+            "from_role": "candidate", "case_id": self.case_id,
+            "proposed_times": [future]}).json()["claim_token"]
+        before = _gcount()
+        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(_gcount(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

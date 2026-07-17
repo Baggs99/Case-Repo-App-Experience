@@ -134,7 +134,7 @@ def claim_proposal(claim_token: str, request: Request, background: BackgroundTas
     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
     the creator; guests arrive in B2 by overriding require_auth_api."""
     try:
-        result = repo.claim_proposal(claim_token, user.id)
+        result = repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
     except TransitionError as exc:
         discard_minted_guest(request)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)

@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from webapp.auth.dependencies import require_auth_api
 from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
