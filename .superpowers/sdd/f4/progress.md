@@ -33,3 +33,8 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
 - Task 1 (networking): complete — commits 3e8e302..315b279, review clean (APPROVE A+B).
   Suite 318/318. Minors (non-blocking): test name overpromises (cosmetic); use sites must
   nil-coalesce runCount→0 / doneForYou→false (carried into Task 2/3).
+- Task 2 (LibraryViewModel): complete — commits 315b279..2415dd1, review clean (APPROVE A+B).
+  Suite 337/337 (+19). Carry-ins to Task 3: (a) change avgRating formatter %g→%.1f + test "4.0"→"4.0"
+  (canvas tabular fidelity); (b) view MUST call load() on `type` change (server-side filter);
+  (c) "Market Sizing" case_type = documented backend-limited seam (exact-match under-matches compound
+  vocab), fixtures cover screenshots.
