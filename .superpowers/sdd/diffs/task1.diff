@@ -1,0 +1,186 @@
+=== git log 451913d..83f7da6b2f5b963873f01360b183b036811265ce ===
+83f7da6 Add B5 migrations: identity columns, schools registry, notification settings, OTP table
+
+=== git diff --stat ===
+ db/migrations/022_identity_profile.sql      | 35 +++++++++++++++
+ db/migrations/023_schools_registry.sql      | 37 ++++++++++++++++
+ db/migrations/024_notification_settings.sql | 13 ++++++
+ tests/test_b5_migrations.py                 | 66 +++++++++++++++++++++++++++++
+ 4 files changed, 151 insertions(+)
+
+=== git diff -U10 ===
+diff --git a/db/migrations/022_identity_profile.sql b/db/migrations/022_identity_profile.sql
+new file mode 100644
+index 0000000..0f8ee95
+--- /dev/null
++++ b/db/migrations/022_identity_profile.sql
+@@ -0,0 +1,35 @@
++-- 022_identity_profile.sql
++-- Purpose: Identity/profile columns on users, drop the hardcoded email-domain
++--          CHECK (validation moves to the registry-backed server layer), and add
++--          the login_otp_codes table for email+passcode OTP (hashed at rest).
++-- Idempotent: re-runnable via IF NOT EXISTS / DROP ... IF EXISTS guards.
++
++ALTER TABLE users ADD COLUMN IF NOT EXISTS bio           TEXT;
++ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_key     TEXT;
++ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedin_url  TEXT;
++ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub    TEXT;
++ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedin_sub  TEXT;
++-- FK to schools added in migration 023 (schools does not exist yet here).
++ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id     INTEGER;
++
++-- Unique indexes allow many NULLs but forbid two accounts sharing one OAuth sub.
++CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_key   ON users (google_sub);
++CREATE UNIQUE INDEX IF NOT EXISTS users_linkedin_sub_key ON users (linkedin_sub);
++
++-- The registry (schools table) is now the source of truth for allowed domains,
++-- enforced server-side. Drop the hardcoded CHECK so new schools need no DDL.
++ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_allowed;
++
++-- Email+passcode OTP: 6-digit code, SHA-256 hashed at rest (like email
++-- verification tokens), 10-min expiry, <=3 verify attempts. Keyed by email so
++-- no orphan user rows are created before the code is proven.
++CREATE TABLE IF NOT EXISTS login_otp_codes (
++    id          SERIAL       PRIMARY KEY,
++    email       CITEXT       NOT NULL,
++    code_hash   TEXT         NOT NULL,
++    expires_at  TIMESTAMPTZ  NOT NULL,
++    attempts    INTEGER      NOT NULL DEFAULT 0,
++    consumed_at TIMESTAMPTZ,
++    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
++);
++CREATE INDEX IF NOT EXISTS login_otp_codes_email_idx ON login_otp_codes (email);
+diff --git a/db/migrations/023_schools_registry.sql b/db/migrations/023_schools_registry.sql
+new file mode 100644
+index 0000000..0b1bb8e
+--- /dev/null
++++ b/db/migrations/023_schools_registry.sql
+@@ -0,0 +1,37 @@
++-- 023_schools_registry.sql
++-- Purpose: schools registry (domain -> school). Seed the three launch schools,
++--          wire users.school_id FK, and backfill existing users by email domain.
++-- Idempotent: CREATE TABLE IF NOT EXISTS, ON CONFLICT DO NOTHING, guarded FK.
++
++CREATE TABLE IF NOT EXISTS schools (
++    id         SERIAL       PRIMARY KEY,
++    name       TEXT         NOT NULL,
++    domain     TEXT         NOT NULL UNIQUE,
++    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
++);
++
++INSERT INTO schools (name, domain) VALUES
++    ('Yale School of Management', 'yale.edu'),
++    ('University of Michigan (Ross)', 'umich.edu'),
++    ('University of Chicago (Booth)', 'chicagobooth.edu')
++ON CONFLICT (domain) DO NOTHING;
++
++-- Add the FK now that schools exists (guarded so re-runs are no-ops).
++DO $$
++BEGIN
++    IF NOT EXISTS (
++        SELECT 1 FROM pg_constraint WHERE conname = 'users_school_id_fkey'
++    ) THEN
++        ALTER TABLE users
++            ADD CONSTRAINT users_school_id_fkey
++            FOREIGN KEY (school_id) REFERENCES schools (id);
++    END IF;
++END $$;
++
++-- Backfill: match each user's email domain to a school. Only touches NULLs,
++-- so re-running never clobbers a manually-set school_id.
++UPDATE users u
++   SET school_id = s.id
++  FROM schools s
++ WHERE u.school_id IS NULL
++   AND split_part(lower(u.email::text), '@', 2) = s.domain;
+diff --git a/db/migrations/024_notification_settings.sql b/db/migrations/024_notification_settings.sql
+new file mode 100644
+index 0000000..c049ae5
+--- /dev/null
++++ b/db/migrations/024_notification_settings.sql
+@@ -0,0 +1,13 @@
++-- 024_notification_settings.sql
++-- Purpose: per-user notification category toggles. The push fan-out choke point
++--          consults this before sending. Missing row == all categories enabled.
++-- Idempotent: CREATE TABLE IF NOT EXISTS.
++
++CREATE TABLE IF NOT EXISTS notification_settings (
++    user_id           INTEGER PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
++    proposals         BOOLEAN NOT NULL DEFAULT TRUE,
++    session_reminders BOOLEAN NOT NULL DEFAULT TRUE,
++    feedback          BOOLEAN NOT NULL DEFAULT TRUE,
++    free_now          BOOLEAN NOT NULL DEFAULT TRUE,
++    community         BOOLEAN NOT NULL DEFAULT TRUE
++);
+diff --git a/tests/test_b5_migrations.py b/tests/test_b5_migrations.py
+new file mode 100644
+index 0000000..8dc7d17
+--- /dev/null
++++ b/tests/test_b5_migrations.py
+@@ -0,0 +1,66 @@
++"""
++Purpose: assert migrations 022-024 produced the expected schema and seed, and
++         that existing users' school_id backfilled from their email domain.
++Inputs:  seeded dev Postgres via tests.test_ws_integration (_DB_URL/_READY).
++Outputs: no writes; read-only schema/seed assertions.
++Run:     .venv/bin/python -m pytest tests/test_b5_migrations.py -q
++"""
++
++from __future__ import annotations
++
++import unittest
++
++import psycopg
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestB5Migrations(unittest.TestCase):
++    def _cols(self, table: str) -> set[str]:
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "SELECT column_name FROM information_schema.columns "
++                    "WHERE table_name = %s;",
++                    (table,),
++                )
++                return {r[0] for r in cur.fetchall()}
++
++    def test_user_identity_columns_exist(self):
++        cols = self._cols("users")
++        for c in ("bio", "photo_key", "linkedin_url", "google_sub",
++                  "linkedin_sub", "school_id"):
++            self.assertIn(c, cols)
++
++    def test_hardcoded_email_check_dropped(self):
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "SELECT 1 FROM pg_constraint WHERE conname = 'users_email_allowed';")
++                self.assertIsNone(cur.fetchone())
++
++    def test_schools_seeded(self):
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT domain FROM schools ORDER BY domain;")
++                domains = {r[0] for r in cur.fetchall()}
++        self.assertTrue({"yale.edu", "umich.edu", "chicagobooth.edu"} <= domains)
++
++    def test_seeded_user_school_backfilled(self):
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "SELECT s.domain FROM users u JOIN schools s ON s.id = u.school_id "
++                    "WHERE u.email = 'a@yale.edu';")
++                row = cur.fetchone()
++        self.assertIsNotNone(row)
++        self.assertEqual(row[0], "yale.edu")
++
++    def test_notification_settings_and_otp_tables_exist(self):
++        self.assertIn("proposals", self._cols("notification_settings"))
++        self.assertIn("code_hash", self._cols("login_otp_codes"))
++
++
++if __name__ == "__main__":
++    unittest.main()

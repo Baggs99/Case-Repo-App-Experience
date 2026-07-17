@@ -16,3 +16,5 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 
 ## Execution ledger
 - BASE for Task 1 = 1e94ae9
+- Task 1: complete (commits 451913d..83f7da6, review APPROVE). MINORs (ledger): FK guard matches conname globally not scoped to users.conrelid (implausible collision); test doesn't assert the sub unique indexes / FK exist.
+- BASE for Task 2 = 83f7da6
