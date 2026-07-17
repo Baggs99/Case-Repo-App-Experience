@@ -56,8 +56,9 @@ def mint_token(interviewer_id: int, case_id: Optional[int] = None,
 def claim(*, candidate_id: int, token: Optional[str] = None,
           short_code: Optional[str] = None, is_guest: bool = False) -> dict:
     """Claim a pairing token by token OR short_code (spec §8), creating the
-    practice session in one transaction. Case-less tokens can't create a
-    session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
+    practice session in one transaction. A case-set token creates a live
+    (in-person) session; a case-less token creates a 'negotiating' session for
+    a real user (B3) or 409s a guest (guests may only claim ready-to-run links).
 
     The token row is locked with SELECT ... FOR UPDATE for the whole
     transaction — this is the anti-double-claim mechanism. A concurrent

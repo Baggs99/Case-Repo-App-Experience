@@ -278,8 +278,9 @@ def respond(proposal_id: int, user_id: int, *, accept: bool,
             counter_time: Optional[datetime] = None) -> dict:
     """Accept or decline. 'pending' → the recipient acts (existing flow).
     'countered' → the original proposer acts, choosing counter_time from the
-    stored counter times (spec §5.2). Case-less accepts mark the proposal
-    accepted with session_id NULL and needs_negotiation=True (B3 negotiation).
+    stored counter times (spec §5.2). A case-less accept creates a 'negotiating'
+    session (B3), sets proposals.session_id, and returns needs_negotiation=True;
+    the candidate seat is recap-gated when the acting user is the candidate.
     """
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
