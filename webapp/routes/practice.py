@@ -47,11 +47,12 @@ class ConsentBody(BaseModel):
 
 
 class PairCreateBody(BaseModel):
-    case_id: int
+    case_id: Optional[int] = None
 
 
 class PairClaimBody(BaseModel):
-    token: str
+    token: Optional[str] = None
+    short_code: Optional[str] = None
 
 
 class StateBody(BaseModel):
@@ -155,17 +156,21 @@ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
 
 @router.post("/api/practice/pair/create", dependencies=_MUTATING)
 def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_api)):
-    """Mint a short-TTL pairing token for in-person QR pairing (§ pairing)."""
-    if get_case_by_id(body.case_id) is None:
+    """Mint a short-TTL pairing token for in-person QR pairing (spec §8).
+    case_id optional — "interviewer decides" pairs case-less (negotiated in B3)."""
+    if body.case_id is not None and get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
 
 
 @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
 def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
-    """Claim a pairing token, creating the practice session (§ pairing)."""
+    """Claim a pairing token by token OR short_code (spec §8)."""
+    if not body.token and not body.short_code:
+        raise HTTPException(status_code=422, detail="Provide a token or short_code")
     try:
-        return pairing_repo.claim(token=body.token, candidate_id=user.id)
+        return pairing_repo.claim(candidate_id=user.id, token=body.token,
+                                  short_code=body.short_code)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
