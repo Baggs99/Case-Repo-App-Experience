@@ -273,6 +273,21 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(vm.allCases.first?.runCount, 0)
     }
 
+    // Carry-in from Task 2 review: %g dropped the trailing zero ("4" not
+    // "4.0"), breaking canvas tabular fidelity — a whole-number rating must
+    // still render one decimal place.
+    func testAvgRatingRendersOneDecimalForWholeNumbers() async {
+        let stub = StubLibraryService()
+        stub.libraryResult = .success(makePage([
+            makeSummary(id: 1, avgRating: 4.0),
+        ]))
+        let vm = LibraryViewModel(service: stub)
+
+        await vm.load()
+
+        XCTAssertEqual(vm.allCases.first?.avgRating, "4.0")
+    }
+
     func testPdfLabelFallsBackWhenPageCountNil() async {
         let stub = StubLibraryService()
         stub.libraryResult = .success(makePage([

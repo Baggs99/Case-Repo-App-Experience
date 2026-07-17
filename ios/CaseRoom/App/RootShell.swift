@@ -21,6 +21,13 @@ struct RootShell: View {
     // open it reliably regardless of which tab (or a cold launch) is mounted.
     @State private var presentedDrill: DrillViewModel?
 
+    // F4 Task 3, minimal additive (F1 deferred tab-stack mounting to F4):
+    // canvas 5a's pushed case detail shows only a plain `‹ Library` back +
+    // tag, no top pills, no tab bar. True only while Library owns the tab AND
+    // has a pushed route — every other tab (and the Library list itself) is
+    // unaffected.
+    private var libraryDetailOpen: Bool { router.selection == .library && !router.libraryPath.isEmpty }
+
     var body: some View {
         Group {
             if sessionStore.isAuthenticated {
@@ -42,7 +49,16 @@ struct RootShell: View {
         .onOpenURL { url in
             if let link = DeepLink.route(from: url) { router.handleDeepLink(link) }
         }
-        .task { await sessionStore.bootstrap() }
+        .task {
+            #if DEBUG
+            // -LibraryFixtures fakes auth directly (CaseRoomApp.applyDebugLaunchHatches)
+            // with no dev server running; bootstrap()'s client.me() would hit a
+            // dead 127.0.0.1 host, fail unauthorized, and race-clobber the fake
+            // user back to nil. Skip it on this screenshot-only path.
+            if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") { return }
+            #endif
+            await sessionStore.bootstrap()
+        }
     }
 
     private var authenticated: some View {
@@ -54,11 +70,13 @@ struct RootShell: View {
                 .contentMargins(.top, 64, for: .scrollContent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            DSTabBar(selection: $router.selection, maxWidth: hSize == .regular ? 560 : nil)
-                .padding(.bottom, hSize == .regular ? 14 : 12)
+            if !libraryDetailOpen {
+                DSTabBar(selection: $router.selection, maxWidth: hSize == .regular ? 560 : nil)
+                    .padding(.bottom, hSize == .regular ? 14 : 12)
+            }
         }
         .overlay(alignment: .top) {
-            if hSize == .regular {
+            if hSize == .regular && !libraryDetailOpen {
                 HStack {
                     WordmarkChip()
                     Spacer()
@@ -70,17 +88,18 @@ struct RootShell: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if hSize != .regular { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
+            if hSize != .regular && !libraryDetailOpen { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
         }
         .overlay(alignment: .topTrailing) {
-            if hSize != .regular { avatarButton.padding(.trailing, 16).padding(.top, 8) }
+            if hSize != .regular && !libraryDetailOpen { avatarButton.padding(.trailing, 16).padding(.top, 8) }
         }
         .task {
             #if DEBUG
             // The push-authorization OS alert can't be dismissed by simctl (no
-            // tap); skip it on the -DevLogin screenshot path so the shell shot is
-            // clean. Normal launches (and Release) always request as before.
-            if ProcessInfo.processInfo.arguments.contains("-DevLogin") { return }
+            // tap); skip it on DEBUG screenshot paths so the shot is clean.
+            // Normal launches (and Release) always request as before.
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-DevLogin") || args.contains("-LibraryFixtures") { return }
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }

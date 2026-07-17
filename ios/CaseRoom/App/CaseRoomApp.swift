@@ -74,9 +74,11 @@ struct CaseRoomApp: App {
     // Screenshot-only launch hatches so simctl (which can't tap/type) can capture
     // the shell showing REAL re-homed content in a chosen state. Mirrors the
     // -DSGallery / -AvatarSheet pattern; inert on a normal launch.
-    //  -DevLogin        authenticate against the running dev server (seeded user)
-    //  -startTab <tab>  home|library|caseTab|community|drills
-    //  -avatarOpen      present the avatar sheet in shell context
+    //  -DevLogin         authenticate against the running dev server (seeded user)
+    //  -startTab <tab>   home|library|caseTab|community|drills
+    //  -avatarOpen       present the avatar sheet in shell context
+    //  -LibraryFixtures  fake auth (no network) + CasesListView swaps in the
+    //                    LibraryFixtures stub service — see LibraryFixtures.swift.
     @MainActor
     private func applyDebugLaunchHatches() async {
         let args = ProcessInfo.processInfo.arguments
@@ -92,6 +94,12 @@ struct CaseRoomApp: App {
         }
         if args.contains("-DevLogin") {
             await sessionStore.login(email: "a@yale.edu", password: "caseroom-dev-1")
+        }
+        if args.contains("-LibraryFixtures") {
+            // Fake auth, no network — CasesListView reads the same arg and
+            // routes its LibraryViewModel to the FixtureLibraryService stub,
+            // so the whole Library screenshot path needs no dev server.
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
         }
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true

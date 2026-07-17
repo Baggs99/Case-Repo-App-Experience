@@ -120,7 +120,9 @@ struct LibraryCase: Identifiable, Equatable {
             meta = ""
         }
 
-        let avgRatingText = summary.avgRating.map { String(format: "%g", $0) } ?? "—"
+        // Task 2 review carry-in: %g drops trailing zeros ("4" instead of "4.0"),
+        // breaking canvas tabular fidelity — always render one decimal.
+        let avgRatingText = summary.avgRating.map { String(format: "%.1f", $0) } ?? "—"
         let pdfLabel = summary.pageCount.map { "Case PDF — \($0) pages" } ?? "Case PDF"
 
         return LibraryCase(
@@ -162,6 +164,16 @@ final class LibraryViewModel {
     var isLoading = false
     var errorMessage: String?
 
+    #if DEBUG
+    // Screenshot-only decoration hook (Task 3's -LibraryFixtures): case id ->
+    // (recommended, scheduledNote). The live /api/v1/cases* response carries
+    // neither field (B4 recs / upcoming-session cross-reference is a
+    // documented seam — plan's "Deferred / seams"), so this stays nil outside
+    // DEBUG fixture wiring; LibraryFixtures.swift sets it on the VM instance
+    // it hands to CasesListView.
+    var fixtureDecorations: [Int: (recommended: Bool, scheduledNote: String?)]?
+    #endif
+
     private let service: LibraryService
 
     init(service: LibraryService = APIClient.shared) {
@@ -177,7 +189,14 @@ final class LibraryViewModel {
             let fetchedPage = try await service.library(query: query)
             let total = fetchedPage.cases.count
             allCases = fetchedPage.cases.enumerated().map { index, summary in
-                LibraryCase.from(summary, ordinal: String(format: "%02d", total - index))
+                var libraryCase = LibraryCase.from(summary, ordinal: String(format: "%02d", total - index))
+                #if DEBUG
+                if let decoration = fixtureDecorations?[summary.id] {
+                    libraryCase.recommended = decoration.recommended
+                    libraryCase.scheduledNote = decoration.scheduledNote
+                }
+                #endif
+                return libraryCase
             }
             page = fetchedPage
         } catch {
