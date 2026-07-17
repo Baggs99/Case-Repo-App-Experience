@@ -18,7 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from webapp.auth.dependencies import require_auth_api
-from webapp.auth.guest import require_auth_or_mint_guest
+from webapp.auth.guest import discard_minted_guest, require_auth_or_mint_guest
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.ics import build_session_ics
@@ -132,6 +132,7 @@ def claim_proposal(claim_token: str, request: Request, background: BackgroundTas
     try:
         result = repo.claim_proposal(claim_token, user.id)
     except TransitionError as exc:
+        discard_minted_guest(request)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
     if result["session_id"] is not None:

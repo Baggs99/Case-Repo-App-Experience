@@ -4,7 +4,7 @@ Purpose: Guest-interviewer identity — mint scoped guest users, convert them
 Inputs:  users table (via get_pool); the current request's request.state.user.
 Outputs: guest users rows (is_guest=TRUE, NULL email/password); in-place
          upgrades (is_guest→FALSE + real email/password). No files written.
-Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest
+Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest, require_auth_or_mint_guest
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from psycopg.rows import dict_row
 
 from webapp.auth.dependencies import get_current_user
 from webapp.auth.passwords import hash_password, validate_password
-from webapp.auth.sessions import attach_session_cookie, create_session
+from webapp.auth.sessions import attach_session_cookie, create_session, destroy_session
 from webapp.auth.users import (
     EmailAlreadyRegistered,
     User,
@@ -126,4 +126,27 @@ def require_auth_or_mint_guest(request: Request, response: Response) -> User:
     guest = mint_guest_user()
     session = create_session(guest.id, user_agent=request.headers.get("user-agent"))
     attach_session_cookie(response, session)
+    # Stash so a failed claim can reap the just-minted guest (below): an
+    # unauthenticated bad-token POST must not leave an orphan users/sessions row.
+    request.state.b2_minted_guest = guest
+    request.state.b2_minted_guest_session = session
     return guest
+
+
+def discard_minted_guest(request: Request) -> None:
+    """Delete a guest + session minted for THIS request when the claim it was
+    minted for did not succeed. Closes the unauthenticated row-creation vector:
+    a bad / expired / already-claimed token leaves no orphan guest behind. A
+    real (pre-authenticated) user request has nothing stashed, so this is a
+    no-op for them."""
+    guest = getattr(request.state, "b2_minted_guest", None)
+    if guest is None:
+        return
+    session = getattr(request.state, "b2_minted_guest_session", None)
+    request.state.b2_minted_guest = None
+    request.state.b2_minted_guest_session = None
+    if session is not None:
+        destroy_session(session.id)
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM users WHERE id = %s AND is_guest = TRUE;", (guest.id,))

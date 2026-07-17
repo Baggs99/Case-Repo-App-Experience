@@ -189,6 +189,38 @@ class TestGuestClaim(unittest.TestCase):
                 cur.execute("SELECT claim_token FROM proposals WHERE id=%s;", (pid,))
                 self.assertIsNone(cur.fetchone()[0])
 
+    def test_failed_proposal_claim_leaves_no_orphan_guest(self):
+        # Unauthenticated bad-token claim must not persist a guest user/session.
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        import psycopg
+        def _counts():
+            with psycopg.connect(_DB_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
+                    g = cur.fetchone()[0]
+                    cur.execute("SELECT count(*) FROM sessions;")
+                    s = cur.fetchone()[0]
+            return g, s
+        before = _counts()
+        r = TestClient(app).post("/api/proposals/claim/nope-nope-nope")
+        self.assertEqual(r.status_code, 404, r.text)
+        self.assertEqual(_counts(), before)
+
+    def test_failed_pair_claim_leaves_no_orphan_guest(self):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        import psycopg
+        def _gcount():
+            with psycopg.connect(_DB_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
+                    return cur.fetchone()[0]
+        before = _gcount()
+        r = TestClient(app).post("/api/practice/pair/claim", json={})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(_gcount(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
