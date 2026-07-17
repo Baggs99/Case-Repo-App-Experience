@@ -2,8 +2,9 @@
  * Purpose: App entry point; launches RootShell (the 5-slot floating-glass tab
  *          shell) and wires the UIKit app delegate needed for APNs device-token
  *          registration.
- * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -DevLogin,
- *         -startTab <tab>, -avatarOpen — see the #if DEBUG blocks).
+ * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
+ *         -F2TimelinePromptNoOffer, -DevLogin, -startTab <tab>, -avatarOpen —
+ *         see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -42,6 +43,19 @@ struct CaseRoomApp: App {
                         AvatarSheetView(viewModel: AvatarSheetViewModel(service: PreviewProfileService()))
                             .environment(SessionStore())
                     }
+            } else if ProcessInfo.processInfo.arguments.contains("-F2Timeline") {
+                // Timeline-detail (canvas 7b) fixture hatch: initial prompt state.
+                NavigationStack {
+                    TimelineDetailView(viewModel: .init(fixtureDetail: PreviewTimelineFixture.detail,
+                                                          fixtureCatalog: PreviewTimelineFixture.catalog))
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("-F2TimelinePromptNoOffer") {
+                // Same fixture, prompt pre-set to the no_offer result card.
+                NavigationStack {
+                    TimelineDetailView(viewModel: .init(fixtureDetail: PreviewTimelineFixture.detail,
+                                                          fixtureCatalog: PreviewTimelineFixture.catalog,
+                                                          promptStage: .result(PreviewTimelineFixture.noOfferResult)))
+                }
             } else {
                 rootView
             }
