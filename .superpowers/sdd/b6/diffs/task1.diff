@@ -1,0 +1,278 @@
+=== git log --oneline 65bbb8b..162e27f ===
+162e27f Add connections migration + repository (B6 Task 1)
+
+=== git diff --stat 65bbb8b..162e27f ===
+ db/migrations/030_connections.sql  |  17 +++++
+ tests/test_b6_connections_repo.py  |  96 ++++++++++++++++++++++++++
+ webapp/repositories/connections.py | 137 +++++++++++++++++++++++++++++++++++++
+ 3 files changed, 250 insertions(+)
+
+=== git diff -U10 65bbb8b..162e27f ===
+diff --git a/db/migrations/030_connections.sql b/db/migrations/030_connections.sql
+new file mode 100644
+index 0000000..3c47bdf
+--- /dev/null
++++ b/db/migrations/030_connections.sql
+@@ -0,0 +1,17 @@
++-- 030: Community connections (mutual friend requests). B6.
++-- The row (user_id, friend_id) represents "user_id requested friend_id".
++-- state 'pending' -> 'accepted' on the target's accept. PK forbids duplicate
++-- directed rows; the reciprocal direction is auto-accepted in the repo layer.
++CREATE TABLE IF NOT EXISTS connections (
++    user_id      INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++    friend_id    INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
++    state        TEXT        NOT NULL DEFAULT 'pending'
++                             CHECK (state IN ('pending', 'accepted')),
++    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
++    responded_at TIMESTAMPTZ,
++    PRIMARY KEY (user_id, friend_id),
++    CONSTRAINT connections_distinct CHECK (user_id <> friend_id)
++);
++
++-- List-my-connections scans both directions; index the reverse lookup.
++CREATE INDEX IF NOT EXISTS idx_connections_friend ON connections (friend_id);
+diff --git a/tests/test_b6_connections_repo.py b/tests/test_b6_connections_repo.py
+new file mode 100644
+index 0000000..fc883b5
+--- /dev/null
++++ b/tests/test_b6_connections_repo.py
+@@ -0,0 +1,96 @@
++"""B6 Task 1: connections repository — request/accept/decline/remove + listing
++with free-now decoration. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient (bootstraps the db pool)")
++class TestConnectionsRepo(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Repo functions call webapp.db.get_pool(); the pool is initialized only
++        # inside the app lifespan, so enter a TestClient to bootstrap it.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++        cls.a, cls.b, cls.c = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def tearDown(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM connections WHERE user_id = ANY(%s) OR friend_id = ANY(%s);",
++                            ([self.a, self.b, self.c], [self.a, self.b, self.c]))
++                cur.execute("DELETE FROM availability WHERE user_id = ANY(%s);",
++                            ([self.a, self.b, self.c],))
++
++    def test_request_creates_pending(self):
++        from webapp.repositories import connections as repo
++        self.assertEqual(repo.request(self.a, self.b), {"state": "pending"})
++        self.assertFalse(repo.are_connected(self.a, self.b))
++        self.assertEqual([r["user_id"] for r in repo.list_incoming(self.b)], [self.a])
++        self.assertEqual([r["user_id"] for r in repo.list_outgoing(self.a)], [self.b])
++
++    def test_self_request_rejected(self):
++        from webapp.repositories import connections as repo
++        with self.assertRaises(ValueError):
++            repo.request(self.a, self.a)
++
++    def test_accept_makes_connection(self):
++        from webapp.repositories import connections as repo
++        repo.request(self.a, self.b)
++        self.assertTrue(repo.accept(self.a, self.b))
++        self.assertTrue(repo.are_connected(self.a, self.b))
++        self.assertTrue(repo.are_connected(self.b, self.a))
++        self.assertEqual([r["user_id"] for r in repo.list_accepted(self.a)], [self.b])
++        self.assertEqual([r["user_id"] for r in repo.list_accepted(self.b)], [self.a])
++
++    def test_accept_only_by_target(self):
++        from webapp.repositories import connections as repo
++        repo.request(self.a, self.b)
++        # c cannot accept a's request to b; a cannot self-accept
++        self.assertFalse(repo.accept(self.a, self.c))
++        self.assertFalse(repo.are_connected(self.a, self.b))
++
++    def test_reciprocal_request_auto_accepts(self):
++        from webapp.repositories import connections as repo
++        repo.request(self.a, self.b)
++        self.assertEqual(repo.request(self.b, self.a), {"state": "accepted"})
++        self.assertTrue(repo.are_connected(self.a, self.b))
++
++    def test_decline_and_remove(self):
++        from webapp.repositories import connections as repo
++        repo.request(self.a, self.b)
++        self.assertTrue(repo.decline(self.a, self.b))
++        self.assertFalse(repo.are_connected(self.a, self.b))
++        repo.request(self.a, self.b)
++        repo.accept(self.a, self.b)
++        repo.remove(self.b, self.a)  # either party removes
++        self.assertFalse(repo.are_connected(self.a, self.b))
++
++    def test_free_now_decoration(self):
++        from webapp.repositories import connections as repo
++        from webapp.repositories import availability as av
++        repo.request(self.a, self.b)
++        repo.accept(self.a, self.b)
++        av.set_free(self.b, 60)
++        row = repo.list_accepted(self.a)[0]
++        self.assertTrue(row["free_now"])
++        # a is not free -> b sees a not-free
++        self.assertFalse(repo.list_accepted(self.b)[0]["free_now"])
+diff --git a/webapp/repositories/connections.py b/webapp/repositories/connections.py
+new file mode 100644
+index 0000000..43b1b55
+--- /dev/null
++++ b/webapp/repositories/connections.py
+@@ -0,0 +1,137 @@
++"""
++Purpose: Mutual connections (friend requests) for B6 Community — request,
++         accept, decline, remove, and listing with a free-now decoration.
++Inputs:  requester/target user ids; reads users + availability + connections.
++Outputs: INSERT/UPDATE/DELETE on connections; dict rows for the API layer.
++Run:     from webapp.repositories import connections; connections.request(a, b)
++"""
++
++from __future__ import annotations
++
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++
++# Card fields the API layer maps to profile cards (photo_url built in the router).
++_CARD = ("COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS display_name,"
++         " u.photo_key, u.bio")
++
++
++def request(requester_id: int, target_id: int) -> dict:
++    """Create a pending request requester->target. Auto-accepts a reciprocal
++    pending row; idempotent when a relation already exists. Returns the state."""
++    if requester_id == target_id:
++        raise ValueError("cannot connect to self")
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            # Any existing row in either direction?
++            cur.execute(
++                "SELECT user_id, friend_id, state FROM connections"
++                " WHERE (user_id = %(a)s AND friend_id = %(b)s)"
++                "    OR (user_id = %(b)s AND friend_id = %(a)s);",
++                {"a": requester_id, "b": target_id})
++            existing = cur.fetchone()
++            if existing is not None:
++                if existing["state"] == "accepted":
++                    return {"state": "accepted"}
++                # Pending exists. Reciprocal (target already asked me) -> accept.
++                if existing["user_id"] == target_id:
++                    cur.execute(
++                        "UPDATE connections SET state = 'accepted', responded_at = NOW()"
++                        " WHERE user_id = %(t)s AND friend_id = %(r)s;",
++                        {"t": target_id, "r": requester_id})
++                    return {"state": "accepted"}
++                return {"state": "pending"}  # my own pending already there
++            cur.execute(
++                "INSERT INTO connections (user_id, friend_id) VALUES (%(r)s, %(t)s);",
++                {"r": requester_id, "t": target_id})
++            return {"state": "pending"}
++
++
++def accept(requester_id: int, accepter_id: int) -> bool:
++    """The target (accepter) accepts requester's pending request."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE connections SET state = 'accepted', responded_at = NOW()"
++                " WHERE user_id = %(r)s AND friend_id = %(a)s AND state = 'pending';",
++                {"r": requester_id, "a": accepter_id})
++            return cur.rowcount > 0
++
++
++def decline(requester_id: int, decliner_id: int) -> bool:
++    """The target declines (deletes) requester's pending request."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "DELETE FROM connections"
++                " WHERE user_id = %(r)s AND friend_id = %(d)s AND state = 'pending';",
++                {"r": requester_id, "d": decliner_id})
++            return cur.rowcount > 0
++
++
++def remove(user_a: int, user_b: int) -> None:
++    """Remove an accepted connection (either party); idempotent."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "DELETE FROM connections"
++                " WHERE ((user_id = %(a)s AND friend_id = %(b)s)"
++                "     OR (user_id = %(b)s AND friend_id = %(a)s));",
++                {"a": user_a, "b": user_b})
++
++
++def are_connected(user_a: int, user_b: int) -> bool:
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT 1 FROM connections WHERE state = 'accepted'"
++                " AND ((user_id = %(a)s AND friend_id = %(b)s)"
++                "   OR (user_id = %(b)s AND friend_id = %(a)s));",
++                {"a": user_a, "b": user_b})
++            return cur.fetchone() is not None
++
++
++def list_accepted(user_id: int) -> list[dict]:
++    """Accepted connections of user_id: the OTHER party's card + free_now."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"SELECT other.id AS user_id, {_CARD.replace('u.', 'other.')},"
++                f"       (av.user_id IS NOT NULL) AS free_now"
++                f" FROM connections c"
++                f" JOIN users other ON other.id ="
++                f"      CASE WHEN c.user_id = %(u)s THEN c.friend_id ELSE c.user_id END"
++                f" LEFT JOIN availability av"
++                f"      ON av.user_id = other.id AND av.free_until > now()"
++                f" WHERE c.state = 'accepted'"
++                f"   AND (c.user_id = %(u)s OR c.friend_id = %(u)s)"
++                f" ORDER BY display_name;",
++                {"u": user_id})
++            return cur.fetchall()
++
++
++def list_incoming(user_id: int) -> list[dict]:
++    """Pending requests awaiting user_id's response (they asked me)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"SELECT u.id AS user_id, {_CARD}"
++                f" FROM connections c JOIN users u ON u.id = c.user_id"
++                f" WHERE c.friend_id = %(u)s AND c.state = 'pending'"
++                f" ORDER BY c.requested_at DESC;",
++                {"u": user_id})
++            return cur.fetchall()
++
++
++def list_outgoing(user_id: int) -> list[dict]:
++    """Pending requests user_id has sent (I asked them)."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"SELECT u.id AS user_id, {_CARD}"
++                f" FROM connections c JOIN users u ON u.id = c.friend_id"
++                f" WHERE c.user_id = %(u)s AND c.state = 'pending'"
++                f" ORDER BY c.requested_at DESC;",
++                {"u": user_id})
++            return cur.fetchall()

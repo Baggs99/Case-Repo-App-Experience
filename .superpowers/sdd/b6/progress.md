@@ -33,3 +33,6 @@ Migration numbers: 030 (connections), 031 (groups+members), 033 (leaderboard ind
 
 ## Tasks
 (executing task-by-task; fresh Opus implementer + Opus task-reviewer each)
+
+- Task 1: complete (commits 65bbb8b..162e27f, review SPEC+CODE PASS). Connections migration 030 + repo. 7/7 tests green, migration idempotent.
+  - Deferred MINORs (final-review triage): (a) theoretical opposite-direction request() race under READ COMMITTED → two pending rows, non-corrupting, matches plan; (b) ORDER BY not covered by a multi-element assertion.
