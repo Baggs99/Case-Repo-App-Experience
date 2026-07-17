@@ -30,6 +30,7 @@ from webapp.practice_states import TransitionError
 from webapp.push.events import push_to_user
 from webapp.repositories import proposals as repo
 from webapp.repositories.cases import get_case_by_id
+from webapp.repositories.feedback import RecapGateError
 from webapp.repositories.practice_sessions import get_practice_session
 from webapp.routes.practice import _session_or_404
 
@@ -99,21 +100,27 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
     try:
         prop = repo.respond(proposal_id, user.id, accept=True,
                             scheduled_at=body.scheduled_at, counter_time=body.time)
+    except RecapGateError as exc:
+        raise HTTPException(status_code=409,
+                            detail={"blocked_by_recap": exc.blocked_by_recap})
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
-    if prop["session_id"] is None:
-        # Case-less "interviewer decides" accept — session created in B3
-        # negotiation; still notify the counterpart the proposal was accepted.
+    if prop.get("needs_negotiation"):
+        # Negotiating session created; no case/time yet → no ICS invite. Notify
+        # the counterpart the proposal was accepted (pre-negotiation).
         other = (prop["from_user_id"] if user.id == prop["to_user_id"]
                  else prop["to_user_id"])
         if other is not None:
             background.add_task(
                 push_to_user, other, title="Proposal accepted",
-                body="Your case session proposal was accepted",
-                data={"kind": "accepted", "proposal_id": prop["id"]})
-        return {"accepted": True, "session_id": None, "needs_negotiation": True}
+                body="Your case session proposal was accepted — pick a case",
+                data={"kind": "accepted", "proposal_id": prop["id"],
+                      "session_id": prop["session_id"]})
+        return {"accepted": True, "session_id": prop["session_id"],
+                "needs_negotiation": True}
 
+    # Case-set accept (unchanged from B1): ICS invite + accepted push.
     _send_invites(request, prop["session_id"])
     other = (prop["from_user_id"] if user.id == prop["to_user_id"]
              else prop["to_user_id"])
@@ -135,11 +142,15 @@ def claim_proposal(claim_token: str, request: Request, background: BackgroundTas
     the creator; guests arrive in B2 by overriding require_auth_api."""
     try:
         result = repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
+    except RecapGateError as exc:
+        discard_minted_guest(request)
+        raise HTTPException(status_code=409,
+                            detail={"blocked_by_recap": exc.blocked_by_recap})
     except TransitionError as exc:
         discard_minted_guest(request)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
-    if result["session_id"] is not None:
+    if result["session_id"] is not None and not result.get("needs_negotiation"):
         _send_invites(request, result["session_id"])
         background.add_task(
             push_to_user, result["from_user_id"],

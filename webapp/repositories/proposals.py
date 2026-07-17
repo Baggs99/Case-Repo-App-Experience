@@ -22,8 +22,9 @@ from psycopg.types.json import Jsonb
 
 from webapp.db import get_pool
 from webapp.practice_states import TransitionError
-from webapp.repositories.feedback import is_burned
-from webapp.repositories.practice_sessions import get_default_rubric_template_id
+from webapp.repositories.feedback import assert_candidate_gate_clear, is_burned
+from webapp.repositories.practice_sessions import (
+    create_negotiating_session_within, get_default_rubric_template_id)
 from webapp.repositories.rooms import get_or_create_room
 
 MAX_PROPOSED_TIMES = 3
@@ -108,10 +109,21 @@ def claim_proposal(token: str, user_id: int, is_guest: bool = False) -> dict:
                               accepted=False, needs_negotiation=False)
                 return result
 
+            # Gate the candidate seat: the claimer becomes to_user_id, so they
+            # are candidate iff from_role == 'interviewer'.
+            claimer_is_candidate = (prop["from_role"] == "interviewer")
+            if claimer_is_candidate:
+                assert_candidate_gate_clear(user_id)
+
+            interviewer_id, candidate_id = _resolve_roles(prop)
+
             if prop["case_id"] is None:
+                sid = create_negotiating_session_within(
+                    cur, interviewer_id=interviewer_id, candidate_id=candidate_id)
                 cur.execute("UPDATE proposals SET state = 'accepted',"
-                            " responded_at = NOW() WHERE id = %s;", (prop["id"],))
-                result.update(state="accepted", session_id=None,
+                            " responded_at = NOW(), session_id = %s WHERE id = %s;",
+                            (sid, prop["id"]))
+                result.update(state="accepted", session_id=sid,
                               accepted=True, needs_negotiation=True)
                 return result
 
@@ -309,11 +321,20 @@ def respond(proposal_id: int, user_id: int, *, accept: bool,
             else:
                 use_scheduled = scheduled_at
 
+            # Recap gate: the acting user takes the candidate seat iff they are
+            # the candidate for this proposal.
+            interviewer_id, candidate_id = _resolve_roles(prop)
+            if user_id == candidate_id:
+                assert_candidate_gate_clear(user_id)
+
             if prop["case_id"] is None:
+                sid = create_negotiating_session_within(
+                    cur, interviewer_id=interviewer_id, candidate_id=candidate_id,
+                    scheduled_at=use_scheduled)
                 cur.execute(
-                    "UPDATE proposals SET state = 'accepted', responded_at = NOW()"
-                    f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
-                    (proposal_id,),
+                    "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                    f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                    (sid, proposal_id),
                 )
                 row = cur.fetchone()
                 row["needs_negotiation"] = True

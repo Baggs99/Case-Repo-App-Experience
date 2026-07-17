@@ -29,6 +29,7 @@ from webapp.push.live_activity import push_live_activity_update
 from webapp.repositories.cases import get_case_by_id
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import feedback as feedback_repo
+from webapp.repositories.feedback import RecapGateError
 from webapp.repositories import pairing_tokens as pairing_repo
 from webapp.repositories import practice_sessions as repo
 from webapp.routes.signal_ws import hub
@@ -87,6 +88,12 @@ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_
         raise HTTPException(status_code=400, detail="Interviewer and candidate must differ")
     if get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
+    if user.id == body.candidate_id:
+        try:
+            feedback_repo.assert_candidate_gate_clear(body.candidate_id)
+        except RecapGateError as exc:
+            raise HTTPException(status_code=409,
+                                detail={"blocked_by_recap": exc.blocked_by_recap})
     if feedback_repo.is_burned(body.candidate_id, body.case_id):
         # A6: the candidate has already received this case in a finalized
         # session — it's burned for them.
@@ -178,7 +185,11 @@ def claim_pair_token(body: PairClaimBody, request: Request,
         raise HTTPException(status_code=422, detail="Provide a token or short_code")
     try:
         return pairing_repo.claim(candidate_id=user.id, token=body.token,
-                                  short_code=body.short_code)
+                                  short_code=body.short_code, is_guest=user.is_guest)
+    except RecapGateError as exc:
+        discard_minted_guest(request)
+        raise HTTPException(status_code=409,
+                            detail={"blocked_by_recap": exc.blocked_by_recap})
     except TransitionError as exc:
         discard_minted_guest(request)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)

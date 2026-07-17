@@ -120,3 +120,64 @@ class TestRecapGateRepo(unittest.TestCase):
         if cid:
             with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
                 cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
+
+
+@unittest.skipUnless(_READY, "requires seeded dev Postgres")
+@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+class TestRecapGateEndpoints(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+        import psycopg
+        cls._ctx = TestClient(app)
+        cls.alice = cls._ctx.__enter__()   # interviewer
+        cls.bob = TestClient(app)          # candidate (gated)
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
+                        (["a@yale.edu", "b@yale.edu"],))
+            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
+            cur.execute(
+                "INSERT INTO cases (case_title, normalized_title, source_school,"
+                " source_year, industry, case_type, difficulty, difficulty_score,"
+                " page_count, pdf_path) VALUES ('B3 Entry Case','b3 entry case',"
+                " 'DevSchool',2094,'Technology','Profitability','Easy',3.0,2,"
+                " 'output/none.pdf') RETURNING id;")
+            cls.case_id = cur.fetchone()[0]
+        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
+            s = create_session(uid, user_agent="b3-test", ip_address=None)
+            c.cookies.set(SESSION_COOKIE_NAME, s.id)
+        # Bob has an open recap (as candidate) → gated.
+        cls.gate_sid, cls.gate_case = _seed_finalized_session(cls.aid, cls.bid, "B3 Entry Gate")
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        # Blocked candidate entries create no session; only gate_sid exists.
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
+            extra = [r[0] for r in cur.fetchall()]
+        for sid in [cls.gate_sid, *extra]:
+            _purge_session(sid)
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM proposals WHERE from_user_id = ANY(%s)"
+                        " OR to_user_id = ANY(%s);", ([cls.aid, cls.bid], [cls.aid, cls.bid]))
+            cur.execute("DELETE FROM cases WHERE id = ANY(%s);", ([cls.case_id, cls.gate_case],))
+        cls._ctx.__exit__(None, None, None)
+
+    def test_create_practice_as_candidate_blocked(self):
+        r = self.bob.post("/api/practice", json={
+            "interviewer_id": self.aid, "candidate_id": self.bid,
+            "case_id": self.case_id})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
+
+    def test_proposal_accept_as_candidate_blocked(self):
+        # Alice (interviewer) proposes to Bob (candidate) with a case.
+        pid = self.alice.post("/api/proposals", json={
+            "to_user_id": self.bid, "case_id": self.case_id,
+            "from_role": "interviewer"}).json()["id"]
+        r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["detail"]["blocked_by_recap"], self.gate_sid)
