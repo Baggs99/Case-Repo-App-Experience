@@ -21,8 +21,13 @@ Order: T1 DS primitives → T2 API → T4 Timeline detail → T3 Home phone → 
 ## Tasks
 - Task 1 (DS primitives, opus): COMPLETE — commits 76e26e1..0435129, review PASS (0 crit/imp). SteppedTimeline hierarchy inverted to pixel-truth + TODAY label/dot + flat glass-key variant (glassKey/glassChipFlat). Suite 313→315. Gallery shot task1-gallery-bottom.png verified vs canvas 3a/7b.
   - Banked MINOR (final triage): glass-key reuses panel top-inset highlight (.85/1.5px) vs §1 recipe (.9/1px). Subtle, shared w/ panel.
-- Task 2 (API models, sonnet): IN PROGRESS. BASE=0435129.
-- (T4, T3, T5, T6 pending)
+- Task 2 (API models, sonnet): COMPLETE — commits b6518f4..0157c7b (impl 5f7bfa5 + review-fix 0157c7b). HomeModels.swift (24 types) + DashboardStats additive extension + 8 APIClient methods + 4 protocols. Review: REQUEST_CHANGES → 1 IMPORTANT (Reweight.focusDimension must be optional; backend nulls it on no_offer) FIXED + null fixture. Suite 315→332. Impl-caught deviations validated by reviewer: strengths/weaknesses are [DimensionScore] not [String]; casesDone60D capital-D; nullable GroupRef/GauntletGroup.name.
+- Task 4 (Timeline detail, sonnet): COMPLETE — commits 0157c7b..30d87cd (impl f78db05 + review-fix 30d87cd). TimelineDetailView + VM + 13 tests + DEBUG hatches (-F2Timeline/-F2TimelinePromptNoOffer). Review: REQUEST_CHANGES → 3 IMPORTANT copy-fidelity (no_offer "before BCG" via focus-firm derivation; "MMM dd" zero-pad dates; readiness-row "PUSH" short-form) + 1 MINOR (test baked the bug) ALL FIXED + verified vs canvas 7b in reshot shots. Suite 332→345.
+  - Plan patched (lines 226/295/315) so T3 inherits "MMM dd" + focus-firm derivation.
+  - NOTE (screenshot tooling): stale DerivedData (brssf) caused false "Login" shots; deleted it, fzihnr is the working build. Cold-launch needs ~8s render wait (perl select; `sleep` binary blocked).
+  - Deferred/flagged: "Set date" tap is inert (B7 has no set-deadline endpoint) — backend follow-up.
+- Task 3 (Home phone, sonnet): IN PROGRESS. BASE=30d87cd.
+- (T5, T6 pending)
 
 ## Blocked / decisions needed
 - (none yet)
