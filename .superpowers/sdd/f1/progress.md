@@ -29,6 +29,9 @@ T1 DONE + APPROVED (78e7e4e; 304 tests/0 fail = 289+15 AppRouterTests). Dispatch
 - IntentsTests.swift:2 header still says "AppRoute" (tests now exercise DeepLink) — cosmetic, file persists.
 - RootTabView.swift header stale — moot, deleted in T4.
 
+## PHASE DONE
+Whole-branch Opus review APPROVE (0 CRIT/0 IMP/6 MIN follow-ups, all recorded in report). Report written: docs/superpowers/sdd/fe-f1-report.md. Dev server killed; all sims shut down. Head `f65fb94` (pre-report commit); report + this ledger add 2 more commits.
+
 ## Tasks
 - [x] Plan review (Opus) — APPROVED after 2 rounds (be346f2)
 - [x] T1 AppRoute registry + AppRouter + remap (opus) — 78e7e4e, APPROVE
@@ -42,11 +45,8 @@ T1 DONE + APPROVED (78e7e4e; 304 tests/0 fail = 289+15 AppRouterTests). Dispatch
 - xcodegen idempotent (project.yml unchanged by regen).
 - Dev server still on :8077 (kill before finishing). iPad sim shut down; iPhone 17 sim booted.
 - Next: final whole-branch Opus review → fix → kill server/sim → report.
-- [ ] T2 profile/settings models + APIClient (sonnet)
-- [ ] T3 avatar sheet 7a + VM (opus)
-- [ ] T4 RootShell: chrome + re-home + wire (opus)
-- [ ] T5 iPad variant (opus)
-- [ ] Close-out: suites green → whole-branch review → report
+- [x] T5 iPad variant (opus) — be2894c, APPROVE (313/0; 560 bar + wordmark|H1|avatar, portrait fallback)
+- [x] Close-out — iOS 313/0 + backend 655; whole-branch Opus review APPROVE (0 CRIT/0 IMP/6 MIN); report DONE; server+sims down
 
 ## Assumptions (to confirm at review)
 - Notifications = single master pill (writes all 5 B5 categories); granular screen deferred (Decisions §6).
