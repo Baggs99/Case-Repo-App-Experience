@@ -18,6 +18,7 @@ from webapp.db import get_pool
 HISTORY_LIMIT = 50
 TREND_WINDOW = 10          # last N finalized-as-candidate sessions
 LADDER_MIN_GRADE = 4.0     # §4.8 rule 2 threshold over the last 3 grades
+DIAGNOSTIC_WINDOW_DAYS = 60   # spec §4 "cases done (2 mo)"
 
 _LADDER = {"Easy": "Medium", "Medium": "Hard"}   # DV-7; Hard has no +1
 
@@ -279,3 +280,61 @@ def recommendations(user_id: int, exclude_case_ids: list[int] = [],
                         "rule": rule,
                     })
     return out
+
+
+def _grade_trend(cur, user_id: int) -> dict:
+    """Mean grade of the last 5 finalized-as-candidate sessions vs the 5 before
+    them. Nulls where a window has no grades (delta/direction need both)."""
+    cur.execute(
+        """
+        WITH g AS (
+            SELECT f.grade,
+                   row_number() OVER (ORDER BY ps.ended_at DESC) AS rn
+            FROM practice_sessions ps JOIN feedback f ON f.session_id = ps.id
+            WHERE ps.state = 'finalized' AND ps.candidate_id = %(u)s
+              AND f.grade IS NOT NULL
+        )
+        SELECT AVG(grade) FILTER (WHERE rn <= 5)             AS recent_avg,
+               AVG(grade) FILTER (WHERE rn > 5 AND rn <= 10) AS previous_avg,
+               COUNT(*)   FILTER (WHERE rn <= 5)             AS recent_n,
+               COUNT(*)   FILTER (WHERE rn > 5 AND rn <= 10) AS previous_n
+        FROM g;
+        """,
+        {"u": user_id},
+    )
+    row = cur.fetchone()
+    recent = float(row["recent_avg"]) if row["recent_avg"] is not None else None
+    previous = float(row["previous_avg"]) if row["previous_avg"] is not None else None
+    delta = direction = None
+    if recent is not None and previous is not None:
+        delta = round(recent - previous, 2)
+        direction = "up" if delta > 0.05 else "down" if delta < -0.05 else "flat"
+    return {"recent_avg": round(recent, 2) if recent is not None else None,
+            "previous_avg": round(previous, 2) if previous is not None else None,
+            "delta": delta, "direction": direction}
+
+
+def diagnostic(user_id: int) -> dict:
+    """§4 Home diagnostic block. Dimension bars reuse dimension_averages (last-N
+    candidate sessions) so FOCUS matches the rec engine + readiness (DV-B7-4);
+    cases_done_60d is the only 60-day-windowed figure."""
+    dims = dimension_averages(user_id)                 # ascending by avg_score
+    strengths = list(reversed(dims[-2:])) if dims else []
+    weaknesses = dims[:2]
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "SELECT COUNT(*)::int AS n FROM practice_sessions"
+                " WHERE candidate_id = %(u)s AND state = 'finalized'"
+                "   AND ended_at >= NOW() - make_interval(days => %(w)s);",
+                {"u": user_id, "w": DIAGNOSTIC_WINDOW_DAYS})
+            cases_done = cur.fetchone()["n"]
+            trend = _grade_trend(cur, user_id)
+    return {
+        "cases_done_60d": cases_done,
+        "dimensions": dims,
+        "strengths": strengths,
+        "weaknesses": weaknesses,
+        "focus_dimension": dims[0]["dimension"] if dims else None,
+        "trend": trend,
+    }
