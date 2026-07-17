@@ -1,0 +1,122 @@
+"""B3 Task 3 & 6: recap gate repo + endpoints. Needs seeded dev Postgres."""
+
+from __future__ import annotations
+
+import unittest
+
+from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
+
+
+def _seed_finalized_session(interviewer_id, candidate_id, case_title):
+    """Insert a finalized session + feedback (closed_at NULL) using ONLY raw
+    psycopg (no get_pool — works without an app context). rubric_template_id is
+    left NULL (nullable after migration 028; unused by these tests). Returns
+    (session_id, case_id)."""
+    import psycopg
+    with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO cases (case_title, normalized_title, source_school,"
+            " source_year, industry, case_type, difficulty, difficulty_score,"
+            " page_count, pdf_path) VALUES (%s,%s,'DevSchool',2094,'Technology',"
+            " 'Profitability','Easy',3.0,2,'output/none.pdf') RETURNING id;",
+            (case_title, case_title.lower()))
+        case_id = cur.fetchone()[0]
+        cur.execute("SELECT id FROM rooms WHERE owner_user_id = %s LIMIT 1;",
+                    (interviewer_id,))
+        r = cur.fetchone()
+        if r is None:
+            cur.execute("INSERT INTO rooms (owner_user_id, slug) VALUES (%s, %s)"
+                        " RETURNING id;", (interviewer_id, f"rm-{interviewer_id}-{case_id}"))
+            room_id = cur.fetchone()[0]
+        else:
+            room_id = r[0]
+        cur.execute(
+            "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
+            " case_id, rubric_template_id, state, ended_at) VALUES"
+            " (%s,%s,%s,%s,NULL,'finalized', NOW()) RETURNING id;",
+            (room_id, interviewer_id, candidate_id, case_id))
+        session_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO feedback (session_id, rubric_json, grade, finalized_at)"
+            " VALUES (%s, '{\"items\":{}}', 4.0, NOW());", (session_id,))
+    return session_id, case_id
+
+
+def _purge_session(session_id):
+    """Delete a practice_session and its NO-ACTION referencers, FK-safe."""
+    import psycopg
+    with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+        cur.execute("UPDATE proposals SET session_id = NULL WHERE session_id = %s;", (session_id,))
+        cur.execute("DELETE FROM pairing_tokens WHERE claimed_session_id = %s;", (session_id,))
+        cur.execute("DELETE FROM burned WHERE session_id = %s;", (session_id,))
+        cur.execute("DELETE FROM live_activity_tokens WHERE session_id = %s;", (session_id,))
+        cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (session_id,))
+
+
+@unittest.skipUnless(_READY, "requires seeded dev Postgres")
+@unittest.skipUnless(_HTTPX, "requires httpx (TestClient inits the pool)")
+class TestRecapGateRepo(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        cls._ctx = TestClient(app)
+        cls._ctx.__enter__()   # run the app lifespan → init the DB pool
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
+                        (["a@yale.edu", "b@yale.edu"],))
+            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
+        cls.sid, cls.case_id = _seed_finalized_session(cls.aid, cls.bid, "B3 Gate Case")
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        _purge_session(cls.sid)
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
+        cls._ctx.__exit__(None, None, None)
+
+    def test_candidate_gate_blocks_open_recap(self):
+        from webapp.repositories import feedback as repo
+        self.assertEqual(repo.candidate_gate(self.bid), self.sid)   # candidate blocked
+        self.assertIsNone(repo.candidate_gate(self.aid))            # interviewer never gated
+
+    def test_close_recap_clears_gate(self):
+        from webapp.repositories import feedback as repo
+        repo.close_recap(self.sid, case_rating=5, feedback_thumbs=True, record_thumbs=True)
+        self.assertIsNone(repo.candidate_gate(self.bid))
+        # thumbs recorded because record_thumbs=True
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT case_rating, feedback_thumbs, closed_at FROM feedback"
+                        " WHERE session_id = %s;", (self.sid,))
+            rating, thumbs, closed = cur.fetchone()
+        self.assertEqual(rating, 5)
+        self.assertTrue(thumbs)
+        self.assertIsNotNone(closed)
+
+    def test_list_unread_recaps_oldest_first(self):
+        # fresh open recap for this test
+        sid2, cid2 = _seed_finalized_session(self.aid, self.bid, "B3 Gate Case 2")
+        self.addCleanup(self._drop, sid2, cid2)
+        from webapp.repositories import feedback as repo
+        recaps = repo.list_unread_recaps(self.bid)
+        self.assertTrue(all(r["session_id"] != self.sid for r in recaps))  # closed one gone
+        self.assertIn(sid2, [r["session_id"] for r in recaps])
+
+    def test_assert_gate_raises_recap_error(self):
+        # Runs before test_close_recap_clears_gate (alphabetical), so cls.sid is
+        # still the oldest open recap → assert_candidate_gate_clear points at it.
+        from webapp.repositories import feedback as repo
+        with self.assertRaises(repo.RecapGateError) as ctx:
+            repo.assert_candidate_gate_clear(self.bid)
+        self.assertEqual(ctx.exception.blocked_by_recap, self.sid)
+        self.assertEqual(ctx.exception.status_code, 409)
+
+    def _drop(self, sid, cid):
+        import psycopg
+        _purge_session(sid)
+        if cid:
+            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
