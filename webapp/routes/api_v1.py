@@ -30,13 +30,19 @@ from webapp import timeline_service
 from webapp.preview_urls import preview_page_urls
 from webapp.push.events import push_to_user
 from webapp.repositories import availability as availability_repo
+from webapp.repositories import case_stats
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import device_tokens as repo
 from webapp.repositories import drill_attempts as drills_repo
 from webapp.repositories import live_activity_tokens as live_activity_repo
 from webapp.repositories import practice_sessions as sessions_repo
 from webapp.repositories import proposals as proposals_repo
-from webapp.repositories.cases import SearchFilters, get_case_by_id, search_cases
+from webapp.repositories.cases import (
+    SearchFilters,
+    get_case_by_id,
+    library_counts,
+    search_cases,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -248,7 +254,12 @@ def list_cases(
         row = dict(row)
         row.pop("pdf_path", None)
         cases.append(row)
-    return {"cases": cases, "total": total}
+    ids = [c["id"] for c in cases]
+    aggs = case_stats.case_aggregates(ids, user.id)
+    for c in cases:
+        c.update(aggs[c["id"]])
+    counts = library_counts(filters, user.id)
+    return {"cases": cases, "total": total, **counts}
 
 
 _CASE_DETAIL_FIELDS = (
@@ -280,6 +291,8 @@ def get_case(case_id: int, request: Request, user: User = Depends(require_auth_a
     result = {field: case.get(field) for field in _CASE_DETAIL_FIELDS}
     result["preview_urls"] = preview_urls
     result["pdf_url"] = pdf_url
+    agg = case_stats.case_aggregates([case_id], user.id)[case_id]
+    result.update(agg)
     return result
 
 

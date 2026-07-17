@@ -20,6 +20,7 @@ from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.push.events import push_to_user
 from webapp.push.live_activity import push_live_activity_update
+from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import feedback as repo
 from webapp.repositories import reveals as reveals_repo
 from webapp.routes.practice import _session_or_404
@@ -89,18 +90,29 @@ def put_rubric(session_id: int, body: RubricDraftBody,
 def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
                   user: User = Depends(require_session_participant)):
     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
-    one transaction. Optional body.grade overrides the computed score."""
+    one transaction. Optional body.grade overrides the computed score. The
+    response + feedback push also seed the candidate's next session (B3 §7.3):
+    next_recommendation (top rec, excluding the just-burned case) + prefill_proposal."""
     session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
     try:
         feedback = repo.finalize(session_id, user.id, body.grade)
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
+    # Debrief seeding: recommend the candidate's next case (excluding the one
+    # they just burned) with a prefilled proposal back to the same interviewer.
+    recs = dashboard_repo.recommendations(
+        session["candidate_id"], exclude_case_ids=[session["case_id"]], limit=1)
+    next_rec = recs[0] if recs else None
+    prefill = ({"to_user_id": session["interviewer_id"], "case_id": next_rec["case_id"]}
+               if next_rec else None)
+
     background.add_task(
         push_to_user, session["candidate_id"],
         title="Feedback released",
         body=f"Your feedback for {session['case_title']} is ready",
-        data={"kind": "feedback", "session_id": session_id},
+        data={"kind": "feedback", "session_id": session_id,
+              "next_recommendation": next_rec, "prefill_proposal": prefill},
     )
     background.add_task(hub.broadcast_session_update, session_id)
     background.add_task(push_live_activity_update, session_id, event="end")
@@ -108,6 +120,8 @@ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTas
         "finalized": True,
         "grade": float(feedback["grade"]),
         "finalized_at": feedback["finalized_at"],
+        "next_recommendation": next_rec,
+        "prefill_proposal": prefill,
     }
 
 

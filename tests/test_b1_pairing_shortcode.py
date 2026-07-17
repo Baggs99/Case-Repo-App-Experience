@@ -93,12 +93,21 @@ class TestPairingShortCode(unittest.TestCase):
         r = self.alice.post("/api/practice/pair/claim", json={"short_code": code})
         self.assertEqual(r.status_code, 409)
 
-    def test_case_less_token_claim_409(self):
-        # DD-1: sessions stay case-bound in B1; a case-less pairing token can't
-        # create a session yet (case negotiation lands in B3).
+    def test_case_less_token_claim_negotiating(self):
+        # DD-1: B3 creates a negotiating session for a case-less pairing claim
+        # (in-person "interviewer decides"); the case is settled via negotiation.
         code = self.alice.post("/api/practice/pair/create", json={}).json()["short_code"]
         r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
-        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
+        self.assertTrue(r.json()["needs_negotiation"])
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT state, case_id FROM practice_sessions WHERE id = %s;",
+                        (r.json()["session_id"],))
+            state, case_id = cur.fetchone()
+        self.assertEqual(state, "negotiating")
+        self.assertIsNone(case_id)
 
     def test_claim_requires_auth(self):
         code = self.alice.post("/api/practice/pair/create",

@@ -70,6 +70,7 @@ from webapp.routes import queues as queues_routes
 from webapp.routes import recommendations as recommendations_routes
 from webapp.routes import rooms as rooms_routes
 from webapp.routes import search as search_routes
+from webapp.routes import session_flow as session_flow_routes
 from webapp.routes import timeline as timeline_routes
 from webapp.routes import signal_ws as signal_ws_routes
 from webapp.routes import votes as votes_routes
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(practice_routes.router)
     app.include_router(practice_exhibits_routes.router)
     app.include_router(practice_feedback_routes.router)
+    app.include_router(session_flow_routes.router)
     app.include_router(practice_recordings_routes.router)
     app.include_router(queues_routes.router)
     app.include_router(proposals_routes.router)

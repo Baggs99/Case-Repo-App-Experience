@@ -186,8 +186,15 @@ class TestClaim(unittest.TestCase):
         r = self.bob.post(f"/api/proposals/claim/{tok}")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["accepted"])
-        self.assertIsNone(r.json()["session_id"])
+        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
         self.assertTrue(r.json()["needs_negotiation"])
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT state, case_id FROM practice_sessions WHERE id = %s;",
+                        (r.json()["session_id"],))
+            state, case_id = cur.fetchone()
+        self.assertEqual(state, "negotiating")
+        self.assertIsNone(case_id)
 
     def test_double_claim_404_dead_token(self):
         # B2 N-1: claiming nulls the now-dead claim_token, so a second claim of
@@ -330,7 +337,7 @@ class TestCounter(unittest.TestCase):
         r = self.bob.post(f"/api/proposals/{pid}/accept",
                           json={"scheduled_at": when.isoformat()})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertIsNone(r.json()["session_id"])
+        self.assertIsNotNone(r.json()["session_id"])       # B3: negotiating session
         self.assertTrue(r.json()["needs_negotiation"])
 
 

@@ -15,8 +15,9 @@ from psycopg.rows import dict_row
 
 from webapp.db import get_pool
 from webapp.practice_states import TransitionError
-from webapp.repositories.feedback import is_burned
-from webapp.repositories.practice_sessions import create_practice_session
+from webapp.repositories.feedback import assert_candidate_gate_clear, is_burned
+from webapp.repositories.practice_sessions import (
+    create_negotiating_session, create_practice_session)
 
 
 # Unambiguous 6-char set (spec §8): A-Z + 2-9, minus 0/O/1/I.
@@ -53,10 +54,11 @@ def mint_token(interviewer_id: int, case_id: Optional[int] = None,
 
 
 def claim(*, candidate_id: int, token: Optional[str] = None,
-          short_code: Optional[str] = None) -> dict:
+          short_code: Optional[str] = None, is_guest: bool = False) -> dict:
     """Claim a pairing token by token OR short_code (spec §8), creating the
-    practice session in one transaction. Case-less tokens can't create a
-    session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
+    practice session in one transaction. A case-set token creates a live
+    (in-person) session; a case-less token creates a 'negotiating' session for
+    a real user (B3) or 409s a guest (guests may only claim ready-to-run links).
 
     The token row is locked with SELECT ... FOR UPDATE for the whole
     transaction — this is the anti-double-claim mechanism. A concurrent
@@ -95,7 +97,17 @@ def claim(*, candidate_id: int, token: Optional[str] = None,
             if row["interviewer_id"] == candidate_id:
                 raise TransitionError(409, "Cannot claim your own pairing token")
             if row["case_id"] is None:
-                raise TransitionError(409, "Choose a case before pairing")
+                if is_guest:
+                    raise TransitionError(
+                        409, "Guests can only claim an instant, ready-to-run link.")
+                assert_candidate_gate_clear(candidate_id)
+                session = create_negotiating_session(
+                    interviewer_id=row["interviewer_id"],
+                    candidate_id=candidate_id, mode="in_person")
+                cur.execute("UPDATE pairing_tokens SET claimed_session_id = %s"
+                            " WHERE id = %s;", (session["id"], row["id"]))
+                return {"session_id": session["id"], "needs_negotiation": True}
+            assert_candidate_gate_clear(candidate_id)
             if is_burned(candidate_id, row["case_id"]):
                 raise TransitionError(409, "You have already completed this case")
 

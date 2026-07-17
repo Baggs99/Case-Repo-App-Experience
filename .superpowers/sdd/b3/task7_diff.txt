@@ -1,0 +1,268 @@
+=== git log ===
+62b2d65 Add role swap: interviewer-initiated invite + reversed negotiating session, gate on new candidate
+
+=== diff --stat ===
+ tests/test_b3_swap.py         | 90 +++++++++++++++++++++++++++++++++++++++++++
+ webapp/repositories/swaps.py  | 48 +++++++++++++++++++++++
+ webapp/routes/session_flow.py | 61 ++++++++++++++++++++++++++++-
+ 3 files changed, 198 insertions(+), 1 deletion(-)
+
+=== full diff ===
+diff --git a/tests/test_b3_swap.py b/tests/test_b3_swap.py
+new file mode 100644
+index 0000000..3b4c01e
+--- /dev/null
++++ b/tests/test_b3_swap.py
+@@ -0,0 +1,90 @@
++"""B3 Task 7: role swap. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++from tests.test_b3_recap_gate import _seed_finalized_session, _purge_session
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestSwap(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer of the finished session
++        cls.bob = TestClient(app)          # candidate
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def _finished(self):
++        sid, cid = _seed_finalized_session(self.aid, self.bid, "B3 Swap Src")
++        # ensure Bob's recap is closed so a later swap can be gated cleanly
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("UPDATE feedback SET closed_at = NOW(), case_rating = 5"
++                        " WHERE session_id = %s;", (sid,))
++        self.addCleanup(self._drop, sid, cid)
++        return sid
++
++    def test_interviewer_swaps_roles_reversed(self):
++        sid = self._finished()
++        r = self.alice.post(f"/api/practice/{sid}/swap")
++        self.assertEqual(r.status_code, 200, r.text)
++        r = self.bob.post(f"/api/practice/{sid}/swap/accept")
++        self.assertEqual(r.status_code, 200, r.text)
++        new_sid = r.json()["session_id"]
++        self.addCleanup(self._drop, new_sid, None)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT interviewer_id, candidate_id, state, mode,"
++                        " swapped_from_session_id FROM practice_sessions WHERE id = %s;",
++                        (new_sid,))
++            ivr, cand, state, mode, frm = cur.fetchone()
++        self.assertEqual((ivr, cand), (self.bid, self.aid))   # reversed
++        self.assertEqual(state, "negotiating")
++        self.assertEqual(frm, sid)
++
++    def test_candidate_cannot_initiate(self):
++        sid = self._finished()
++        r = self.bob.post(f"/api/practice/{sid}/swap")
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_swap_gate_blocks_new_candidate(self):
++        # Alice (who will become the NEW candidate) has her own open recap.
++        blk_sid, blk_cid = _seed_finalized_session(self.bid, self.aid, "B3 Swap Gate")
++        self.addCleanup(self._drop, blk_sid, blk_cid)   # Alice is candidate here → open recap
++        sid = self._finished()
++        self.alice.post(f"/api/practice/{sid}/swap")
++        r = self.bob.post(f"/api/practice/{sid}/swap/accept")
++        self.assertEqual(r.status_code, 409, r.text)
++        self.assertEqual(r.json()["detail"]["blocked_by_recap"], blk_sid)
++
++    def _drop(self, sid, cid):
++        import psycopg
++        # Purge any session swapped FROM this one first (new_session_id/swapped_from
++        # are ON DELETE SET NULL, so order is not FK-critical, but keep it tidy).
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM practice_sessions WHERE swapped_from_session_id = %s;", (sid,))
++            children = [r[0] for r in cur.fetchall()]
++        for child in children:
++            _purge_session(child)
++        _purge_session(sid)
++        if cid:
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cid,))
+diff --git a/webapp/repositories/swaps.py b/webapp/repositories/swaps.py
+new file mode 100644
+index 0000000..0694c96
+--- /dev/null
++++ b/webapp/repositories/swaps.py
+@@ -0,0 +1,48 @@
++"""
++Purpose: Role-swap invite SQL — a pending "swap roles & go again" between two
++         real users, resolved into a reversed negotiating session on accept.
++Inputs:  swap_invites (via get_pool).
++Outputs: swap_invite rows; no external side effects.
++Run:     from webapp.repositories import swaps as swap_repo
++"""
++
++from __future__ import annotations
++
++from typing import Optional
++
++import psycopg
++from psycopg.rows import dict_row
++
++from webapp.db import get_pool
++from webapp.practice_states import TransitionError
++
++
++def create_invite(from_session_id: int, initiator_id: int, invitee_id: int) -> dict:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            try:
++                cur.execute(
++                    "INSERT INTO swap_invites (from_session_id, initiator_id, invitee_id)"
++                    " VALUES (%s, %s, %s) RETURNING *;",
++                    (from_session_id, initiator_id, invitee_id))
++                return cur.fetchone()
++            except psycopg.errors.UniqueViolation as exc:
++                raise TransitionError(409, "A swap invite is already pending") from exc
++
++
++def pending_invite(from_session_id: int) -> Optional[dict]:
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                "SELECT * FROM swap_invites WHERE from_session_id = %s"
++                " AND state = 'pending' ORDER BY id DESC LIMIT 1;", (from_session_id,))
++            return cur.fetchone()
++
++
++def mark_accepted(invite_id: int, new_session_id: int) -> None:
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE swap_invites SET state = 'accepted', new_session_id = %s,"
++                " responded_at = NOW() WHERE id = %s AND state = 'pending';",
++                (new_session_id, invite_id))
+diff --git a/webapp/routes/session_flow.py b/webapp/routes/session_flow.py
+index 7e966b0..548510b 100644
+--- a/webapp/routes/session_flow.py
++++ b/webapp/routes/session_flow.py
+@@ -10,30 +10,33 @@ Run:     registered in webapp/main.py via include_router(session_flow.router).
+ from __future__ import annotations
+ 
+ from typing import Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.dependencies import require_auth_api
+ from webapp.auth.guest import require_session_participant
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
++from webapp.push.events import push_to_user
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as feedback_repo
+ from webapp.repositories import negotiations as nego_repo
+ from webapp.repositories import practice_sessions as sessions_repo
++from webapp.repositories import swaps as swap_repo
+ from webapp.repositories.cases import get_case_by_id
+-from webapp.repositories.feedback import is_burned
++from webapp.repositories.feedback import (
++    RecapGateError, assert_candidate_gate_clear, is_burned)
+ from webapp.routes.practice import _session_or_404
+ from webapp.routes.signal_ws import hub
+ 
+ router = APIRouter(tags=["session-flow"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class ProposeBody(BaseModel):
+     case_id: int
+ 
+ 
+@@ -180,12 +183,68 @@ def recap_close(session_id: int, body: RecapCloseBody,
+                 user: User = Depends(require_session_participant)):
+     """Close-out: required 1-5 case_rating clears the gate; feedback_thumbs is
+     recorded only when the interviewer was a real (non-guest) user."""
+     session = _candidate_or_403(session_id, user.id)
+     record_thumbs = not session.get("interviewer_is_guest", False)
+     try:
+         feedback_repo.close_recap(
+             session_id, case_rating=body.case_rating,
+             feedback_thumbs=body.feedback_thumbs, record_thumbs=record_thumbs)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"closed": True, "gate_cleared": feedback_repo.candidate_gate(user.id) is None}
++
++
++# --- Role swap -----------------------------------------------------------
++
++
++@router.post("/api/practice/{session_id}/swap", dependencies=_MUTATING)
++def swap_initiate(session_id: int, background: BackgroundTasks,
++                  user: User = Depends(require_session_participant)):
++    session, role = _session_or_404(session_id, user.id)
++    if user.is_guest or role != "interviewer":
++        raise HTTPException(status_code=403,
++                            detail="Only the authenticated interviewer can start a swap")
++    if session["state"] not in ("debrief", "finalized"):
++        raise HTTPException(status_code=409,
++                            detail="Swap is available after the debrief")
++    if session.get("candidate_is_guest"):
++        raise HTTPException(status_code=409, detail="Can't swap with a guest")
++    invitee_id = session["candidate_id"]
++    try:
++        invite = swap_repo.create_invite(session_id, user.id, invitee_id)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    background.add_task(
++        push_to_user, invitee_id, title="Swap roles & go again",
++        body="You're invited to interview next", data={
++            "kind": "swap_invite", "session_id": session_id,
++            "swap_invite_id": invite["id"]})
++    return {"swap_invite_id": invite["id"], "invitee_id": invitee_id}
++
++
++@router.post("/api/practice/{session_id}/swap/accept", dependencies=_MUTATING)
++def swap_accept(session_id: int, background: BackgroundTasks,
++                user: User = Depends(require_session_participant)):
++    session, _ = _session_or_404(session_id, user.id)
++    invite = swap_repo.pending_invite(session_id)
++    if invite is None or invite["invitee_id"] != user.id:
++        raise HTTPException(status_code=404, detail="No pending swap invite for you")
++    if user.is_guest:
++        raise HTTPException(status_code=403, detail="Guests cannot swap")
++    # Reversed roles: new interviewer = old candidate, new candidate = old interviewer.
++    new_interviewer = session["candidate_id"]
++    new_candidate = session["interviewer_id"]
++    try:
++        assert_candidate_gate_clear(new_candidate)
++    except RecapGateError as exc:
++        raise HTTPException(status_code=409,
++                            detail={"blocked_by_recap": exc.blocked_by_recap})
++    new_session = sessions_repo.create_negotiating_session(
++        interviewer_id=new_interviewer, candidate_id=new_candidate,
++        mode=session["mode"], swapped_from_session_id=session_id)
++    swap_repo.mark_accepted(invite["id"], new_session["id"])
++    background.add_task(
++        push_to_user, invite["initiator_id"], title="Swap accepted",
++        body="Your rematch is ready — pick a case", data={
++            "kind": "swap_accepted", "session_id": new_session["id"]})
++    return {"accepted": True, "session_id": new_session["id"], "needs_negotiation": True}

@@ -4,20 +4,27 @@ Practice-session state machine (docs/caseroom-spec.md §4.5, INTEGRATION.md A1).
 Pure validation — no DB, no FastAPI — so every edge is unit-testable. The
 repository applies the transition inside a row lock after this validates.
 
-    scheduled → lobby → live → debrief → finalized
-    scheduled|lobby|live → aborted
+    negotiating → lobby → live → debrief → finalized   (also: scheduled → lobby)
+    negotiating|scheduled|lobby|live → aborted
 
-'finalized' is deliberately NOT reachable through the generic state endpoint:
-finalize has its own endpoint (Phase 7) because it computes the grade, writes
-feedback and burned rows, and releases content in one transaction.
+'negotiating' (B3) is the pre-lobby state for case-less sessions (case chosen
+after pairing); the negotiating → lobby edge is deliberately NOT here — it's
+driven only by stamp_negotiated_case, which sets the case atomically. Likewise
+'finalized' is NOT reachable through the generic state endpoint: finalize has
+its own endpoint (Phase 7) because it computes the grade, writes feedback and
+burned rows, and releases content in one transaction.
 """
 
 from __future__ import annotations
 
-STATES = ("scheduled", "lobby", "live", "debrief", "finalized", "aborted")
+STATES = ("negotiating", "scheduled", "lobby", "live", "debrief", "finalized", "aborted", "missed")
 
 # (current, target) -> role allowed to drive the edge ('any' = either participant)
+# ('negotiating','lobby') is deliberately absent — that edge is driven only by
+# stamp_negotiated_case, which sets the case atomically; the generic /state
+# endpoint must not move a case-less session to lobby.
 _EDGES: dict[tuple[str, str], str] = {
+    ("negotiating", "aborted"): "any",   # bail out of negotiation
     ("scheduled", "lobby"): "any",
     ("lobby", "live"): "interviewer",   # A7: state change first, WS admit second
     ("live", "debrief"): "any",

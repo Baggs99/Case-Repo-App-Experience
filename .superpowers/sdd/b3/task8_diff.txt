@@ -1,0 +1,161 @@
+=== git log ===
+9006dc5 Seed the next session on debrief: next_recommendation + prefill_proposal on finalize + push
+
+=== diff --stat ===
+ tests/test_b3_debrief_seeding.py   | 67 ++++++++++++++++++++++++++++++++++++++
+ webapp/routes/practice_feedback.py | 14 +++++++-
+ 2 files changed, 80 insertions(+), 1 deletion(-)
+
+=== full diff ===
+diff --git a/tests/test_b3_debrief_seeding.py b/tests/test_b3_debrief_seeding.py
+new file mode 100644
+index 0000000..c6143bc
+--- /dev/null
++++ b/tests/test_b3_debrief_seeding.py
+@@ -0,0 +1,67 @@
++"""B3 Task 8: debrief seeding — finalize response carries next_recommendation +
++prefill_proposal. Needs seeded dev Postgres."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestDebriefSeeding(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()   # interviewer (finalizes)
++        cls.bob = TestClient(app)          # candidate
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT id FROM users WHERE email = ANY(%s) ORDER BY email;",
++                        (["a@yale.edu", "b@yale.edu"],))
++            cls.aid, cls.bid = (r[0] for r in cur.fetchall())
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path) VALUES ('B3 Seed','b3 seed','DevSchool',2094,"
++                " 'Technology','Profitability','Medium',5.0,2,'output/none.pdf') RETURNING id;")
++            cls.case_id = cur.fetchone()[0]
++        from webapp.repositories.rooms import get_or_create_room
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        cls.room_id = get_or_create_room(cls.aid)["id"]
++        rt_id = get_default_rubric_template_id(cls.case_id, cls.aid)
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++                " case_id, rubric_template_id, state, started_at) VALUES"
++                " (%s,%s,%s,%s,%s,'debrief', NOW()) RETURNING id;",
++                (cls.room_id, cls.aid, cls.bid, cls.case_id, rt_id))
++            cls.sid = cur.fetchone()[0]
++        for c, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b3", ip_address=None)
++            c.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("DELETE FROM burned WHERE case_id = %s;", (cls.case_id,))
++            cur.execute("DELETE FROM feedback WHERE session_id = %s;", (cls.sid,))
++            cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (cls.sid,))
++            cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_finalize_seeds_next(self):
++        r = self.alice.post(f"/api/practice/{self.sid}/finalize", json={"grade": 4.0})
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertIn("next_recommendation", body)
++        self.assertIn("prefill_proposal", body)
++        if body["prefill_proposal"] is not None:
++            self.assertEqual(body["prefill_proposal"]["to_user_id"], self.aid)
++            # next recommendation never re-recommends the just-burned case
++            self.assertNotEqual(body["next_recommendation"]["case_id"], self.case_id)
+diff --git a/webapp/routes/practice_feedback.py b/webapp/routes/practice_feedback.py
+index d28ca62..74f3c0e 100644
+--- a/webapp/routes/practice_feedback.py
++++ b/webapp/routes/practice_feedback.py
+@@ -11,24 +11,25 @@ from __future__ import annotations
+ 
+ from typing import Any, Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.guest import require_session_participant
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.push.live_activity import push_live_activity_update
++from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as repo
+ from webapp.repositories import reveals as reveals_repo
+ from webapp.routes.practice import _session_or_404
+ from webapp.routes.signal_ws import hub
+ 
+ router = APIRouter(tags=["practice-feedback"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class RubricDraftBody(BaseModel):
+     items: dict[str, Any] = Field(default_factory=dict)
+@@ -87,36 +88,47 @@ def put_rubric(session_id: int, body: RubricDraftBody,
+ 
+ @router.post("/api/practice/{session_id}/finalize", dependencies=_MUTATING)
+ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
+                   user: User = Depends(require_session_participant)):
+     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
+     one transaction. Optional body.grade overrides the computed score."""
+     session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
+     try:
+         feedback = repo.finalize(session_id, user.id, body.grade)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
++    # Debrief seeding: recommend the candidate's next case (excluding the one
++    # they just burned) with a prefilled proposal back to the same interviewer.
++    recs = dashboard_repo.recommendations(
++        session["candidate_id"], exclude_case_ids=[session["case_id"]], limit=1)
++    next_rec = recs[0] if recs else None
++    prefill = ({"to_user_id": session["interviewer_id"], "case_id": next_rec["case_id"]}
++               if next_rec else None)
++
+     background.add_task(
+         push_to_user, session["candidate_id"],
+         title="Feedback released",
+         body=f"Your feedback for {session['case_title']} is ready",
+-        data={"kind": "feedback", "session_id": session_id},
++        data={"kind": "feedback", "session_id": session_id,
++              "next_recommendation": next_rec, "prefill_proposal": prefill},
+     )
+     background.add_task(hub.broadcast_session_update, session_id)
+     background.add_task(push_live_activity_update, session_id, event="end")
+     return {
+         "finalized": True,
+         "grade": float(feedback["grade"]),
+         "finalized_at": feedback["finalized_at"],
++        "next_recommendation": next_rec,
++        "prefill_proposal": prefill,
+     }
+ 
+ 
+ @router.get("/api/practice/{session_id}/feedback")
+ def get_feedback(session_id: int, user: User = Depends(require_session_participant)):
+     """T7.3: released feedback — both participants, post-finalize only."""
+     session, _ = _session_or_404(session_id, user.id)
+     if session["state"] != "finalized":
+         raise HTTPException(status_code=409, detail="Feedback is not finalized yet")
+     feedback = repo.get_feedback(session_id)
+     template_items = repo.get_template_items(session["rubric_template_id"])
+     drafted = feedback["rubric_json"].get("items", {}) if feedback else {}
