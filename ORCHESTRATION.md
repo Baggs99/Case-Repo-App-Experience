@@ -130,6 +130,22 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   at 72c4351. Opus leads, sonnet implementers, synchronous subagents,
   40-min stall watchdog armed.
 
+- 2026-07-17 F2 → feature/backend-gap @ 0780184 (phase head 6097118, merge
+  clean). Fresh integration DB: backend 655, iOS 367/0. §7 sim smoke (real
+  server, seeded user, -DevLogin/-startTab hatches): Case tab / avatar
+  sheet / Library PASS; Home FAIL (stuck loading) → fix-forward b6e9288:
+  `ProfileDetail.school` was `String?` vs B5's `{id,name,domain}` object —
+  decode typeMismatch swallowed by HomeViewModel's catch; masked in the
+  phase DB (null-school user), surfaced by integration a@yale.edu. iOS
+  retyped to `SchoolRef?` + live-payload regression fixture; 368/0; smoke
+  step 1 re-run PASS (merge-smoke-1-home-FIXED.png). RESIDUAL (follow-up,
+  non-blocking): HomeViewModel.load()'s single catch still swallows decode
+  errors silently — contract wants loud dev asserts; sibling VMs may share
+  the pattern. F2 owner-gates for the FW3 demo: (1) phone tonight strip is
+  LIGHT per canvas pixel-truth vs DD §2 "dark" prose; (2) secondary-label
+  weight 600. F2 backend follow-ups: recap star-rating missing from any
+  GET; set-user-deadline endpoint (Timeline "Set date" inert until then).
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
