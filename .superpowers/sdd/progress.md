@@ -15,3 +15,4 @@ Branch: bgap/b1-scheduling · DB: caserepo_bgap_b1 · Interpreter: /Users/thomas
   I-1 respond() non-participant → 404 (DV-11); I-2 maintenance_loop sleep-first + full-suite regression; I-3 claim_proposal(token,...) param matches brief; M-1 rooms.py:48 sweep noted; M-2 keep sweep_expired() in accept; M-3 self-claim-by-code test; M-4 case-less scheduled accept test; M-5 regen token in mint retry; M-7 starting_soon docstring. M-6 (partial unique index vs UNIQUE) = deliberate, report-noted.
 
 ## Tasks
+- Task 1: complete (commits f1721cf..6a72e75, review CLEAN — migrations 020/021 idempotent, spec-compliant)

@@ -1,0 +1,70 @@
+=== git log ===
+6a72e75 Add migrations 020/021: proposal scheduling cols, missed state, pairing short-code
+
+=== diff --stat ===
+ db/migrations/020_proposals_scheduling.sql         | 28 ++++++++++++++++++++++
+ db/migrations/021_missed_and_pairing_shortcode.sql | 21 ++++++++++++++++
+ 2 files changed, 49 insertions(+)
+
+=== full diff ===
+diff --git a/db/migrations/020_proposals_scheduling.sql b/db/migrations/020_proposals_scheduling.sql
+new file mode 100644
+index 0000000..301f5dc
+--- /dev/null
++++ b/db/migrations/020_proposals_scheduling.sql
+@@ -0,0 +1,28 @@
++-- ============================================================================
++-- 020 — Scheduling core: the proposal primitive (roadmap §B1, spec §5.2/A3)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/020_proposals_scheduling.sql
++-- Idempotent:  safe to re-run (DROP NOT NULL is a no-op if already nullable;
++--              ADD COLUMN IF NOT EXISTS; DROP CONSTRAINT IF EXISTS + re-ADD).
++--
++-- case_id NULL = "interviewer decides" (case chosen later in negotiation, B3).
++-- to_user_id NULL = open "send a link" proposal, claimed by claim_token.
++-- counter_* = one-round "Suggest new time" (spec §5.2); state 'countered'.
++-- ============================================================================
++
++ALTER TABLE proposals ALTER COLUMN case_id DROP NOT NULL;
++ALTER TABLE proposals ALTER COLUMN to_user_id DROP NOT NULL;
++
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claim_token TEXT;
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS counter_times_json JSONB;
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS counter_by INTEGER REFERENCES users(id);
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS countered_at TIMESTAMPTZ;
++
++-- UNIQUE-when-present: many NULLs allowed, each real token unique.
++CREATE UNIQUE INDEX IF NOT EXISTS idx_proposals_claim_token
++    ON proposals (claim_token) WHERE claim_token IS NOT NULL;
++
++-- State CHECK gains 'countered'. Drop the auto-named inline CHECK, re-add named.
++ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_state_check;
++ALTER TABLE proposals ADD CONSTRAINT proposals_state_check
++    CHECK (state IN ('pending', 'accepted', 'declined', 'expired', 'countered'));
+diff --git a/db/migrations/021_missed_and_pairing_shortcode.sql b/db/migrations/021_missed_and_pairing_shortcode.sql
+new file mode 100644
+index 0000000..ab57ee4
+--- /dev/null
++++ b/db/migrations/021_missed_and_pairing_shortcode.sql
+@@ -0,0 +1,21 @@
++-- ============================================================================
++-- 021 — 'missed' session state + pairing short-codes (roadmap §B1, spec §8/A3)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/021_missed_and_pairing_shortcode.sql
++-- Idempotent:  DROP CONSTRAINT IF EXISTS + re-ADD; DROP NOT NULL no-op; ADD
++--              COLUMN IF NOT EXISTS; CREATE UNIQUE INDEX IF NOT EXISTS.
++--
++-- 'missed' = accepted session never joined by start+60min (A3), distinct from
++-- 'aborted' (the 6-h stale backstop). pairing_tokens.case_id NULL = case chosen
++-- in negotiation (B3); short_code = 6-char manual pairing fallback (spec §8).
++-- ============================================================================
++
++ALTER TABLE practice_sessions DROP CONSTRAINT IF EXISTS practice_sessions_state_check;
++ALTER TABLE practice_sessions ADD CONSTRAINT practice_sessions_state_check
++    CHECK (state IN ('scheduled', 'lobby', 'live', 'debrief', 'finalized', 'aborted', 'missed'));
++
++ALTER TABLE pairing_tokens ALTER COLUMN case_id DROP NOT NULL;
++ALTER TABLE pairing_tokens ADD COLUMN IF NOT EXISTS short_code TEXT;
++
++CREATE UNIQUE INDEX IF NOT EXISTS idx_pairing_tokens_short_code
++    ON pairing_tokens (short_code) WHERE short_code IS NOT NULL;
