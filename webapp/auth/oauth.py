@@ -237,11 +237,22 @@ def verify_id_token(provider: str, id_token: str, jwks: dict, *,
     return claims
 
 
+def _coerce_bool(value) -> bool:
+    """Coerce an OIDC claim that may be a real bool or a JSON string
+    ('true'/'false', as LinkedIn emits) into a strict Python bool. Anything
+    not clearly truthy is False — the safe default for email_verified."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
+
+
 def identity_from_claims(claims: dict) -> OAuthIdentity:
     return OAuthIdentity(
         sub=str(claims["sub"]),
         email=(claims.get("email") or None),
-        email_verified=bool(claims.get("email_verified", False)),
+        email_verified=_coerce_bool(claims.get("email_verified", False)),
         name=(claims.get("name") or None),
         picture=(claims.get("picture") or None),
     )

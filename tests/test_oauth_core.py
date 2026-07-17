@@ -23,6 +23,9 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from tests.test_ws_integration import _DB_URL, _READY
 
 
+_MISSING = object()  # sentinel: omit the email_verified claim entirely
+
+
 def _b64u(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
@@ -112,6 +115,30 @@ class TestVerifyIdToken(unittest.TestCase):
         with self.assertRaises(oauth.OAuthError):
             oauth.verify_id_token("google", tampered, self.jwks,
                                   client_id="client-abc", nonce="nn")
+
+
+class TestEmailVerifiedCoercion(unittest.TestCase):
+    """email_verified must be a strict bool: providers (LinkedIn) may emit the
+    claim as a JSON string, and bool('false') is True in Python."""
+
+    def _verified(self, value):
+        from webapp.auth.oauth import identity_from_claims
+        claims = {"sub": "S-1", "email": "c@yale.edu"}
+        if value is not _MISSING:
+            claims["email_verified"] = value
+        return identity_from_claims(claims).email_verified
+
+    def test_string_false_is_unverified(self):
+        self.assertIs(self._verified("false"), False)
+
+    def test_missing_is_unverified(self):
+        self.assertIs(self._verified(_MISSING), False)
+
+    def test_bool_true_is_verified(self):
+        self.assertIs(self._verified(True), True)
+
+    def test_string_true_is_verified(self):
+        self.assertIs(self._verified("true"), True)
 
 
 @unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")

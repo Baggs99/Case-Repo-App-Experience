@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from pipeline.storage import get_storage
 from webapp.auth import oauth
-from webapp.auth.sessions import attach_session_cookie, create_session
+from webapp.auth.sessions import _cookie_secure, attach_session_cookie, create_session
 from webapp.auth.users import (
     create_school_user,
     get_user_by_email,
@@ -174,7 +174,7 @@ def oauth_start(provider: str, request: Request):
     response.set_cookie(
         key=_STATE_COOKIE.format(provider=provider),
         value=payload, max_age=_STATE_MAX_AGE, httponly=True,
-        samesite="lax", path="/",
+        samesite="lax", path="/", secure=_cookie_secure(),
     )
     return response
 
