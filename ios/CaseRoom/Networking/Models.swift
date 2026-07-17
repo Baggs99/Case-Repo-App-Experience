@@ -89,3 +89,25 @@ struct AcceptedSession: Codable, Equatable {
 // Free-now availability (Task 9) — AvailabilityStatus/FreeUser moved to
 // Shared/AvailabilityModels.swift so the widget extension's ToggleFreeNowIntent
 // can decode them too (Task 10).
+
+// B5 GET/PUT /api/v1/profile — school & photo_url read-only from the client's view.
+struct ProfileDetail: Codable, Equatable {
+    let id: Int
+    let email: String
+    let displayName: String?
+    let bio: String?
+    let linkedinUrl: String?
+    let school: String?
+    let photoUrl: String?
+}
+
+// B5 GET/PUT /api/v1/settings/notifications — the five category flags.
+struct NotificationSettings: Codable, Equatable {
+    var proposals: Bool
+    var sessionReminders: Bool
+    var feedback: Bool
+    var freeNow: Bool
+    var community: Bool
+
+    var allEnabled: Bool { proposals && sessionReminders && feedback && freeNow && community }
+}
