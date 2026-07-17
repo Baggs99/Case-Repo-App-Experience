@@ -113,6 +113,13 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   hierarchy inversion + flat chip glass variant (explicit actions in
   report). FW2 (F1 shell) dispatched.
 
+- 2026-07-17 F1 → feature/backend-gap (phase head c4d89da). Zero conflicts;
+  code tree byte-identical to the 313-green phase head. **FW2 COMPLETE —
+  shell demo checkpoint READY** (needs Thomas signing via ship). Backend
+  follow-up noted by F1 (non-blocking): GET /api/v1/profile lacks OAuth-link
+  flags; avatar LINKED derives from linkedin_url — expose google_sub/
+  linkedin_sub presence booleans in a future backend touch.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn

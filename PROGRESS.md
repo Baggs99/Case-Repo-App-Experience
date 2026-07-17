@@ -27,11 +27,10 @@ decisions, escalations). Backend is DONE: 8/8 phases merged here.
   first local run.
 - Migrations present through `035_gauntlet_rank_indexes.sql` (019 + 032
   vacant BY DESIGN — drills bank + nixed forum; do not fill them).
-- F1 (wave FW2) in flight on the MacBook: `fe/f1-shell` @ f56590d, ledger
-  `.superpowers/sdd/f1/progress.md` shows Tasks 1–3 approved (routing/
-  DeepLink rename, API layer, avatar sheet); Tasks 4–5 (iPad shell,
-  close-out) remain. Plan (rev ca4bbac) APPROVED by re-review; one folded
-  MINOR: mount-time drill check on the authenticated shell view.
+- F1 (wave FW2) COMPLETE and MERGED on the MacBook before cutover:
+  `fe/f1-shell` @ c4d89da, iOS suite 313 green (+24), whole-branch review
+  APPROVE, report `docs/superpowers/sdd/fe-f1-report.md` (pins AppRoute/
+  AppRouter/DeepLink + shell seams for F2–F10). FW2 demo checkpoint ready.
 
 ### Mini boot sequence (fresh session, run in order)
 
@@ -53,18 +52,12 @@ decisions, escalations). Backend is DONE: 8/8 phases merged here.
    study.mycase study.mycase.CaseRoomTests com.apple.dt.xctest.tool`.
    macOS has no `timeout` — bound xcodebuild via the Bash tool timeout or
    a `perl -e 'alarm ...; exec ...'` wrapper.
-5. Resume F1: `git fetch origin && git worktree add ~/dev/fe-f1 fe/f1-shell`
-   (branch may have advanced past f56590d — fetch first). If
-   `docs/superpowers/sdd/fe-f1-report.md` EXISTS on the branch, F1 finished
-   on the MacBook: merge it per contract §7 instead of resuming. Otherwise
-   dispatch a fresh Opus F1 lead: same brief as §5-F1 of the frontend
-   execution doc, PLUS: "resume from `.superpowers/sdd/f1/progress.md` —
-   tasks marked approved are DONE, never re-run them; trust the ledger +
-   `git log` over recollection; dispatch ALL subagents with
-   `run_in_background: false`."
+5. F1 is DONE and already merged into feature/backend-gap (this clone has
+   it if `git log --oneline -1` shows the F1 merge or later). No resume
+   needed — proceed directly to FW3.
 6. Re-arm the stall watchdog (Monitor tool): the fe-* loop is recorded in
    ORCHESTRATION.md conventions; 40-min threshold, verify-before-kill.
-7. Continue waves per frontend doc §1: F1 merge → FW3 (F2+F4, parallel,
+7. Continue waves per frontend doc §1: FW3 (F2+F4, parallel,
    own worktrees fe-f2/fe-f4 cut AFTER the F1 merge) → FW4 (F7+F8) →
    FW5 (F3+F5) → FW6 (F6) → FW7 (F9+F10). Max 2 concurrent phases.
    Merge protocol per contract §7; log every event in ORCHESTRATION.md.
@@ -72,7 +65,6 @@ decisions, escalations). Backend is DONE: 8/8 phases merged here.
 ### Handoff partition
 | Chunk | Spec state | Tier | Next concrete action |
 |---|---|---|---|
-| F1 finish (tasks 4–5) or merge | complete (plan in fe-f1 worktree) | session-model orchestrates; leads are Opus subagents | Step 5 above — check for fe-f1-report.md, then resume-or-merge |
 | FW3–FW7 (F2,F4,F7,F8,F3,F5,F6,F9,F10) | complete (briefs = frontend doc §5) | session-model orchestrates; implementers sonnet, JUDGMENT tasks opus | After F1 merges: cut fe-f2 + fe-f4 worktrees, dispatch per §5 briefs |
 | Backend prod deploy | needs-spec (owner decisions O1 host, TURN) | session-model | Do nothing until Thomas green-lights |
 | Thomas manual queue | n/a (owner) | — | ORCHESTRATION.md "Escalations": OAuth apps + WEBAPP_SESSION_SECRET, real firm deadlines, school_percentile nod, demo checkpoints after FW2/FW5/FW7 |
