@@ -3,7 +3,7 @@
  *          shell) and wires the UIKit app delegate needed for APNs device-token
  *          registration.
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
- *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
+ *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills, -DevLogin,
  *         -startTab <tab>, -avatarOpen — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
@@ -67,6 +67,14 @@ struct CaseRoomApp: App {
             } else if ProcessInfo.processInfo.arguments.contains("-F2HomeTablet") {
                 // Tablet Home (canvas 2a) fixture hatch: the July-17 persona.
                 F2HomeTabletHatch()
+            } else if ProcessInfo.processInfo.arguments.contains("-F7Drills") {
+                // Drills hub (canvas 5b) fixture hatch: the July-16 persona, submitted.
+                NavigationStack {
+                    DrillsView(viewModel: .init(
+                        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
+                        fixtureTrends: PreviewDrillsFixture.trends,
+                        fixtureBoard: PreviewDrillsFixture.board))
+                }
             } else {
                 rootView
             }

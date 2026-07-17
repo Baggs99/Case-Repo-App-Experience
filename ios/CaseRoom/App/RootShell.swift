@@ -172,7 +172,7 @@ struct RootShell: View {
         case .community:
             CommunityTabStub()
         case .drills:
-            DrillsTabStub()
+            DrillsView()
         }
     }
 
