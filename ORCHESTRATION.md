@@ -146,6 +146,30 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   weight 600. F2 backend follow-ups: recap star-rating missing from any
   GET; set-user-deadline endpoint (Timeline "Set date" inert until then).
 
+- 2026-07-17 F4 → feature/backend-gap @ 3844702 (phase head 097c681, 22
+  commits). Auto-merge clean incl. RootShell (both FW3 phases mounted
+  NavigationStacks — compile-verified). Fresh integration DB: backend 655;
+  iOS FULL suite **413/0** (368 + 45 F4) INCLUDING SessionViewModelTests —
+  F4's reported mic-TCC hang was environmental (its sim under 2.5h dual-
+  phase load), NOT an Xcode-27-beta blocker; no action for F5. §7 smoke
+  PASS all 5 steps (Home w/ school-fix holding, Case, avatar sheet, NEW
+  Library w/ chips+toggles+counts, case detail via -startCaseDetail seam);
+  crash sweep clean. **FW3 COMPLETE.** F4 seams/deviations (report):
+  rec/scheduled row decorations fixture-only (cases payload lacks B4
+  cross-ref); detail CTA → .caseTab interim until F3 case-prefill;
+  "Market Sizing" chip exact-match may under-match live compound
+  case_type; history joined by case_title (no case_id in payload — backend
+  follow-up candidate); CasesViewModel retained (Pair/Propose pickers).
+  Smoke nav facts for later phases: tab arg is `caseTab`; -startCaseDetail
+  <id> exists; push-permission dialog overlays first launch (grant via
+  simctl not permitted — dismiss manually or ignore).
+
+- 2026-07-17 FW4 DISPATCHED: fe/f7-drills (~/dev/fe-f7, DB caserepo_fe_f7,
+  port 8107, sims 942222D4 + iPad 653F37B8) + fe/f8-community (~/dev/fe-f8,
+  DB caserepo_fe_f8, port 8108, sims 49C5BC31 + iPad 7D87AA5A), cut post-
+  FW3. Opus leads, sonnet implementers (F7 run-mechanics JUDGMENT → opus),
+  synchronous subagents, watchdog re-armed.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
