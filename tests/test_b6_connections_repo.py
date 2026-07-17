@@ -42,10 +42,19 @@ class TestConnectionsRepo(unittest.TestCase):
 
     def test_request_creates_pending(self):
         from webapp.repositories import connections as repo
-        self.assertEqual(repo.request(self.a, self.b), {"state": "pending"})
+        res = repo.request(self.a, self.b)
+        self.assertEqual(res["state"], "pending")
+        self.assertTrue(res["created"])
         self.assertFalse(repo.are_connected(self.a, self.b))
         self.assertEqual([r["user_id"] for r in repo.list_incoming(self.b)], [self.a])
         self.assertEqual([r["user_id"] for r in repo.list_outgoing(self.a)], [self.b])
+
+    def test_duplicate_request_not_created(self):
+        from webapp.repositories import connections as repo
+        repo.request(self.a, self.b)
+        res2 = repo.request(self.a, self.b)
+        self.assertEqual(res2["state"], "pending")
+        self.assertFalse(res2["created"])
 
     def test_self_request_rejected(self):
         from webapp.repositories import connections as repo
@@ -71,7 +80,8 @@ class TestConnectionsRepo(unittest.TestCase):
     def test_reciprocal_request_auto_accepts(self):
         from webapp.repositories import connections as repo
         repo.request(self.a, self.b)
-        self.assertEqual(repo.request(self.b, self.a), {"state": "accepted"})
+        res = repo.request(self.b, self.a)
+        self.assertEqual(res["state"], "accepted")
         self.assertTrue(repo.are_connected(self.a, self.b))
 
     def test_decline_and_remove(self):

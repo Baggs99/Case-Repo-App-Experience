@@ -69,7 +69,7 @@ def create_request(body: ConnectRequestBody, background: BackgroundTasks,
     if not _user_exists(body.to_user_id):
         raise HTTPException(status_code=404, detail="No such user")
     result = repo.request(user.id, body.to_user_id)
-    if result["state"] == "pending":
+    if result["state"] == "pending" and result.get("created"):
         name = user.email.split("@")[0]
         background.add_task(
             push_to_user, body.to_user_id,

@@ -36,13 +36,14 @@ class TestConnectionsApi(unittest.TestCase):
         cls._ctx = TestClient(app)
         cls.alice = cls._ctx.__enter__()
         cls.bob = TestClient(app)
+        cls.cara = TestClient(app)
         with psycopg.connect(_DB_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
                             (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
                 ids = dict(cur.fetchall())
         cls.a, cls.b, cls.c = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
-        for client, uid in ((cls.alice, cls.a), (cls.bob, cls.b)):
+        for client, uid in ((cls.alice, cls.a), (cls.bob, cls.b), (cls.cara, cls.c)):
             s = create_session(uid, user_agent="b6-test", ip_address=None)
             client.cookies.set(SESSION_COOKIE_NAME, s.id)
 
@@ -97,6 +98,8 @@ class TestConnectionsApi(unittest.TestCase):
     def test_accept_idor(self):
         # alice -> bob pending; c (via a third client) must not be able to accept.
         self.alice.post("/api/v1/connections/requests", json={"to_user_id": self.b})
+        # a third party (cara) cannot accept alice's request to bob
+        self.assertEqual(self.cara.post(f"/api/v1/connections/{self.a}/accept").status_code, 404)
         # alice cannot accept her own request (she is requester, not target)
         self.assertEqual(self.alice.post(f"/api/v1/connections/{self.b}/accept").status_code, 404)
 

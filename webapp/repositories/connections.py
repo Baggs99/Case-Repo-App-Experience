@@ -33,19 +33,19 @@ def request(requester_id: int, target_id: int) -> dict:
             existing = cur.fetchone()
             if existing is not None:
                 if existing["state"] == "accepted":
-                    return {"state": "accepted"}
+                    return {"state": "accepted", "created": False}
                 # Pending exists. Reciprocal (target already asked me) -> accept.
                 if existing["user_id"] == target_id:
                     cur.execute(
                         "UPDATE connections SET state = 'accepted', responded_at = NOW()"
                         " WHERE user_id = %(t)s AND friend_id = %(r)s;",
                         {"t": target_id, "r": requester_id})
-                    return {"state": "accepted"}
-                return {"state": "pending"}  # my own pending already there
+                    return {"state": "accepted", "created": False}
+                return {"state": "pending", "created": False}  # my own pending already there
             cur.execute(
                 "INSERT INTO connections (user_id, friend_id) VALUES (%(r)s, %(t)s);",
                 {"r": requester_id, "t": target_id})
-            return {"state": "pending"}
+            return {"state": "pending", "created": True}
 
 
 def accept(requester_id: int, accepter_id: int) -> bool:
