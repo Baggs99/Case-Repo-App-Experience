@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from webapp.auth.dependencies import require_auth, require_auth_api
+from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.repositories import dashboard as dashboard_repo
 from webapp.repositories import proposals as proposals_repo
@@ -26,7 +27,7 @@ router = APIRouter(tags=["rooms"])
 
 
 @router.get("/room")
-def my_room(request: Request, user: User = Depends(require_auth)):
+def my_room(request: Request, user: User = Depends(require_auth_no_guest)):
     room = get_or_create_room(user.id)
     return RedirectResponse(url=f"/room/{room['slug']}", status_code=303)
 
@@ -43,7 +44,7 @@ def dashboard(user: User = Depends(require_auth_api)):
 
 
 @router.get("/room/{slug}")
-def room_page(slug: str, request: Request, user: User = Depends(require_auth)):
+def room_page(slug: str, request: Request, user: User = Depends(require_auth_no_guest)):
     sweep_stale_sessions()          # A4: page loads stand in for cron
     proposals_repo.sweep_expired()  # T8.3: same treatment for proposals
     room = get_room_by_slug(slug)

@@ -13,6 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from webapp.auth.dependencies import require_auth
+from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.preview_urls import preview_knit_url
 from webapp.repositories.case_votes import (
@@ -44,7 +45,7 @@ def index(
     case_type:  str | None = None,
     school:     str | None = None,
     include_duplicates: str | None = None,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     filters = SearchFilters.from_query(
         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
@@ -74,7 +75,7 @@ def case_detail(
     request: Request,
     case_id: int,
     return_to: Optional[str] = None,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     case = get_case_by_id(case_id)
     if case is None:

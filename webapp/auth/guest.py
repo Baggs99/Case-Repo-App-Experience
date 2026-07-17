@@ -15,7 +15,7 @@ import psycopg
 from fastapi import HTTPException, Request, Response
 from psycopg.rows import dict_row
 
-from webapp.auth.dependencies import get_current_user
+from webapp.auth.dependencies import get_current_user, require_auth
 from webapp.auth.passwords import hash_password, validate_password
 from webapp.auth.sessions import attach_session_cookie, create_session, destroy_session
 from webapp.auth.users import (
@@ -173,3 +173,36 @@ def discard_minted_guest(request: Request) -> None:
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM users WHERE id = %s AND is_guest = TRUE;", (guest.id,))
+
+
+def _guest_has_session_for_case(user_id: int, case_id: int) -> bool:
+    """True iff the guest participates in a practice session on this case — the
+    only case content a guest may fetch (its console's PDF)."""
+    with get_pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM practice_sessions"
+                " WHERE case_id = %s AND %s IN (interviewer_id, candidate_id) LIMIT 1;",
+                (case_id, user_id))
+            return cur.fetchone() is not None
+
+
+def require_auth_no_guest(request: Request) -> User:
+    """require_auth for real users (redirect when anonymous — unchanged), but a
+    guest is 403'd. Use on library / browsing / account endpoints a guest must
+    never reach; real-user and anonymous behavior stay identical to require_auth."""
+    user = require_auth(request)
+    if user.is_guest:
+        raise HTTPException(status_code=403, detail="Guests must create an account to do this")
+    return user
+
+
+def require_case_access(case_id: int, request: Request) -> User:
+    """Case-content endpoints (the case PDF the session console displays). Real
+    users browse freely (unchanged); a guest may fetch ONLY the case of a session
+    it participates in, and is 403'd on any other case — no library browsing.
+    Anonymous behavior is require_auth's (unchanged)."""
+    user = require_auth(request)
+    if user.is_guest and not _guest_has_session_for_case(user.id, case_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return user

@@ -179,6 +179,22 @@ class TestGuestScoping(unittest.TestCase):
             with self.guest.websocket_connect(f"/ws/practice/{self.foreign_session_id}"):
                 pass
 
+    def test_guest_403_on_library_and_foreign_case_content(self):
+        # Guest must not browse the library or fetch another case's content.
+        # Case 1 is the seeded dummy — the guest has NO session on it.
+        for path in ["/search", "/cases/1", "/api/cases/1/download",
+                     "/api/cases/1/exhibits", "/api/cases/1/previews",
+                     "/files/cases/1", "/room"]:
+            r = self.guest.get(path)
+            self.assertEqual(r.status_code, 403, f"{path} -> {r.status_code}")
+
+    def test_guest_can_reach_own_session_case_pdf(self):
+        # The console's own-case PDF chain must stay reachable (not 403).
+        own = self.guest.get(f"/files/cases/{self.case_id}")
+        self.assertNotEqual(own.status_code, 403, own.text)
+        opentab = self.guest.get(f"/api/cases/{self.case_id}/open-pdf")
+        self.assertNotEqual(opentab.status_code, 403, opentab.text)
+
 
 if __name__ == "__main__":
     unittest.main()
