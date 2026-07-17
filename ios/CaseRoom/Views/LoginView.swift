@@ -1,8 +1,8 @@
 /*
- * Purpose: Email/password sign-in screen gating RootTabView.
+ * Purpose: Email/password sign-in screen gating RootShell.
  * Inputs: user-entered email/password; SessionStore for the login call.
  * Outputs: none (mutates SessionStore.user on success).
- * Run: shown by RootTabView when !SessionStore.isAuthenticated.
+ * Run: shown by RootShell when !SessionStore.isAuthenticated.
  */
 
 import SwiftUI

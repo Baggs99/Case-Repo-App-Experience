@@ -1,5 +1,5 @@
 /*
- * Purpose: Unit tests for the App Intents layer's pure parts — AppRoute URL /
+ * Purpose: Unit tests for the App Intents layer's pure parts — DeepLink URL /
  *          PushRoute mapping, NextSessionIntent dialog composition,
  *          ToggleFreeNowIntent's toggle decision, and entity mapping/queries.
  * Inputs: none (in-memory fixtures + injected entity catalog).
