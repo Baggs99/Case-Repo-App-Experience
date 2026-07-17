@@ -21,3 +21,4 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
   - LESSON: Tasks 2/3/4 tests also call pool-backed repos in setUpClass without TestClient — implementers MUST add the same scaffolding (reference tests/test_b7_firms.py).
 
 (executing task-by-task)
+- Task 2: complete (commits 682acec..afdd389, review clean SPEC+CODE PASS). Migration 027 + user_firms repo (9 fns). Pool-init scaffolding added to test. Suite 422→430.
