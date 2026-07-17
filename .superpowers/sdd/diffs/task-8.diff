@@ -1,0 +1,344 @@
+=== diff --stat ===
+ tests/test_b1_pairing_shortcode.py    | 113 ++++++++++++++++++++++++++++++++++
+ webapp/repositories/pairing_tokens.py |  57 +++++++++++++----
+ webapp/routes/practice.py             |  17 +++--
+ 3 files changed, 169 insertions(+), 18 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b1_pairing_shortcode.py b/tests/test_b1_pairing_shortcode.py
+new file mode 100644
+index 0000000..976ad3f
+--- /dev/null
++++ b/tests/test_b1_pairing_shortcode.py
+@@ -0,0 +1,113 @@
++"""
++B1 Task 8: pairing short-codes, optional case at mint, claim by token OR
++short_code. Needs seeded dev Postgres. Cookie idiom per tests/test_pairing.py.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestPairingShortCode(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Pair Case', 'b1 pair case',"
++                    " 'DevSchool', 2089, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM pairing_tokens WHERE interviewer_id = %s;", (cls.aid,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_mint_returns_short_code(self):
++        r = self.alice.post("/api/practice/pair/create", json={"case_id": self.case_id})
++        self.assertEqual(r.status_code, 200, r.text)
++        code = r.json()["short_code"]
++        self.assertEqual(len(code), 6)
++        self.assertTrue(set(code) <= set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789"))
++        self.assertTrue(r.json()["token"])
++
++    def test_mint_case_optional(self):
++        r = self.alice.post("/api/practice/pair/create", json={})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["short_code"])
++
++    def test_claim_by_short_code_creates_session(self):
++        code = self.alice.post("/api/practice/pair/create",
++                               json={"case_id": self.case_id}).json()["short_code"]
++        r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])
++
++    def test_claim_by_token_still_works(self):
++        tok = self.alice.post("/api/practice/pair/create",
++                              json={"case_id": self.case_id}).json()["token"]
++        r = self.bob.post("/api/practice/pair/claim", json={"token": tok})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])
++
++    def test_claim_requires_token_or_code(self):
++        r = self.bob.post("/api/practice/pair/claim", json={})
++        self.assertEqual(r.status_code, 422)
++
++    def test_unknown_short_code_404(self):
++        r = self.bob.post("/api/practice/pair/claim", json={"short_code": "ZZZZZZ"})
++        self.assertEqual(r.status_code, 404)
++
++    def test_self_claim_by_code_409(self):
++        # IDOR/guard: the minter cannot claim their own code as candidate.
++        code = self.alice.post("/api/practice/pair/create",
++                               json={"case_id": self.case_id}).json()["short_code"]
++        r = self.alice.post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 409)
++
++    def test_case_less_token_claim_409(self):
++        # DD-1: sessions stay case-bound in B1; a case-less pairing token can't
++        # create a session yet (case negotiation lands in B3).
++        code = self.alice.post("/api/practice/pair/create", json={}).json()["short_code"]
++        r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 409)
++
++    def test_claim_requires_auth(self):
++        code = self.alice.post("/api/practice/pair/create",
++                               json={"case_id": self.case_id}).json()["short_code"]
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 401)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/repositories/pairing_tokens.py b/webapp/repositories/pairing_tokens.py
+index cb93da5..b7f3716 100644
+--- a/webapp/repositories/pairing_tokens.py
++++ b/webapp/repositories/pairing_tokens.py
+@@ -1,79 +1,112 @@
+ """
+ Pairing-token repository — ad-hoc in-person pairing (db/migrations/014).
+ 
+ An interviewer mints a short-TTL token bound to a chosen case; the scanner
+ (candidate) later claims it, which creates the practice session.
+ """
+ 
+ from __future__ import annotations
+ 
+ import secrets
+ from typing import Optional
+ 
++from psycopg import errors as pg_errors
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+ from webapp.repositories.feedback import is_burned
+ from webapp.repositories.practice_sessions import create_practice_session
+ 
+ 
+-def mint_token(interviewer_id: int, case_id: int, ttl_minutes: int = 10) -> dict:
+-    token = secrets.token_urlsafe(24)
++# Unambiguous 6-char set (spec §8): A-Z + 2-9, minus 0/O/1/I.
++_SHORT_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
++
++
++def _gen_short_code(n: int = 6) -> str:
++    return "".join(secrets.choice(_SHORT_ALPHABET) for _ in range(n))
++
++
++def mint_token(interviewer_id: int, case_id: Optional[int] = None,
++               ttl_minutes: int = 10) -> dict:
++    """Mint a pairing token (spec §8). case_id optional ("interviewer decides",
++    negotiated in B3). Returns token + 6-char short_code + expiry. Retries on
++    the astronomically rare short_code collision (partial-unique index)."""
+     sql = """
+-        INSERT INTO pairing_tokens (token, interviewer_id, case_id, expires_at)
+-        VALUES (%s, %s, %s, now() + make_interval(mins => %s))
+-        RETURNING token, expires_at;
++        INSERT INTO pairing_tokens (token, interviewer_id, case_id, short_code, expires_at)
++        VALUES (%s, %s, %s, %s, now() + make_interval(mins => %s))
++        RETURNING token, short_code, expires_at;
+     """
+     with get_pool().connection() as conn:
+-        with conn.cursor(row_factory=dict_row) as cur:
+-            cur.execute(sql, (token, interviewer_id, case_id, ttl_minutes))
+-            return cur.fetchone()
++        for _ in range(5):
++            try:
++                with conn.cursor(row_factory=dict_row) as cur:
++                    # Regenerate BOTH on retry so a token clash (astronomically
++                    # rare) is also escaped, not just a short_code clash.
++                    cur.execute(sql, (secrets.token_urlsafe(24), interviewer_id,
++                                      case_id, _gen_short_code(), ttl_minutes))
++                    return cur.fetchone()
++            except pg_errors.UniqueViolation:
++                conn.rollback()  # token/short_code clash — regenerate
++                continue
++        raise TransitionError(500, "Could not allocate a pairing code")
+ 
+ 
+-def claim(token: str, candidate_id: int) -> dict:
+-    """Claim a token: creates the practice session in one transaction.
++def claim(*, candidate_id: int, token: Optional[str] = None,
++          short_code: Optional[str] = None) -> dict:
++    """Claim a pairing token by token OR short_code (spec §8), creating the
++    practice session in one transaction. Case-less tokens can't create a
++    session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
+ 
+     The token row is locked with SELECT ... FOR UPDATE for the whole
+     transaction — this is the anti-double-claim mechanism. A concurrent
+     second claim of the same token blocks on the lock until this one
+     commits, then sees claimed_session_id already set and gets a 409.
+ 
+     create_practice_session() opens its OWN connection/transaction (repo
+     convention) and commits independently of the lock we're holding here.
+     Accepted caveat: if the process crashes after that commit but before
+     our UPDATE ... claimed_session_id below commits, a stray 'scheduled'
+     session can be left behind while the token remains claimable. Rare
+     crash window, low harm (an orphaned scheduled session, not a data
+     corruption), acceptable for v1.
+     """
++    if token:
++        where, val = "token = %s", token
++    elif short_code:
++        where, val = "short_code = %s", short_code
++    else:
++        raise TransitionError(400, "Provide a token or short_code")
++
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 "SELECT *, (expires_at < now()) AS expired"
+-                " FROM pairing_tokens WHERE token = %s FOR UPDATE;",
+-                (token,),
++                f" FROM pairing_tokens WHERE {where} FOR UPDATE;",
++                (val,),
+             )
+             row = cur.fetchone()
+             if row is None:
+                 raise TransitionError(404, "No such pairing token")
+             if row["expired"]:
+                 raise TransitionError(409, "Pairing token has expired")
+             if row["claimed_session_id"] is not None:
+                 raise TransitionError(409, "Pairing token already claimed")
+             if row["interviewer_id"] == candidate_id:
+                 raise TransitionError(409, "Cannot claim your own pairing token")
++            if row["case_id"] is None:
++                raise TransitionError(409, "Choose a case before pairing")
+             if is_burned(candidate_id, row["case_id"]):
+                 raise TransitionError(409, "You have already completed this case")
+ 
+             session = create_practice_session(
+                 interviewer_id=row["interviewer_id"],
+                 candidate_id=candidate_id,
+                 case_id=row["case_id"],
+                 mode="in_person",
+             )
+             cur.execute(
+                 "UPDATE pairing_tokens SET claimed_session_id = %s WHERE id = %s;",
+                 (session["id"], row["id"]),
+             )
+             return {"session_id": session["id"]}
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index c7455b5..c638fea 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -36,33 +36,34 @@ _MUTATING = [Depends(require_same_origin)]
+ 
+ class PracticeCreateBody(BaseModel):
+     interviewer_id: int
+     candidate_id: int
+     case_id: int
+     rubric_template_id: Optional[int] = None
+     scheduled_at: Optional[datetime] = None
+ 
+ 
+ class ConsentBody(BaseModel):
+     consent: bool
+ 
+ 
+ class PairCreateBody(BaseModel):
+-    case_id: int
++    case_id: Optional[int] = None
+ 
+ 
+ class PairClaimBody(BaseModel):
+-    token: str
++    token: Optional[str] = None
++    short_code: Optional[str] = None
+ 
+ 
+ class StateBody(BaseModel):
+     target: Literal["scheduled", "lobby", "live", "debrief", "finalized", "aborted"]
+ 
+ 
+ def _session_or_404(session_id: int, user_id: int) -> tuple[dict, str]:
+     session = repo.get_practice_session(session_id)
+     role = repo.role_of(session, user_id) if session else None
+     if session is None or role is None:
+         raise HTTPException(status_code=404, detail="No such session")
+     return session, role
+ 
+ 
+@@ -144,39 +145,43 @@ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
+     try:
+         result = repo.transition(session_id, user.id, body.target)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     background.add_task(hub.broadcast_session_update, session_id)
+     # ActivityKit update push (P3 T9): state changes (lobby→live→debrief→
+     # finalized) refresh the Live Activity; "end" dismisses it on finalize.
+     event = "end" if body.target in ("finalized", "aborted") else "update"
+     background.add_task(push_live_activity_update, session_id, event=event)
+     return _public(result)
+ 
+ 
+ @router.post("/api/practice/pair/create", dependencies=_MUTATING)
+ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_api)):
+-    """Mint a short-TTL pairing token for in-person QR pairing (§ pairing)."""
+-    if get_case_by_id(body.case_id) is None:
++    """Mint a short-TTL pairing token for in-person QR pairing (spec §8).
++    case_id optional — "interviewer decides" pairs case-less (negotiated in B3)."""
++    if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
+ 
+ 
+ @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
+ def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
+-    """Claim a pairing token, creating the practice session (§ pairing)."""
++    """Claim a pairing token by token OR short_code (spec §8)."""
++    if not body.token and not body.short_code:
++        raise HTTPException(status_code=422, detail="Provide a token or short_code")
+     try:
+-        return pairing_repo.claim(token=body.token, candidate_id=user.id)
++        return pairing_repo.claim(candidate_id=user.id, token=body.token,
++                                  short_code=body.short_code)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+     (§ pairing). 404 if the token doesn't exist or isn't owned by the caller."""
+     try:
+         session_id = pairing_repo.status(token=token, interviewer_id=user.id)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"session_id": session_id}
+ 
