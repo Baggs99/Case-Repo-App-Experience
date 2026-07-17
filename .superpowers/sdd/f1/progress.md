@@ -34,6 +34,10 @@ T1 DONE + APPROVED (78e7e4e; 304 tests/0 fail = 289+15 AppRouterTests). Dispatch
 - [x] T1 AppRoute registry + AppRouter + remap (opus) — 78e7e4e, APPROVE
 - [x] T2 profile/settings models + APIClient (sonnet) — 773c7df, APPROVE (309 tests/0; multipart field `file` confirmed vs profile.py)
 - [x] T3 avatar sheet 7a + VM (opus) — f7bf899, APPROVE (313 tests/0; screenshot matches 7a, greens=3 at ceiling; deviations: injectable @MainActor VM init + DEBUG PreviewProfileService for populated shot)
+- [x] T4 RootShell: chrome + re-home + wire (opus) — 176fa70, APPROVE (313 tests/0; 6 real-content shots match §1 chrome; RootTabView+ProfileView git-rm'd; drill sheet shell-owned w/ initial:true; DEBUG hatches -DevLogin/-startTab/-avatarOpen + push-auth skip, all gated). Dev server on :8077 for shots.
+
+## Deferred MINOR (add to close-out sweep)
+- LoginView.swift:2,5 docblock still says "RootTabView".
 - [ ] T2 profile/settings models + APIClient (sonnet)
 - [ ] T3 avatar sheet 7a + VM (opus)
 - [ ] T4 RootShell: chrome + re-home + wire (opus)
