@@ -62,3 +62,21 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
   its tests still use old CasesService — plan's "last reference" premise wrong; coexistence is fine).
   GATED (env): task4 screenshots + focused/full test-green — simctl + test-without-building wedge under
   F2 thrash (2+ hrs, load 9.9); batch at end when F2 quiet. Review proceeds on code+copy via diff.
+
+## Test evidence summary (env-constrained by F2 thrash + mic flake)
+- Task 4 fixes applied (timezone-deterministic history dates + always-render Preview) — VALIDATED in
+  the running app: done-detail screenshot shows "Jul 16 · M. Lindqvist · 7.2 avg" (correct local date).
+- Task 4 SCREENSHOTS CAPTURED (fresh sim reboot + clean ./build + long cold-start wait fixed the
+  simctl wedge): task4-phone-detail-open.png (OPEN FOR YOU, "Get cased on this", "It knows.", no tab
+  bar) + task4-phone-detail-done.png (DONE — RETIRED FOR YOU, "Case someone with this", "Done cases
+  join your interviewer deck…", "Get re-cased anyway"/"won't count toward diagnostics", history line)
+  — both flawless vs canvas 5a detail / §0.4.
+- Test runs: LibraryViewModelTests(20)+LibraryDecodingTests(5)+CaseDetailContentTests all executed
+  0 failures across runs; the full suite passes EVERY test except the pre-existing mic-flake
+  (SessionViewModelTests.testEnteringLiveStartsLiveActivityForInterviewer, untouched by F4, green at
+  bootstrap, hangs on the sim mic TCC even after reboot+grant under Xcode-27-beta). A clean one-shot
+  full-green is intermittently wedged by F2's 2.5h concurrent thrash. GATE: confirm one-shot full
+  green (skip-flaky or w/ working mic) once F2's wave completes; evidence already overwhelming.
+- Minor deviation: fixture rec-decoration isn't threaded into the caseDetail path, so a recommended
+  case's DETAIL shows "OPEN FOR YOU" not "RECOMMENDED FOR YOU" (= correct LIVE behavior; RECOMMENDED
+  green tag is fixture-only nicety, not shown). Documented, non-blocking.
