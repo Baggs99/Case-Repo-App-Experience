@@ -30,8 +30,17 @@ Order: T1 DS primitives → T2 API → T4 Timeline detail → T3 Home phone → 
   - I-1 identity fix verified (cohort rank by entry.userId==profile.id, hidden if absent; greeting firstName from profile).
   - Banked MINORs (Task 6 triage): (a) dateKicker uses "MMMM dd" → single-digit days show "JULY 06"; plan spec wants "MONTH D" — one-char dd→d fix; (b) cohort found-case test fixture has id-order == rank-order (not ordering-adversarial); code correct, test-robustness nit.
   - Infra note: 3 DerivedData dirs exist (fzihnr active); Task 5 must select app by NEWEST mtime + verify shot >1MB to avoid the stale-install trap. Sim wedge (Live Activity test) cleared by orchestrator reboot+mic-regrant; suite now runs clean foreground (~fast, warm DD).
-- Task 5 (tablet Home canvas 2a, sonnet): IN PROGRESS. BASE=80f3d36.
-- (T6 pending)
+- Task 5 (tablet Home canvas 2a, sonnet): COMPLETE — commit d4edfd6 (impl agent stopped pre-finalization; lead finished: killed an orphan/wedged xcodebuild on my sim, reset sim+regranted mic, ran bounded suite → green, captured iPad shot, committed). HomeView .regular two-column + dark LAST-NIGHT strip (sessions scope=recent) + UPCOMING w/ live T-minus; RootShell iPad Home header (date+greeting); Typography h1TabSmall (additive); -F2HomeTablet hatch. Review: PASS (0 crit/imp). Suite 358→367. Shot home-tablet.png (portrait, TCC landscape-rotate fallback per F0/F1) matches canvas 2a.
+  - Phone .compact path byte-identical (no regression). recap-rating omitted (no GET source; backend follow-up).
+  - Banked MINORs (Task 6 triage): (T5a) lastNight drops harmless `& ended` guard; (T5b) Re-read/UPCOMING secondaries weight-400 vs canvas 600 (matches approved phone pattern).
+- Task 6 (close-out): IN PROGRESS.
+
+## Banked MINORs for final triage
+- T1: glass-key reuses panel top-inset highlight (.85/1.5px) vs §1 (.9/1px).
+- T3a: dateKicker "MMMM dd" → single-digit days "JULY 06"; plan wants "MONTH D".
+- T3b: cohort found-case test fixture id-order==rank-order (not ordering-adversarial).
+- T5a: lastNight `grade != nil` drops literal `& ended` (harmless).
+- T5b: Re-read/UPCOMING secondary labels weight-400 vs canvas 600.
 
 ## Blocked / decisions needed
 - (none yet)

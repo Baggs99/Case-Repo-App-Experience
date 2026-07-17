@@ -1,0 +1,14 @@
+d4edfd6 Add tablet Home two-column (canvas 2a) + LAST NIGHT strip
+74a1774 Ledger: Task 3 complete (Home phone, review PASS)
+ .superpowers/sdd/f2/diffs/task3-diff.txt           | 1153 ++++++++++++++++++++
+ .superpowers/sdd/f2/diffs/task3-log.txt            |   11 +
+ .superpowers/sdd/f2/progress.md                    |    8 +-
+ .superpowers/sdd/f2/shots/home-tablet.png          |  Bin 0 -> 1448285 bytes
+ ios/CaseRoom/App/CaseRoomApp.swift                 |  138 ++-
+ ios/CaseRoom/App/RootShell.swift                   |   15 +-
+ ios/CaseRoom/DesignSystem/Typography.swift         |    3 +
+ ios/CaseRoom/State/HomeViewModel.swift             |   85 +-
+ ios/CaseRoom/Views/HomeView.swift                  |  114 +-
+ .../DesignSystem/TypographyTests.swift             |    1 +
+ ios/CaseRoomTests/HomeViewModelTests.swift         |  149 ++-
+ 11 files changed, 1646 insertions(+), 31 deletions(-)
