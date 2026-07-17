@@ -15,7 +15,7 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | B7 timeline | bgap/b7-timeline | ~/dev/bgap-b7 | MERGED | c1df02c | 452 phase / 512 integration |
 | B3 sessionflow | bgap/b3-sessionflow | ~/dev/bgap-b3 | MERGED | 390ef3b | 576 phase / 616 integration |
 | B6 community | bgap/b6-community | ~/dev/bgap-b6 | MERGED | d9291ab | 552 phase / 585 integration |
-| B8 drills-agg | bgap/b8-drills-agg | ~/dev/bgap-b8 | DISPATCHED w4 | — | — |
+| B8 drills-agg | bgap/b8-drills-agg | ~/dev/bgap-b8 | MERGED | 1b5fb38 | 624 phase / 655 integration |
 
 ## Owner decisions
 
@@ -93,6 +93,11 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   616 passed (585+31). B3 DEFERRED notes incl. the Task-7 residual
   (banked earlier) live in bgap-b3-report. 7 of 8 phases merged.
 
+- 2026-07-17 B8 → feature/backend-gap (phase head 1b5fb38). Zero conflicts
+  (B8 cut post-seam, extension provably B6-safe). Integration 655 passed.
+  **BACKEND GAP COMPLETE: 8/8 phases, 360 → 655 tests, migrations
+  020–035 (019+032 vacant by design).** Front-end track FW1 (F0) begins.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
@@ -101,6 +106,9 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   until then; all flows mocked in tests.
 - B7: all seeded firm deadline dates are curated ESTIMATES
   (is_estimate=TRUE) — replace with real 2026-27 cycle dates before launch.
+- B8 assumption awaiting owner nod: school_percentile currently =
+  percentile within the GLOBAL population (not school-internal);
+  duration_ms captured now for the future unified performance score.
 - B5 DEFERRED (tracked, unscheduled): OTP/signup rate-limiting,
   login_otp_codes reaping, orphaned-avatar cleanup, stale Booth template copy.
 
