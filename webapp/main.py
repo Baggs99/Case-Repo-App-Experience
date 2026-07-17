@@ -52,6 +52,7 @@ from webapp.push.starting_soon import starting_soon_loop
 from webapp.routes import admin as admin_routes
 from webapp.routes import api_v1 as api_v1_routes
 from webapp.routes import auth as auth_routes
+from webapp.routes import auth_oauth as auth_oauth_routes
 from webapp.routes import files as files_routes
 from webapp.routes import exhibits as exhibits_routes
 from webapp.routes import onboarding as onboarding_routes
@@ -152,6 +153,7 @@ def create_app() -> FastAPI:
     app.include_router(api_v1_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(onboarding_routes.router)
+    app.include_router(auth_oauth_routes.router)
 
     return app
 
