@@ -15,6 +15,7 @@ final class AppRouterTests: XCTestCase {
         let r = AppRouter.shared
         r.selection = .home
         r.avatarSheet = false
+        r.groupCreate = false
         r.proposeToUserID = nil
         r.sessionTakeoverID = nil
         r.drillRun = false
@@ -52,6 +53,17 @@ final class AppRouterTests: XCTestCase {
         let r = freshRouter()
         r.go(to: .avatarSheet)
         XCTAssertTrue(r.avatarSheet)
+    }
+    // No AppRoute case for group-create (§6 pins the enum) — the avatar
+    // sheet's "Administer a group" action drives the flag directly, mirroring
+    // how RootShell's avatarButton sets `router.avatarSheet = true` outside
+    // go(to:). This proves the flag toggles independently of the router's
+    // route registry.
+    func testGroupCreateFlagTogglesDirectly() {
+        let r = freshRouter()
+        XCTAssertFalse(r.groupCreate)
+        r.groupCreate = true
+        XCTAssertTrue(r.groupCreate)
     }
     func testGoToDrillRunSelectsHomeAndFlagsDrill() {
         let r = freshRouter()

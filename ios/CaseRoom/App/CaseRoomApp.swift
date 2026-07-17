@@ -5,7 +5,7 @@
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
  *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
  *         -startTab <tab>, -avatarOpen, -LibraryFixtures, -CommunityFixtures,
- *         -GroupPageFixtures — see the #if DEBUG blocks).
+ *         -GroupPageFixtures, -GroupCreateFixtures — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -114,6 +114,11 @@ struct CaseRoomApp: App {
     //                    groupPageDestination(id:) swaps in a fixture-backed
     //                    GroupPageViewModel (admin variant) — see
     //                    CommunityFixtures.groupDetail/groupProgress.
+    //  -GroupCreateFixtures  fake auth + presents the group-create sheet
+    //                    already flipped true; RootShell's groupCreateSheet
+    //                    swaps in a fixture-backed GroupCreateViewModel with
+    //                    `created` pre-populated — see CommunityFixtures.
+    //                    createdGroup — for the "YOU'RE THE ADMIN" shot.
     //  -startCaseDetail <id>  push .caseDetail(id) onto libraryPath (Task 4
     //                    screenshot hatch) — apply AFTER fake-auth so the
     //                    push lands on an already-authenticated shell.
@@ -158,6 +163,16 @@ struct CaseRoomApp: App {
             sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
             AppRouter.shared.selection = .community
             AppRouter.shared.communityPath.append(.groupPage(14))
+        }
+        if args.contains("-GroupCreateFixtures") {
+            // Fake auth (same fixture user as -CommunityFixtures) + present the
+            // group-create sheet already flipped to `true` — RootShell's
+            // groupCreateSheet reads the same arg and injects a fixture-backed
+            // GroupCreateViewModel with `created` pre-populated
+            // (CommunityFixtures.createdGroup), so the "YOU'RE THE ADMIN"
+            // success-state screenshot needs no dev server and no typing/tapping.
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.groupCreate = true
         }
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true

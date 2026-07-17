@@ -68,7 +68,7 @@ struct RootShell: View {
             // screenshot-only paths.
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
-                || args.contains("-GroupPageFixtures") { return }
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
             #endif
             await sessionStore.bootstrap()
         }
@@ -125,11 +125,12 @@ struct RootShell: View {
             // Normal launches (and Release) always request as before.
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
-                || args.contains("-GroupPageFixtures") { return }
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
         .sheet(isPresented: $router.avatarSheet) { AvatarSheetView() }
+        .sheet(isPresented: $router.groupCreate) { groupCreateSheet }
         .sheet(item: Binding(
             get: { router.proposeToUserID.map(ProposeTarget.init) },
             set: { if $0 == nil { router.proposeToUserID = nil } }
@@ -164,6 +165,23 @@ struct RootShell: View {
             engine: DrillEngineProvider.make(service: APIClient.shared, userId: sessionStore.user?.id ?? 0),
             recorder: AttemptRecorder(service: APIClient.shared)
         )
+    }
+
+    // F8 Task 3: the group-create sheet. `-GroupCreateFixtures` injects a
+    // fixture-backed VM with `created` pre-populated (CommunityFixtures.
+    // createdGroup) so simctl gets the "YOU'RE THE ADMIN" success state with
+    // no dev server and no typing/tapping — mirrors groupPageDestination(id:).
+    @ViewBuilder
+    private var groupCreateSheet: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-GroupCreateFixtures") {
+            GroupCreateView(viewModel: GroupCreateViewModel(fixtureCreated: CommunityFixtures.createdGroup))
+        } else {
+            GroupCreateView()
+        }
+        #else
+        GroupCreateView()
+        #endif
     }
 
     // F8 Task 2: the `.groupPage` destination. `-GroupPageFixtures` (mirrors

@@ -21,11 +21,13 @@ final class StubCommunityService: CommunityService {
     var schoolStandingResult: Result<SchoolStanding, Error> = .success(SchoolStanding(school: nil, yourPercentile: nil))
 
     private(set) var transferCalls: [(id: Int, userId: Int)] = []
+    private(set) var createGroupCalls: [String] = []
 
     func connections() async throws -> [Connection] { try connectionsResult.get() }
     func groups() async throws -> [GroupSummary] { try groupsResult.get() }
 
     func createGroup(name: String) async throws -> GroupSummary {
+        createGroupCalls.append(name)
         guard let createGroupResult else { fatalError("not exercised by these tests") }
         return try createGroupResult.get()
     }

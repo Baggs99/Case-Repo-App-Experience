@@ -96,5 +96,11 @@ enum CommunityFixtures {
         GroupProgressMember(userId: 17, displayName: "A. Kim", casesDone: 10, meanGrade: 6.2, drillAttempts30D: 18, streak: 7),
         GroupProgressMember(userId: 18, displayName: "D. Ortiz", casesDone: 6, meanGrade: nil, drillAttempts30D: 12, streak: 5),
     ]
+
+    // GroupCreateView fixture (F8 Task 3, `-GroupCreateFixtures`): the POST
+    // /groups response shape (creator role is always "admin") for a
+    // screenshot of the "YOU'RE THE ADMIN" success state with no live server.
+    static let createdGroup = GroupSummary(id: 20, name: "C-14 East", schoolId: 1,
+                                            inviteCode: "C14E-9XJT", role: "admin")
 }
 #endif
