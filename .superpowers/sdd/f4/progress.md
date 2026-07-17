@@ -28,3 +28,8 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
   upcoming-sessions cross-reference (not in the Library payload) → live rows omit them; the DEBUG
   fixture carries them so screenshots match the canvas. Detail tag OPEN FOR YOU / DONE — RETIRED
   FOR YOU IS derivable from done_for_you and renders live.
+
+## Task log
+- Task 1 (networking): complete — commits 3e8e302..315b279, review clean (APPROVE A+B).
+  Suite 318/318. Minors (non-blocking): test name overpromises (cosmetic); use sites must
+  nil-coalesce runCount→0 / doneForYou→false (carried into Task 2/3).
