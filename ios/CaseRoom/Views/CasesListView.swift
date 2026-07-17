@@ -213,7 +213,20 @@ struct LibraryRowsList: View {
                 }
             }
 
-            if viewModel.isEmpty {
+            // Error / loading / empty are distinct states (the bare
+            // filteredRows.isEmpty must not read as "no results" on a failed or
+            // in-flight load). Error + loading surfaces are undesigned
+            // (Decisions §6) — kept minimal and token-styled.
+            if let error = viewModel.errorMessage {
+                Text(error)
+                    .font(.serifVoice(14, italic: true))
+                    .foregroundStyle(palette.muted)
+                    .padding(.vertical, 26)
+            } else if viewModel.isLoading && viewModel.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 26)
+            } else if viewModel.isEmpty {
                 Text("Nothing here under these filters.")
                     .font(.serifVoice(14, italic: true))
                     .foregroundStyle(palette.muted)
