@@ -14,10 +14,14 @@ feedback and burned rows, and releases content in one transaction.
 
 from __future__ import annotations
 
-STATES = ("scheduled", "lobby", "live", "debrief", "finalized", "aborted")
+STATES = ("negotiating", "scheduled", "lobby", "live", "debrief", "finalized", "aborted", "missed")
 
 # (current, target) -> role allowed to drive the edge ('any' = either participant)
+# ('negotiating','lobby') is deliberately absent — that edge is driven only by
+# stamp_negotiated_case, which sets the case atomically; the generic /state
+# endpoint must not move a case-less session to lobby.
 _EDGES: dict[tuple[str, str], str] = {
+    ("negotiating", "aborted"): "any",   # bail out of negotiation
     ("scheduled", "lobby"): "any",
     ("lobby", "live"): "interviewer",   # A7: state change first, WS admit second
     ("live", "debrief"): "any",

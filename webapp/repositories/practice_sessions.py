@@ -98,6 +98,72 @@ def create_practice_session(
             return cur.fetchone()
 
 
+def create_negotiating_session_within(
+    cur, *, interviewer_id: int, candidate_id: int, mode: str = "remote",
+    scheduled_at=None, swapped_from_session_id: int | None = None,
+) -> int:
+    """Create a pre-lobby 'negotiating' session (case undecided) using the
+    caller's already-locked cursor (case-less proposal accept/claim run this
+    inside their proposal lock). Room lookup opens its own idempotent
+    connection (repo convention). case_id/rubric_template_id stay NULL until
+    the interviewer and candidate settle a case (stamp_negotiated_case)."""
+    room = get_or_create_room(interviewer_id)
+    cur.execute(
+        "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
+        " case_id, rubric_template_id, state, scheduled_at, mode,"
+        " swapped_from_session_id)"
+        " VALUES (%s, %s, %s, NULL, NULL, 'negotiating', %s, %s, %s)"
+        " RETURNING id;",
+        (room["id"], interviewer_id, candidate_id, scheduled_at, mode,
+         swapped_from_session_id),
+    )
+    return cur.fetchone()["id"]
+
+
+def create_negotiating_session(
+    *, interviewer_id: int, candidate_id: int, mode: str = "remote",
+    scheduled_at=None, swapped_from_session_id: int | None = None,
+) -> dict:
+    """Own-connection variant (pairing claim / swap accept). Returns the row."""
+    room = get_or_create_room(interviewer_id)
+    sql = f"""
+        INSERT INTO practice_sessions
+            (room_id, interviewer_id, candidate_id, case_id, rubric_template_id,
+             state, scheduled_at, mode, swapped_from_session_id)
+        VALUES (%s, %s, %s, NULL, NULL, 'negotiating', %s, %s, %s)
+        RETURNING {_SESSION_COLS.replace('ps.', '')};
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (room["id"], interviewer_id, candidate_id,
+                              scheduled_at, mode, swapped_from_session_id))
+            return cur.fetchone()
+
+
+def stamp_negotiated_case(session_id: int, case_id: int,
+                          rubric_template_id: int) -> dict:
+    """Settle a negotiating session on a case: stamp case_id + rubric_template_id
+    and move negotiating → lobby (bypasses the generic state machine, which
+    forbids negotiating→lobby, because the case must be set in the same act)."""
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"SELECT {_SESSION_COLS} FROM practice_sessions ps"
+                " WHERE ps.id = %s FOR UPDATE;", (session_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise TransitionError(404, "No such session")
+            if row["state"] != "negotiating":
+                raise TransitionError(409, "Session is not in negotiation")
+            cur.execute(
+                "UPDATE practice_sessions SET case_id = %s, rubric_template_id = %s,"
+                " state = 'lobby', state_changed_at = NOW() WHERE id = %s"
+                f" RETURNING {_SESSION_COLS.replace('ps.', '')};",
+                (case_id, rubric_template_id, session_id),
+            )
+            return cur.fetchone()
+
+
 def get_practice_session(session_id: int) -> Optional[dict]:
     """Session row + display names and case metadata for the session UI."""
     sql = f"""
@@ -110,7 +176,7 @@ def get_practice_session(session_id: int) -> Optional[dict]:
         FROM practice_sessions ps
         JOIN users ui ON ui.id = ps.interviewer_id
         JOIN users uc ON uc.id = ps.candidate_id
-        JOIN cases c  ON c.id = ps.case_id
+        LEFT JOIN cases c  ON c.id = ps.case_id
         JOIN rooms r  ON r.id = ps.room_id
         WHERE ps.id = %s;
     """
@@ -280,7 +346,7 @@ def sweep_stale_sessions() -> int:
                 " SET state = 'aborted', ended_at = NOW(), state_changed_at = NOW()"
                 " WHERE (state IN ('lobby', 'live')"
                 "        AND state_changed_at < NOW() - INTERVAL '6 hours')"
-                "    OR (state = 'scheduled'"
+                "    OR (state IN ('scheduled', 'negotiating')"
                 "        AND COALESCE(scheduled_at, created_at)"
                 "            < NOW() - INTERVAL '6 hours');"
             )
