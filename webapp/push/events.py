@@ -1,6 +1,6 @@
 """
-Purpose: Fan out APNs pushes to a user's devices and schedule them fire-and-forget.
-Inputs: user_id, title/body/data/interruption_level; APNS_* settings (webapp.settings.load_settings); device_tokens table.
+Purpose: Fan out APNs pushes to a user's devices and schedule them fire-and-forget; consult per-user notification_settings before sending a categorized push.
+Inputs: user_id, title/body/data/interruption_level/category; APNS_* settings (webapp.settings.load_settings); device_tokens + notification_settings tables.
 Outputs: HTTPS pushes via webapp.push.apns.send_push; deletes dead (410) tokens.
 Run: called from route handlers (via FastAPI BackgroundTasks) and webapp/routes/signal_ws.py (via notify()); no CLI entrypoint.
 """
@@ -30,7 +30,8 @@ def push_enabled(settings) -> bool:
 
 
 async def push_to_user(user_id: int, *, title: str, body: str, data: dict | None = None,
-                       interruption_level: str | None = None) -> None:
+                       interruption_level: str | None = None,
+                       category: str | None = None) -> None:
     """Push `title`/`body` to every device registered to user_id.
 
     No-op when APNs isn't configured (normal in dev). Deletes a token on a
@@ -41,6 +42,13 @@ async def push_to_user(user_id: int, *, title: str, body: str, data: dict | None
         settings = load_settings()
         if not push_enabled(settings):
             return
+        # Choke point: honor the user's per-category notification settings.
+        # category=None (legacy callers) is never filtered. B6 passes
+        # category="community"; see notification_settings.CATEGORIES.
+        if category is not None:
+            from webapp.repositories.notification_settings import notifications_allowed
+            if not notifications_allowed(user_id, category):
+                return
         client = httpx.AsyncClient(http2=True, timeout=10.0)
         try:
             for token in tokens_for_user(user_id):
