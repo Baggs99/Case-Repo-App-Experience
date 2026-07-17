@@ -38,3 +38,17 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
   (canvas tabular fidelity); (b) view MUST call load() on `type` change (server-side filter);
   (c) "Market Sizing" case_type = documented backend-limited seam (exact-match under-matches compound
   vocab), fixtures cover screenshots.
+- Task 3 (phone Library 5a): CODE complete + committed 789e2fd (RootShell detail-chrome gate,
+  CasesListView 5a rewrite, LibraryRowView, LibraryFixtures, -LibraryFixtures hatch, avgRating
+  %.1f fix). Screenshot task3-phone-list.png verified vs 5a (H1, 5 chips, count, toggles, divider,
+  greyed retired rows, FOR YOU/SCHEDULED tags, no icons).
+  TEST STATUS: LibraryViewModelTests(20)+LibraryDecodingTests(5)=25 GREEN in isolation (0.026s).
+  Earlier full run: EVERY executed test passed EXCEPT the pre-existing env flake
+  SessionViewModelTests.testEnteringLiveStartsLiveActivityForInterviewer (blocks on sim mic TCC;
+  F0/ORCHESTRATION-documented; GREEN at bootstrap). ENVIRONMENTAL BLOCKER on the one-shot full-suite
+  green: (1) mic TCC grant not sticking after screenshot reinstall; (2) SEVERE memory thrash from the
+  concurrent FW3-sibling F2 phase building/testing on its own sim (~90+ min continuous) — the doc's
+  ">2 xcodebuild+sim stacks thrash the 16GB machine" condition. Exceeded 2-attempt watchdog on both.
+  GATE (carried to final review): authoritative full-suite green (skip-flaky or with mic re-grant)
+  to be run when the machine is quiet (F2 done). Task-3 diff review proceeds now (reviews code, not a
+  live suite).
