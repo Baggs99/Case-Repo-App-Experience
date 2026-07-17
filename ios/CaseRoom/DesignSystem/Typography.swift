@@ -70,6 +70,9 @@ struct DSTextStyle {
 
     // §1 phone type scale.
     static let h1Tab           = DSTextStyle(font: .archivo(28, weight: 800), tracking: -0.84, lineSpacing: 0)  // -.03em
+    // iPad Home header greeting (canvas 2a: 24px/800/-.03em, smaller than the
+    // phone/tab-label h1Tab because it shares the top row with wordmark+avatar).
+    static let h1TabSmall       = DSTextStyle(font: .archivo(24, weight: 800), tracking: -0.72, lineSpacing: 0)  // -.03em
     static let takeoverDisplay = DSTextStyle(font: .archivo(32, weight: 800), tracking: -1.12, lineSpacing: 0)  // -.035em
     static let cardTitle       = DSTextStyle(font: .archivo(20, weight: 700), tracking: -0.2,  lineSpacing: 0)
     static let rowTitle        = DSTextStyle(font: .archivo(14, weight: 600), tracking: 0,     lineSpacing: 0)

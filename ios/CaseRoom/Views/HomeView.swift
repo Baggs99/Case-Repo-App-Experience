@@ -1,9 +1,13 @@
 /*
- * Purpose: Home screen (canvas 3a, phone) — the date/greeting header, the ONE
- *          glass hero ("today's set" + streak strip + cohort footer), a light
- *          elevated "tonight" strip, and flat editorial DIAGNOSTIC + TIMELINE
- *          blocks. The whole timeline block and "Add a firm" push Timeline
- *          detail; the hero's "Begin" opens F1's legacy drill sheet (F7 seam).
+ * Purpose: Home screen — canvas 3a (phone, .compact) is the date/greeting
+ *          header, the ONE glass hero ("today's set" + streak strip + cohort
+ *          footer), a light elevated "tonight" strip, and flat editorial
+ *          DIAGNOSTIC + TIMELINE blocks. Canvas 2a (iPad, .regular) reuses the
+ *          same hero/diagnostic/timeline sections in a two-column grid, adding
+ *          a dark LAST-NIGHT strip + an UPCOMING row (RootShell renders the
+ *          iPad date+greeting header, not this view). The whole timeline block
+ *          and "Add a firm" push Timeline detail; the hero's "Begin" opens F1's
+ *          legacy drill sheet (F7 seam).
  * Inputs: HomeViewModel (injectable; DEBUG fixture init for shots).
  * Outputs: none (navigation via AppRouter.shared; writes live in the VM).
  * Run: mounted by RootShell inside `NavigationStack(path: $router.homePath)`.
@@ -13,10 +17,11 @@ import SwiftUI
 
 struct HomeView: View {
     @Environment(\.dsPalette) private var palette
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var viewModel: HomeViewModel
 
-    // Injectable VM (default = live). The DEBUG -F2Home hatch injects a
-    // fixture-backed VM so simctl can capture a populated screen.
+    // Injectable VM (default = live). The DEBUG -F2Home/-F2HomeTablet hatches
+    // inject a fixture-backed VM so simctl can capture a populated screen.
     @MainActor
     init(viewModel: HomeViewModel? = nil) {
         _viewModel = State(initialValue: viewModel ?? HomeViewModel())
@@ -27,6 +32,8 @@ struct HomeView: View {
             DSBackground()
             if viewModel.dashboard == nil {
                 Text("Loading your day…").dsText(.meta).foregroundStyle(palette.muted)
+            } else if hSize == .regular {
+                regularContent
             } else {
                 content
             }
@@ -53,6 +60,99 @@ struct HomeView: View {
         }
         .scrollIndicators(.hidden)
         .dsHeaderFade()
+    }
+
+    // MARK: - .regular (iPad, canvas 2a) — two-column grid, top-aligned.
+    // RootShell renders the date+greeting header for .regular, so this content
+    // starts directly with the grid (no repeated `header`). Every section below
+    // is the SAME subview the .compact `content` above uses — no copy fork.
+
+    private var regularContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let errorMessage = viewModel.errorMessage {
+                    errorBanner(errorMessage)
+                }
+                HStack(alignment: .top, spacing: 36) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        heroCard
+                        if !viewModel.lastNightHidden {
+                            lastNightStrip
+                        }
+                        if !viewModel.tonightHidden {
+                            upcomingBlock
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 14) {
+                        diagnosticBlock
+                        timelineBlock
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Color.clear.frame(height: 120)   // room behind the tab bar
+            }
+            .padding(.horizontal, 28).padding(.vertical, 22)
+        }
+        .scrollIndicators(.hidden)
+        .dsHeaderFade()
+    }
+
+    // MARK: - LAST NIGHT — dark strip (deviation #2: canvas 2a IS dark here,
+    // unlike the phone tonight strip). bg = the fixed shadow-ink token at the
+    // canvas's .94 opacity (theme-independent hex, stays navy under .dark too);
+    // content colors come from the .dark palette so text renders as chalk.
+
+    private var lastNightStrip: some View {
+        Button {
+            guard let id = viewModel.lastNightSessionId else { return }
+            AppRouter.shared.go(to: .recap(id))
+        } label: {
+            HStack(spacing: 14) {
+                Circle().fill(DSPalette.dark.green).frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LAST NIGHT — LOGGED TO HISTORY").dsText(.kicker).foregroundStyle(DSPalette.dark.muted)
+                    Text(viewModel.lastNightLine).dsText(.rowTitleStrong).foregroundStyle(DSPalette.dark.ink)
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                Spacer(minLength: 12)
+                Text("Re-read").dsText(.meta).underline().foregroundStyle(DSPalette.dark.ink)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 15)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.dsShadowInk.opacity(0.94))
+                .shadow(color: Color.dsShadowInk.opacity(0.2), radius: 26, x: 0, y: 10)
+        )
+    }
+
+    // MARK: - UPCOMING — hairline-top row from next_session (canvas 2a lines 91-102).
+
+    private var upcomingBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("UPCOMING").dsText(.kicker).foregroundStyle(palette.muted)
+                Spacer()
+                Text("ON YOUR CALENDAR").dsText(.kicker).foregroundStyle(palette.muted)
+            }
+            HStack(spacing: 12) {
+                Circle().strokeBorder(palette.muted, lineWidth: 1.5).frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.upcomingLine).dsText(.rowTitle).foregroundStyle(palette.ink)
+                        .lineLimit(1).truncationMode(.tail)
+                    Text(viewModel.upcomingSub).dsText(.meta).foregroundStyle(palette.muted)
+                }
+                Spacer(minLength: 12)
+                if let tMinus = viewModel.tMinus {
+                    Text(tMinus).dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
+                }
+            }
+            .padding(.vertical, 10)
+        }
+        .padding(.top, 12)
+        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
     }
 
     private func errorBanner(_ message: String) -> some View {

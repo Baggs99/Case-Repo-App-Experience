@@ -2,8 +2,9 @@
  * Purpose: Unit tests for HomeViewModel — greeting-by-hour + empty-name,
  *          ordinal, heroTitle spellOut, cohort-footer derivation (found/not-
  *          found), Swap advances + excludes shown ids, diagnostic bar width +
- *          FOCUS match, timeline tag-label mapping, and dateKicker format.
- * Inputs: fake Dashboard/Gauntlet/Board/Profile/Recommendation/Timeline services.
+ *          FOCUS match, timeline tag-label mapping, dateKicker format, the
+ *          tablet LAST-NIGHT line/hidden-state, and the UPCOMING row's T-minus.
+ * Inputs: fake Dashboard/Gauntlet/Board/Profile/Recommendation/Timeline/Sessions services.
  * Outputs: none.
  * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
  */
@@ -62,7 +63,8 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(.fixture),
             profileService: FakeProfileService(.fixture),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertEqual(vm.heroTitle, "Six drills, twelve minutes.")
         XCTAssertEqual(vm.streakDay, 12)
@@ -78,7 +80,8 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(.fixture),
             profileService: FakeProfileService(.fixture),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertFalse(vm.cohortFooterHidden)
         XCTAssertEqual(vm.cohortLine, "COHORT C-14 · 6TH OF 10")
@@ -93,7 +96,8 @@ final class HomeViewModelTests: XCTestCase {
             profileService: FakeProfileService(ProfileDetail(
                 id: 999, email: "nobody@x.com", displayName: "Nobody", bio: nil, linkedinUrl: nil, school: nil, photoUrl: nil)),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertTrue(vm.cohortFooterHidden)
     }
@@ -105,7 +109,8 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(GroupBoard(scope: "group", group: nil, entries: [])),
             profileService: FakeProfileService(.fixture),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertTrue(vm.cohortFooterHidden)
     }
@@ -119,7 +124,8 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(.fixture),
             profileService: FakeProfileService(.fixture),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         let bars = vm.diagnosticBars
         XCTAssertEqual(bars.map(\.label), ["Structure", "Communication", "Quant", "Market sizing"])
@@ -140,7 +146,8 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(.fixture),
             profileService: FakeProfileService(.fixture),
             recommendationService: recSvc,
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertEqual(vm.currentRecommendation?.caseId, Recommendation.fixture1.caseId)
         await vm.swap()
@@ -157,7 +164,8 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(.fixture),
             profileService: FakeProfileService(.fixture),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertEqual(vm.timelineFirms.map(\.name), ["McKinsey", "BCG", "Bain"])
         XCTAssertEqual(vm.timelineFirms.map(\.readiness), ["ON PACE", "PUSH QUANT", "EARLY"])
@@ -176,9 +184,124 @@ final class HomeViewModelTests: XCTestCase {
             boardService: FakeBoardService(.fixture),
             profileService: FakeProfileService(.fixture),
             recommendationService: FakeRecommendationService([]),
-            timelineService: FakeTimelineServiceForHome(.fixture))
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
         await vm.load()
         XCTAssertTrue(vm.tonightHidden)
+    }
+
+    // MARK: - LAST NIGHT (tablet strip; from sessions(scope:"recent"))
+
+    func testLastNightLineFormatsGradeAndOtherUser() async {
+        let vm = HomeViewModel(
+            dashboardService: FakeDashboardService(.fixture),
+            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
+            boardService: FakeBoardService(.fixture),
+            profileService: FakeProfileService(.fixture),
+            recommendationService: FakeRecommendationService([]),
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([
+                SessionSummary(id: 9, role: "candidate", otherUser: "M. Lindqvist",
+                                caseTitle: "Dental roll-up", scheduledAt: nil,
+                                state: "completed", endedAt: Date(), grade: 7.2),
+            ]))
+        await vm.load()
+        XCTAssertFalse(vm.lastNightHidden)
+        XCTAssertEqual(vm.lastNightLine, "7.2 avg vs M. Lindqvist")
+        XCTAssertEqual(vm.lastNightSessionId, 9)
+    }
+
+    func testLastNightHiddenWhenNoFinishedSession() async {
+        let vm = HomeViewModel(
+            dashboardService: FakeDashboardService(.fixture),
+            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
+            boardService: FakeBoardService(.fixture),
+            profileService: FakeProfileService(.fixture),
+            recommendationService: FakeRecommendationService([]),
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([
+                SessionSummary(id: 10, role: "candidate", otherUser: "X", caseTitle: "Y",
+                                scheduledAt: Date(), state: nil, endedAt: nil, grade: nil),
+            ]))
+        await vm.load()
+        XCTAssertTrue(vm.lastNightHidden)
+        XCTAssertEqual(vm.lastNightLine, "")
+        XCTAssertNil(vm.lastNightSessionId)
+    }
+
+    func testLastNightHiddenWhenNoSessionsAtAll() async {
+        let vm = HomeViewModel(
+            dashboardService: FakeDashboardService(.fixture),
+            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
+            boardService: FakeBoardService(.fixture),
+            profileService: FakeProfileService(.fixture),
+            recommendationService: FakeRecommendationService([]),
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
+        await vm.load()
+        XCTAssertTrue(vm.lastNightHidden)
+    }
+
+    func testLastNightPicksFirstSessionWithGrade() async {
+        let vm = HomeViewModel(
+            dashboardService: FakeDashboardService(.fixture),
+            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 12)),
+            boardService: FakeBoardService(.fixture),
+            profileService: FakeProfileService(.fixture),
+            recommendationService: FakeRecommendationService([]),
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([
+                SessionSummary(id: 1, role: "candidate", otherUser: "A", caseTitle: "c1",
+                                scheduledAt: nil, state: nil, endedAt: nil, grade: nil),
+                SessionSummary(id: 2, role: "candidate", otherUser: "B", caseTitle: "c2",
+                                scheduledAt: nil, state: "completed", endedAt: Date(), grade: 6.0),
+            ]))
+        await vm.load()
+        XCTAssertEqual(vm.lastNightSessionId, 2)
+        XCTAssertEqual(vm.lastNightLine, "6.0 avg vs B")
+    }
+
+    // MARK: - UPCOMING row (tablet; T-minus)
+
+    func testTMinusLabelWithin24Hours() {
+        let now = Date(timeIntervalSince1970: 0)
+        let scheduled = now.addingTimeInterval(9 * 3600)
+        XCTAssertEqual(HomeViewModel.tMinusLabel(scheduledAt: scheduled, now: now), "T-9H")
+    }
+
+    func testTMinusLabelHiddenAt24HoursOrMore() {
+        let now = Date(timeIntervalSince1970: 0)
+        XCTAssertNil(HomeViewModel.tMinusLabel(scheduledAt: now.addingTimeInterval(24 * 3600), now: now))
+    }
+
+    func testTMinusLabelHiddenForPastSession() {
+        let now = Date(timeIntervalSince1970: 1000)
+        XCTAssertNil(HomeViewModel.tMinusLabel(scheduledAt: Date(timeIntervalSince1970: 0), now: now))
+    }
+
+    func testTMinusLabelHiddenWhenNoScheduledAt() {
+        XCTAssertNil(HomeViewModel.tMinusLabel(scheduledAt: nil, now: Date()))
+    }
+
+    func testUpcomingLineAndSubFromNextSession() async {
+        let today6pm = Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: Date())!
+        let vm = HomeViewModel(
+            dashboardService: FakeDashboardService(DashboardStats(
+                sessionsFinalized: 0, streakWeeks: 0,
+                nextSession: SessionSummary(
+                    id: 5, role: "candidate", otherUser: "T. Becker",
+                    caseTitle: "Dental roll-up M&A", scheduledAt: today6pm,
+                    state: nil, endedAt: nil, grade: nil),
+                streakDays: 13, drillDoneToday: false)),
+            gauntletService: FakeGauntletService(.fixture(slots: 6, streak: 13)),
+            boardService: FakeBoardService(.fixture),
+            profileService: FakeProfileService(.fixture),
+            recommendationService: FakeRecommendationService([]),
+            timelineService: FakeTimelineServiceForHome(.fixture),
+            sessionsService: FakeSessionsServiceForHome([]))
+        await vm.load()
+        XCTAssertEqual(vm.upcomingLine, "vs T. Becker · Dental roll-up M&A")
+        XCTAssertEqual(vm.upcomingSub, "Today 18:00 · candidate")
     }
 }
 
@@ -327,4 +450,10 @@ private final class FakeTimelineServiceForHome: TimelineService, @unchecked Send
     func firmResult(firmId: Int, outcome: String) async throws -> FirmResult {
         FirmResult(outcome: outcome, status: nil, reweight: nil, snoozeUntil: nil, resultRecordedAt: nil, dropped: nil)
     }
+}
+
+private final class FakeSessionsServiceForHome: RecentSessionsService, @unchecked Sendable {
+    var value: [SessionSummary]
+    init(_ value: [SessionSummary]) { self.value = value }
+    func sessions(scope: String) async throws -> [SessionSummary] { value }
 }

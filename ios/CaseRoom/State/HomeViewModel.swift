@@ -1,11 +1,13 @@
 /*
- * Purpose: Backing state for the phone Home screen (canvas 3a) — concurrently
- *          loads dashboard/gauntlet/groupBoard/profile/timeline, and derives
- *          the greeting, today's-set hero (streak strip + cohort footer),
- *          tonight strip, diagnostic bars + recommendation swap, and the
- *          timeline block's firm rows.
+ * Purpose: Backing state for the Home screen (canvas 3a phone / 2a tablet) —
+ *          concurrently loads dashboard/gauntlet/groupBoard/profile/timeline/
+ *          recent-sessions, and derives the greeting, today's-set hero (streak
+ *          strip + cohort footer), tonight strip, diagnostic bars + recommendation
+ *          swap, the timeline block's firm rows, and the tablet-only LAST-NIGHT/
+ *          UPCOMING fields.
  * Inputs: DashboardService/GauntletService/BoardService/ProfileService/
- *         RecommendationService/TimelineService (default APIClient.shared).
+ *         RecommendationService/TimelineService/RecentSessionsService (default
+ *         APIClient.shared).
  * Outputs: POST-free reads only; recommendation Swap re-queries `exclude:`.
  * Run: owned by HomeView; call load() from .task.
  */
@@ -17,6 +19,14 @@ protocol DashboardService {
     func dashboard() async throws -> DashboardStats
 }
 extension APIClient: DashboardService {}
+
+// Just the one method Home needs from the existing /api/v1/sessions?scope=
+// endpoint (SessionsViewModel's SessionsService covers the rest; this is a
+// narrower seam so HomeViewModel doesn't pull in proposals/accept/decline).
+protocol RecentSessionsService {
+    func sessions(scope: String) async throws -> [SessionSummary]
+}
+extension APIClient: RecentSessionsService {}
 
 @Observable
 @MainActor
@@ -38,6 +48,7 @@ final class HomeViewModel {
     private(set) var board: GroupBoard?
     private(set) var profile: ProfileDetail?
     private(set) var timelineDetail: TimelineDetail?
+    private(set) var recentSessions: [SessionSummary] = []
     private(set) var currentRecommendation: Recommendation?
     private(set) var shownRecommendationIds: [Int] = []
     var errorMessage: String?
@@ -48,6 +59,7 @@ final class HomeViewModel {
     private let profileService: ProfileService
     private let recommendationService: RecommendationService
     private let timelineService: TimelineService
+    private let sessionsService: RecentSessionsService
     private let isFixtureBacked: Bool
 
     init(dashboardService: DashboardService = APIClient.shared,
@@ -55,13 +67,15 @@ final class HomeViewModel {
          boardService: BoardService = APIClient.shared,
          profileService: ProfileService = APIClient.shared,
          recommendationService: RecommendationService = APIClient.shared,
-         timelineService: TimelineService = APIClient.shared) {
+         timelineService: TimelineService = APIClient.shared,
+         sessionsService: RecentSessionsService = APIClient.shared) {
         self.dashboardService = dashboardService
         self.gauntletService = gauntletService
         self.boardService = boardService
         self.profileService = profileService
         self.recommendationService = recommendationService
         self.timelineService = timelineService
+        self.sessionsService = sessionsService
         self.isFixtureBacked = false
     }
 
@@ -71,7 +85,8 @@ final class HomeViewModel {
     /// TimelineDetailViewModel's fixture init) — a fixture-backed VM must
     /// never be silently overwritten by a live response.
     init(fixtureDashboard: DashboardStats, fixtureGauntlet: Gauntlet, fixtureBoard: GroupBoard,
-         fixtureProfile: ProfileDetail, fixtureTimeline: TimelineDetail) {
+         fixtureProfile: ProfileDetail, fixtureTimeline: TimelineDetail,
+         fixtureRecentSessions: [SessionSummary] = []) {
         let never = NeverCalledHomeService()
         self.dashboardService = never
         self.gauntletService = never
@@ -79,12 +94,14 @@ final class HomeViewModel {
         self.profileService = never
         self.recommendationService = never
         self.timelineService = never
+        self.sessionsService = never
         self.isFixtureBacked = true
         self.dashboard = fixtureDashboard
         self.gauntlet = fixtureGauntlet
         self.board = fixtureBoard
         self.profile = fixtureProfile
         self.timelineDetail = fixtureTimeline
+        self.recentSessions = fixtureRecentSessions
         self.currentRecommendation = fixtureDashboard.recommendations?.first
     }
     #endif
@@ -98,16 +115,19 @@ final class HomeViewModel {
             async let b = boardService.groupBoard()
             async let p = profileService.profile()
             async let t = timelineService.timeline()
+            async let s = sessionsService.sessions(scope: "recent")
             let dashboard = try await d
             let gauntlet = try await g
             let board = try await b
             let profile = try await p
             let timelineDetail = try await t
+            let recentSessions = try await s
             self.dashboard = dashboard
             self.gauntlet = gauntlet
             self.board = board
             self.profile = profile
             self.timelineDetail = timelineDetail
+            self.recentSessions = recentSessions
             self.currentRecommendation = dashboard.recommendations?.first
         } catch {
             errorMessage = "Couldn't load your Home."
@@ -232,6 +252,52 @@ final class HomeViewModel {
         return f
     }()
 
+    // MARK: - LAST NIGHT (tablet-only dark strip; canvas 2a lines 85-88)
+
+    /// Newest finished session (grade present) from sessions(scope:"recent").
+    /// Deviation #2 (F2 plan): the canvas copy also carries "recap rated 5/5",
+    /// but no GET exposes a recap star-rating — omitted here; backend follow-up.
+    private var lastNightSession: SessionSummary? {
+        recentSessions.first { $0.grade != nil }
+    }
+
+    var lastNightHidden: Bool { lastNightSession == nil }
+    var lastNightSessionId: Int? { lastNightSession?.id }
+
+    /// "{grade, 1dp} avg vs {otherUser}" — empty when no finished session.
+    var lastNightLine: String {
+        guard let session = lastNightSession, let grade = session.grade else { return "" }
+        return "\(String(format: "%.1f", grade)) avg vs \(session.otherUser)"
+    }
+
+    // MARK: - UPCOMING (tablet-only; same next_session source as the tonight strip)
+
+    /// "vs {otherUser} · {caseTitle}" — identical text to the phone tonight
+    /// strip's line, just surfaced under a different tablet-only name.
+    var upcomingLine: String { tonightLine }
+
+    /// "{Today|Weekday} HH:mm · {role}". Deviation: the canvas persona sub-line
+    /// also appends a third clause ("· quant-heavy on purpose") that has no API
+    /// source (same pattern as the per-firm sub-detail deviation #3) — omitted.
+    var upcomingSub: String {
+        guard let session = dashboard?.nextSession, let at = session.scheduledAt else { return "" }
+        let dayLabel = Calendar.current.isDateInToday(at) ? "Today" : Self.weekdayFormatter.string(from: at)
+        return "\(dayLabel) \(Self.timeFormatter.string(from: at)) · \(session.role)"
+    }
+
+    /// "T-{hours}H" when next_session is within 24h (green); nil otherwise —
+    /// hides the tag for past or >=24h-out sessions.
+    var tMinus: String? {
+        Self.tMinusLabel(scheduledAt: dashboard?.nextSession?.scheduledAt, now: Date())
+    }
+
+    static func tMinusLabel(scheduledAt: Date?, now: Date) -> String? {
+        guard let scheduledAt else { return nil }
+        let hours = scheduledAt.timeIntervalSince(now) / 3600
+        guard hours >= 0, hours < 24 else { return nil }
+        return "T-\(Int(hours.rounded(.up)))H"
+    }
+
     // MARK: - Diagnostic
 
     var casesLine: String { "\(dashboard?.diagnostic?.casesDone60D ?? 0) CASES" }
@@ -299,8 +365,9 @@ final class HomeViewModel {
 /// interactive (simctl can't tap/type), so any call here is a misuse — fail
 /// loudly instead of silently hitting the network.
 private struct NeverCalledHomeService: DashboardService, GauntletService, BoardService,
-    ProfileService, RecommendationService, TimelineService {
+    ProfileService, RecommendationService, TimelineService, RecentSessionsService {
     func dashboard() async throws -> DashboardStats { fatalError("fixture-backed HomeViewModel must not call the network") }
+    func sessions(scope: String) async throws -> [SessionSummary] { fatalError("fixture-backed HomeViewModel must not call the network") }
     func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed HomeViewModel must not call the network") }
     func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
     func profile() async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }

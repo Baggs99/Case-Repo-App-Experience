@@ -40,6 +40,7 @@ final class TypographyTests: XCTestCase {
 
     func testTypeScaleTrackingValues() {
         XCTAssertEqual(DSTextStyle.h1Tab.tracking, -0.84, accuracy: 0.001)       // 28 × -.03em
+        XCTAssertEqual(DSTextStyle.h1TabSmall.tracking, -0.72, accuracy: 0.001)  // 24 × -.03em
         XCTAssertEqual(DSTextStyle.takeoverDisplay.tracking, -1.12, accuracy: 0.001) // 32 × -.035em
         XCTAssertEqual(DSTextStyle.kicker.tracking, 1.6, accuracy: 0.001)        // 10 × .16em
         XCTAssertEqual(DSTextStyle.rowTitle.tracking, 0, accuracy: 0.001)
