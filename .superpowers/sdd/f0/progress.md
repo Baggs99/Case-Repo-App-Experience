@@ -19,15 +19,20 @@ Updated: 2026-07-17 · Branch: fe/f0-foundation · Base SHA: d106111
   `perl -e 'alarm shift @ARGV; exec @ARGV' <secs> xcodebuild …`.
 
 ## Now
-Implementing DesignSystem directly (Opus lead) + Opus review-subagent gates —
-see report for the orchestration-adaptation rationale.
+DONE. Review APPROVE (0 blocking); non-blocking fidelity fixes applied + re-verified
+289/0 green + re-shot. Report final. Ready for orchestrator merge into feature/backend-gap.
 
 ## Done
 - Plan written + self-reviewed: docs/superpowers/plans/2026-07-17-fe-f0-plan.md
 - Fonts downloaded (Archivo + Source Serif 4 variable TTFs + OFL) — CoreText
   probe confirmed family+weight-trait resolves correct named instances.
-- Source files written: Tokens, Typography, Motion, StaircaseMark,
-  SteppedTimeline, ScoreCells, Glass, Chrome/*, PreviewFixtures, Gallery.
+- All 16 DesignSystem source files + 6 test files written.
+- iOS suite 273 -> 289 green (0 failures) — evidence: full.log TEST SUCCEEDED.
+- No-hex grep gate: CLEAN (all Color(hex:) only in Tokens.swift).
+- xcodegen idempotent; project.yml + Info.plist committed; .xcodeproj ignored.
+- 10 gallery screenshots (phone+tablet, light+dark) under shots/ — verified.
+- Committed: 5fde1ac. Report: docs/superpowers/sdd/fe-f0-report.md.
+- Opus whole-branch reviewer dispatched (read-only).
 
 ## Assumptions
 - `.xcodeproj` stays gitignored (repo convention); commit `project.yml` only.

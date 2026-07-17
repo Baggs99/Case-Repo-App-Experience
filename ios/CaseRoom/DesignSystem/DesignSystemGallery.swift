@@ -65,7 +65,9 @@ struct DesignSystemGallery: View {
             .defaultScrollAnchor(scrollAnchor)
             .dsHeaderFade()
 
-            DSTabBar(selection: $tab).padding(.bottom, 12)
+            DSTabBar(selection: $tab,
+                     maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? 560 : nil)
+                .padding(.bottom, 12)
         }
         .dsTheme(palette)
         .dsToast(item: $toast)

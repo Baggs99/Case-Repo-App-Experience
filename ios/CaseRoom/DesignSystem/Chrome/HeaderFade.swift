@@ -17,8 +17,14 @@ private struct DSHeaderFade: ViewModifier {
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .top) {
+            // Canvas: linear-gradient(180deg, page 22%, transparent) — solid for
+            // the first 22%, then fade out.
             LinearGradient(
-                colors: [palette.page, palette.page.opacity(0)],
+                stops: [
+                    .init(color: palette.page, location: 0),
+                    .init(color: palette.page, location: 0.22),
+                    .init(color: palette.page.opacity(0), location: 1),
+                ],
                 startPoint: .top, endPoint: .bottom
             )
             .frame(height: 34)

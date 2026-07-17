@@ -27,6 +27,9 @@ enum DSTab: Hashable, CaseIterable {
 struct DSTabBar: View {
     @Binding var selection: DSTab
     var onSelect: (DSTab) -> Void = { _ in }
+    /// Cap the bar width. nil = full-width phone (left/right 12); pass 560 for the
+    /// §7 tablet ("560px wide, centered") so F2 doesn't have to modify this primitive.
+    var maxWidth: CGFloat? = nil
     @Environment(\.dsPalette) private var palette
 
     var body: some View {
@@ -39,7 +42,11 @@ struct DSTabBar: View {
         }
         .frame(height: 64)
         .padding(.horizontal, 8)
+        .frame(maxWidth: maxWidth ?? .infinity)
         .glassChip()
+        // Floating-bar shadow per canon (0 10px 26px rgba(13,28,49,.14)).
+        .shadow(color: Color.dsShadowInk.opacity(0.14), radius: 13, x: 0, y: 5)
+        .frame(maxWidth: .infinity)   // center the (optionally capped) bar
         .padding(.horizontal, 12)
     }
 
@@ -73,12 +80,14 @@ struct DSTabBar: View {
             onSelect(.caseTab)
         } label: {
             ZStack {
+                // The CASE circle is fixed navy in both themes (canvas hardcodes
+                // #0D1C31); its mark is the canvas g22 gradient chalk→bright-green.
                 Circle()
-                    .fill(palette.ink)
+                    .fill(DSPalette.light.ink)
                     .frame(width: 56, height: 56)
-                    .overlay(active ? Circle().strokeBorder(palette.green, lineWidth: 2) : nil)
+                    .overlay(active ? Circle().strokeBorder(DSPalette.dark.green, lineWidth: 2) : nil)
                     .shadow(color: Color.dsShadowInk.opacity(0.3), radius: 12, x: 0, y: 8)
-                StaircaseMarkView(lowColor: palette.onInk, highColor: palette.green)
+                StaircaseMarkView(lowColor: DSPalette.light.onInk, highColor: DSPalette.dark.green)
                     .frame(width: 23, height: 19)
             }
             .frame(maxWidth: .infinity)

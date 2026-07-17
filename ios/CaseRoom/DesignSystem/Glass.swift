@@ -37,6 +37,7 @@ struct GlassSurface<S: InsettableShape>: View {
         }
         .overlay(shape.strokeBorder(border, lineWidth: 1))
         .overlay(topInsetHighlight)                               // inset 0 1.5px 0 rgba(255,255,255,.85)
+        .overlay(bottomInsetHighlight)                            // inset 0 -1px 0 rgba(255,255,255,.3)
         .compositingGroup()
         .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowY)
     }
@@ -55,6 +56,15 @@ struct GlassSurface<S: InsettableShape>: View {
             LinearGradient(colors: [.white.opacity(palette.isDark ? 0.12 : 0.85), .clear],
                            startPoint: .top, endPoint: .center),
             lineWidth: 1.5)
+        .blendMode(.plusLighter)
+        .allowsHitTesting(false)
+    }
+
+    private var bottomInsetHighlight: some View {
+        shape.strokeBorder(
+            LinearGradient(colors: [.clear, .white.opacity(palette.isDark ? 0.06 : 0.3)],
+                           startPoint: .center, endPoint: .bottom),
+            lineWidth: 1)
         .blendMode(.plusLighter)
         .allowsHitTesting(false)
     }
