@@ -61,6 +61,7 @@ from webapp.routes import practice_feedback as practice_feedback_routes
 from webapp.routes import practice_recordings as practice_recordings_routes
 from webapp.routes import proposals as proposals_routes
 from webapp.routes import queues as queues_routes
+from webapp.routes import recommendations as recommendations_routes
 from webapp.routes import rooms as rooms_routes
 from webapp.routes import search as search_routes
 from webapp.routes import signal_ws as signal_ws_routes
@@ -147,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(proposals_routes.router)
     app.include_router(signal_ws_routes.router)
     app.include_router(exhibits_routes.router)
+    app.include_router(recommendations_routes.router)
     app.include_router(api_v1_routes.router)
 
     return app

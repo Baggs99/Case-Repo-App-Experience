@@ -175,6 +175,36 @@ class TestRecommendationSurfaces(unittest.TestCase):
         self.assertEqual(by_rule["difficulty-ladder"], self.a4)
         self.assertEqual(by_rule["weak-dimension"], self.w1)
 
+    # ── Task 2: native list mouth ───────────────────────────────────────────
+
+    def test_api_recommendations_shape(self):
+        r = self.cara.get("/api/v1/recommendations")
+        self.assertEqual(r.status_code, 200, r.text)
+        recs = r.json()["recommendations"]
+        self.assertTrue(recs)
+        for rec in recs:
+            self.assertEqual(set(rec), {"case_id", "title", "case_type",
+                                        "difficulty", "why", "rule"})
+        by_rule = {rec["rule"]: rec["case_id"] for rec in recs}
+        self.assertEqual(by_rule["coverage-gap"], self.b1)
+
+    def test_api_recommendations_exclude(self):
+        r = self.cara.get(f"/api/v1/recommendations?exclude={self.b1}")
+        self.assertEqual(r.status_code, 200, r.text)
+        ids = {rec["case_id"] for rec in r.json()["recommendations"]}
+        self.assertNotIn(self.b1, ids)
+        self.assertIn(self.b2, ids)
+
+    def test_api_recommendations_invalid_exclude_is_400(self):
+        r = self.cara.get("/api/v1/recommendations?exclude=1,abc")
+        self.assertEqual(r.status_code, 400, r.text)
+
+    def test_api_recommendations_requires_auth(self):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        r = TestClient(app).get("/api/v1/recommendations")
+        self.assertEqual(r.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
