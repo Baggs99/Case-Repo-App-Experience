@@ -1,0 +1,97 @@
+=== diff --stat ===
+ tests/test_b1_settings.py | 43 +++++++++++++++++++++++++++++++++++++++++++
+ webapp/settings.py        |  5 +++++
+ 2 files changed, 48 insertions(+)
+
+=== full diff ===
+diff --git a/tests/test_b1_settings.py b/tests/test_b1_settings.py
+new file mode 100644
+index 0000000..cc8993c
+--- /dev/null
++++ b/tests/test_b1_settings.py
+@@ -0,0 +1,43 @@
++"""
++B1 Task 2: env-tunable expiry settings (webapp/settings.py). Pure unit test,
++no DB — manipulates os.environ around load_settings().
++"""
++
++from __future__ import annotations
++
++import os
++import unittest
++
++
++class TestExpirySettings(unittest.TestCase):
++    def setUp(self):
++        os.environ.setdefault("DATABASE_URL", "postgresql://localhost/caserepo_bgap_b1")
++        self._saved = {k: os.environ.get(k)
++                       for k in ("PROPOSAL_NOW_EXPIRY_MIN", "SESSION_MISSED_AFTER_MIN")}
++        for k in self._saved:
++            os.environ.pop(k, None)
++
++    def tearDown(self):
++        for k, v in self._saved.items():
++            if v is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = v
++
++    def test_defaults(self):
++        from webapp.settings import load_settings
++        s = load_settings()
++        self.assertEqual(s.proposal_now_expiry_min, 120)
++        self.assertEqual(s.session_missed_after_min, 60)
++
++    def test_env_override(self):
++        from webapp.settings import load_settings
++        os.environ["PROPOSAL_NOW_EXPIRY_MIN"] = "45"
++        os.environ["SESSION_MISSED_AFTER_MIN"] = "90"
++        s = load_settings()
++        self.assertEqual(s.proposal_now_expiry_min, 45)
++        self.assertEqual(s.session_missed_after_min, 90)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/settings.py b/webapp/settings.py
+index 4009b5d..c0584b5 100644
+--- a/webapp/settings.py
++++ b/webapp/settings.py
+@@ -35,20 +35,23 @@ class Settings:
+     apns_key_path: str | None
+     apns_key_id: str | None
+     apns_team_id: str | None
+     apns_bundle_id: str | None
+     #: True for the APNs sandbox host (dev builds); False for production.
+     apns_use_sandbox: bool
+     #: TURN provider for short-lived ICE credentials (Cloudflare Calls). Empty when unset -> STUN-only degrade.
+     turn_provider: str
+     turn_key_id: str | None
+     turn_token: str | None
++    #: Spec A3 expiry windows (tunable server-side). Minutes.
++    proposal_now_expiry_min: int
++    session_missed_after_min: int
+ 
+     def is_admin(self, email: str | None) -> bool:
+         """True iff `email` is in the admin allowlist (case-insensitive)."""
+         if not email:
+             return False
+         return email.strip().lower() in self.admin_emails
+ 
+     @property
+     def turn_enabled(self) -> bool:
+         """True iff both TURN key id and token are configured."""
+@@ -93,11 +96,13 @@ def load_settings() -> Settings:
+         case_preview_public_base_url = preview_base or None,
+         ice_servers       = ice_servers,
+         apns_key_path     = os.environ.get("APNS_KEY_PATH") or None,
+         apns_key_id       = os.environ.get("APNS_KEY_ID") or None,
+         apns_team_id      = os.environ.get("APNS_TEAM_ID") or None,
+         apns_bundle_id    = os.environ.get("APNS_BUNDLE_ID") or None,
+         apns_use_sandbox  = os.environ.get("APNS_USE_SANDBOX", "true").lower() in ("1", "true"),
+         turn_provider     = os.environ.get("TURN_PROVIDER", "cloudflare"),
+         turn_key_id       = os.environ.get("TURN_KEY_ID") or None,
+         turn_token        = os.environ.get("TURN_TOKEN") or None,
++        proposal_now_expiry_min = int(os.environ.get("PROPOSAL_NOW_EXPIRY_MIN", "120")),
++        session_missed_after_min = int(os.environ.get("SESSION_MISSED_AFTER_MIN", "60")),
+     )
