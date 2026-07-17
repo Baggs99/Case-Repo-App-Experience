@@ -41,6 +41,82 @@ def candidate_of(from_user_id: int, to_user_id: int, from_role: str) -> int:
     return to_user_id if from_role == "interviewer" else from_user_id
 
 
+def _resolve_roles(prop: dict) -> tuple[int, int]:
+    """(interviewer_id, candidate_id) for a proposal, per from_role."""
+    if prop["from_role"] == "interviewer":
+        return prop["from_user_id"], prop["to_user_id"]
+    return prop["to_user_id"], prop["from_user_id"]
+
+
+def _create_session_within(cur, prop: dict, scheduled_at) -> int:
+    """Create the practice session for an accepted proposal, using the caller's
+    already-locked cursor for the INSERT. Room/template lookups open their own
+    idempotent connections (existing repo convention). Requires prop['case_id']
+    not None (case-less proposals never reach here — see claim_proposal/respond).
+    """
+    interviewer_id, candidate_id = _resolve_roles(prop)
+    if is_burned(candidate_id, prop["case_id"]):
+        raise TransitionError(409, "This case is burned for the would-be candidate")
+    room = get_or_create_room(interviewer_id)
+    template_id = get_default_rubric_template_id(prop["case_id"], interviewer_id)
+    cur.execute(
+        "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
+        " case_id, rubric_template_id, scheduled_at)"
+        " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
+        (room["id"], interviewer_id, candidate_id, prop["case_id"],
+         template_id, scheduled_at),
+    )
+    return cur.fetchone()["id"]
+
+
+def claim_proposal(token: str, user_id: int) -> dict:
+    """Claim an open ('send a link') proposal. The claimer becomes to_user_id.
+    Scheduled proposals stay 'pending' (claimer now responds); "now" proposals
+    (no proposed_times) auto-accept — creating a session when a case is set, or
+    marking accepted with needs_negotiation when the case is "interviewer
+    decides" (B3 wires the negotiating session). Any authed non-creator may
+    claim; B2 overrides the route's auth dependency for guests.
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(f"SELECT {_COLS} FROM proposals p"
+                        " WHERE p.claim_token = %s FOR UPDATE;", (token,))
+            prop = cur.fetchone()
+            if prop is None:
+                raise TransitionError(404, "No such claim link")
+            if prop["state"] != "pending":
+                raise TransitionError(409, f"Proposal is already {prop['state']}")
+            if prop["to_user_id"] is not None:
+                raise TransitionError(409, "This link has already been claimed")
+            if user_id == prop["from_user_id"]:
+                raise TransitionError(409, "You can't claim your own link")
+
+            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
+                        (user_id, prop["id"]))
+            prop["to_user_id"] = user_id
+
+            result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
+            if prop["proposed_times_json"]:
+                # Scheduled: claimer is now the recipient; awaits accept/counter.
+                result.update(state="pending", session_id=None,
+                              accepted=False, needs_negotiation=False)
+                return result
+
+            if prop["case_id"] is None:
+                cur.execute("UPDATE proposals SET state = 'accepted',"
+                            " responded_at = NOW() WHERE id = %s;", (prop["id"],))
+                result.update(state="accepted", session_id=None,
+                              accepted=True, needs_negotiation=True)
+                return result
+
+            session_id = _create_session_within(cur, prop, None)
+            cur.execute("UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                        " session_id = %s WHERE id = %s;", (session_id, prop["id"]))
+            result.update(state="accepted", session_id=session_id,
+                          accepted=True, needs_negotiation=False)
+            return result
+
+
 def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
                     case_id: Optional[int], from_role: str,
                     message: Optional[str],

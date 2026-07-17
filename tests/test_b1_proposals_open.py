@@ -90,5 +90,109 @@ class TestOpenProposals(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
 
 
+@unittest.skipUnless(_READY, "requires seeded dev Postgres")
+@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+class TestClaim(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+
+        cls._ctx = TestClient(app)
+        cls.alice = cls._ctx.__enter__()
+        cls.bob = TestClient(app)
+        cls.cara = TestClient(app)
+
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
+                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
+                ids = dict(cur.fetchall())
+                cur.execute(
+                    "INSERT INTO cases (case_title, normalized_title, source_school,"
+                    " source_year, industry, case_type, difficulty, difficulty_score,"
+                    " page_count, pdf_path) VALUES ('B1 Claim Case', 'b1 claim case',"
+                    " 'DevSchool', 2093, 'Technology', 'Profitability', 'Easy', 3.0,"
+                    " 2, 'output/none.pdf') RETURNING id;")
+                cls.case_id = cur.fetchone()[0]
+        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
+        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
+            s = create_session(uid, user_agent="b1-test", ip_address=None)
+            client.cookies.set(SESSION_COOKIE_NAME, s.id)
+
+    @classmethod
+    def tearDownClass(cls):
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM proposals WHERE case_id = %s OR "
+                            "(case_id IS NULL AND from_user_id = %s);", (cls.case_id, cls.aid))
+                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
+                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
+        cls._ctx.__exit__(None, None, None)
+
+    def _mk_open(self, client, **overrides):
+        payload = {"case_id": self.case_id, "from_role": "interviewer"}
+        payload.update(overrides)
+        return client.post("/api/proposals", json=payload).json()["claim_token"]
+
+    def test_creator_cannot_claim(self):
+        tok = self._mk_open(self.alice)
+        self.assertEqual(self.alice.post(f"/api/proposals/claim/{tok}").status_code, 409)
+
+    def test_unknown_token_404(self):
+        self.assertEqual(self.bob.post("/api/proposals/claim/nope-nope").status_code, 404)
+
+    def test_requires_auth(self):
+        tok = self._mk_open(self.alice)
+        anon = self.__class__._ctx.__class__  # unused; explicit anon client below
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 401)
+
+    def test_claim_now_with_case_auto_accepts_and_creates_session(self):
+        tok = self._mk_open(self.alice)  # no proposed_times -> "now"
+        r = self.bob.post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertTrue(body["accepted"])
+        self.assertIsNotNone(body["session_id"])
+        self.assertFalse(body["needs_negotiation"])
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT interviewer_id, candidate_id FROM practice_sessions"
+                            " WHERE id = %s;", (body["session_id"],))
+                ivr, cand = cur.fetchone()
+        self.assertEqual((ivr, cand), (self.aid, self.bid))  # from_role=interviewer
+
+    def test_claim_scheduled_stays_pending(self):
+        when = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        tok = self._mk_open(self.alice, proposed_times=[when])
+        r = self.bob.post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["state"], "pending")
+        self.assertIsNone(r.json()["session_id"])
+        # to_user_id now bound to the claimer -> shows in Bob's inbox.
+        inbox = self.bob.get("/api/proposals/inbox").json()["proposals"]
+        self.assertIn(r.json()["proposal_id"], [p["id"] for p in inbox])
+
+    def test_claim_case_less_now_needs_negotiation(self):
+        tok = self._mk_open(self.alice, case_id=None)
+        r = self.bob.post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["accepted"])
+        self.assertIsNone(r.json()["session_id"])
+        self.assertTrue(r.json()["needs_negotiation"])
+
+    def test_double_claim_409(self):
+        tok = self._mk_open(self.alice)
+        self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
+        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
+
+
 if __name__ == "__main__":
     unittest.main()

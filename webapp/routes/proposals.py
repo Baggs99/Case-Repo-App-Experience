@@ -104,6 +104,27 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
 
 
+@router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+                   user: User = Depends(require_auth_api)):
+    """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+    the creator; guests arrive in B2 by overriding require_auth_api."""
+    try:
+        result = repo.claim_proposal(claim_token, user.id)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    if result["session_id"] is not None:
+        _send_invites(request, result["session_id"])
+        background.add_task(
+            push_to_user, result["from_user_id"],
+            title="Your invite was claimed",
+            body="Someone claimed your session link",
+            data={"kind": "accepted", "session_id": result["session_id"]},
+        )
+    return result
+
+
 @router.post("/api/proposals/{proposal_id}/decline", dependencies=_MUTATING)
 def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
     try:
