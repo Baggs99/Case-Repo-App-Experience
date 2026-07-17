@@ -23,10 +23,10 @@ Branch: `fe/f1-shell` · Worktree: `/Users/thomaskgould/dev/fe-f1` · Base: `000
 Locked by tests: `IntentsTests` (URL parse + push fold), `PushRouteTests` (payload parse). Legacy `AppRoute` enum → renamed `DeepLink`; new pinned `AppRoute` = destination registry.
 
 ## Now
-Plan written (`docs/superpowers/plans/2026-07-17-fe-f1-plan.md`). Awaiting Opus plan-review before task dispatch.
+Plan APPROVED (2 rounds; round-2 sync review caught a 4th C1 site + C2 cold-launch, both folded — be346f2). Dispatching T1 implementer (opus, synchronous). All subagents run synchronously per orchestrator.
 
 ## Tasks
-- [ ] Plan review (Opus)
+- [x] Plan review (Opus) — APPROVED after 2 rounds (be346f2)
 - [ ] T1 AppRoute registry + AppRouter + remap (opus)
 - [ ] T2 profile/settings models + APIClient (sonnet)
 - [ ] T3 avatar sheet 7a + VM (opus)
