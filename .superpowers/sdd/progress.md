@@ -8,6 +8,7 @@ Branch: bgap/b4-recs · DB: caserepo_bgap_b4 · Baseline: 360 passed (green)
 - Task 1: complete (commits be5c476..ee446b6, review clean). recommendations() extended: why/exclude/limit/canonical shape; 5 new tests green; test_dashboard.py untouched+green.
 - Task 2: complete (commit 355639d, review clean). GET /api/v1/recommendations router + main.py registration; 9 tests green in test_recommendations.py.
 - Task 3: complete (commit 0922bf6, review clean). /api/v1/dashboard additively gains dimension_averages + recommendations; 11 tests in test_recommendations.py + 8 in test_api_v1_sessions.py green.
+- Task 4: complete (commit 3e5ce60, review clean — no IDOR). counterpart_recommendations on join-config (interviewer-only) + pair/status (owner-only); 3 IDOR/role tests pass; 5 new tests. NOTE: implementer fixed a plan-fixture bug (joinable-session INSERT needed NOT NULL rubric_template_id) via get_default_rubric_template_id — sound, security-reviewer confirmed.
 
 ## Minor findings (triage at final review)
 - M1 (Task 2): _parse_exclude accepts negative/underscore/unicode int forms as harmless read-only no-ops (int() semantics). Not a spec violation; optional hardening only.
