@@ -1,0 +1,2103 @@
+=== full log ===
+c84d48d Ledger: Task 9 complete (all 9 tasks done)
+c49cd82 api_v1 proposals parity: claim_token, counter fields, countered-sent
+81c3da1 Ledger: Task 8 complete (+2 cosmetic minors)
+f7e9846 Add pairing short-codes, optional case at mint, claim by token or code
+b640b6e Ledger: Task 7 complete (+dead-code minor)
+1002191 Consolidate all sweeps into the always-on 60-s maintenance loop
+120fa96 Ledger: Task 6 complete (+4 minors for final review)
+a7ba0b2 Rework proposal expiry to A3 windows; add missed-session sweep
+b668bc8 Ledger: Task 5 complete
+193e09e Add one-round proposal counter + counter-accept flow
+f3a028d Ledger: Task 4 complete (+email-collision note)
+bcab307 Add proposal claim endpoint and claim_proposal repo fn
+9f0aff9 Ledger: Task 3 complete
+62fb963 Add open-link and case-less proposals with claim_token
+d8454f9 Ledger: Task 2 complete
+ab30892 Add env-tunable PROPOSAL_NOW_EXPIRY_MIN / SESSION_MISSED_AFTER_MIN settings
+2fcef8d Ledger: Task 1 complete
+6a72e75 Add migrations 020/021: proposal scheduling cols, missed state, pairing short-code
+f1721cf Apply plan-review findings (3 Important, actionable Minors)
+378d81a Add B1 scheduling-core implementation plan (9 tasks, TDD)
+3dbee87 Bootstrap B1: own DB caserepo_bgap_b1, baseline 360 green, ledger
+
+=== stat (all) ===
+ .superpowers/sdd/diffs/task-1.diff                 |   70 +
+ .superpowers/sdd/diffs/task-2.diff                 |   97 +
+ .superpowers/sdd/diffs/task-3.diff                 |  275 +++
+ .superpowers/sdd/diffs/task-4.diff                 |  285 +++
+ .superpowers/sdd/diffs/task-5.diff                 |  459 +++++
+ .superpowers/sdd/diffs/task-6.diff                 |  346 ++++
+ .superpowers/sdd/diffs/task-7.diff                 |  280 +++
+ .superpowers/sdd/diffs/task-8.diff                 |  344 ++++
+ .superpowers/sdd/diffs/task-9.diff                 |  259 +++
+ .superpowers/sdd/progress.md                       |   28 +
+ .superpowers/sdd/task-1-report.md                  |   57 +
+ .superpowers/sdd/task-2-report.md                  |   55 +
+ .superpowers/sdd/task-3-report.md                  |   51 +
+ .superpowers/sdd/task-4-report.md                  |   54 +
+ .superpowers/sdd/task-5-report.md                  |   53 +
+ .superpowers/sdd/task-6-report.md                  |   42 +
+ .superpowers/sdd/task-7-report.md                  |   60 +
+ .superpowers/sdd/task-8-report.md                  |   59 +
+ .superpowers/sdd/task-9-report.md                  |   52 +
+ db/migrations/020_proposals_scheduling.sql         |   28 +
+ db/migrations/021_missed_and_pairing_shortcode.sql |   21 +
+ docs/superpowers/plans/2026-07-17-bgap-b1-plan.md  | 2073 ++++++++++++++++++++
+ tests/test_api_v1_sessions.py                      |    3 +-
+ tests/test_b1_api_v1_proposals.py                  |   86 +
+ tests/test_b1_expiry_missed.py                     |  140 ++
+ tests/test_b1_maintenance.py                       |   92 +
+ tests/test_b1_pairing_shortcode.py                 |  113 ++
+ tests/test_b1_proposals_open.py                    |  326 +++
+ tests/test_b1_settings.py                          |   43 +
+ tests/test_queues_proposals.py                     |   21 +-
+ webapp/main.py                                     |   24 +-
+ webapp/maintenance.py                              |   49 +
+ webapp/push/starting_soon.py                       |    5 +-
+ webapp/repositories/pairing_tokens.py              |   57 +-
+ webapp/repositories/practice_sessions.py           |   20 +
+ webapp/repositories/proposals.py                   |  247 ++-
+ webapp/routes/api_v1.py                            |   13 +-
+ webapp/routes/practice.py                          |   17 +-
+ webapp/routes/proposals.py                         |   87 +-
+ webapp/settings.py                                 |    5 +
+ 40 files changed, 6300 insertions(+), 96 deletions(-)
+
+=== SUBSTANTIVE DIFF (webapp + db/migrations + tests) ===
+diff --git a/db/migrations/020_proposals_scheduling.sql b/db/migrations/020_proposals_scheduling.sql
+new file mode 100644
+index 0000000..301f5dc
+--- /dev/null
++++ b/db/migrations/020_proposals_scheduling.sql
+@@ -0,0 +1,28 @@
++-- ============================================================================
++-- 020 — Scheduling core: the proposal primitive (roadmap §B1, spec §5.2/A3)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/020_proposals_scheduling.sql
++-- Idempotent:  safe to re-run (DROP NOT NULL is a no-op if already nullable;
++--              ADD COLUMN IF NOT EXISTS; DROP CONSTRAINT IF EXISTS + re-ADD).
++--
++-- case_id NULL = "interviewer decides" (case chosen later in negotiation, B3).
++-- to_user_id NULL = open "send a link" proposal, claimed by claim_token.
++-- counter_* = one-round "Suggest new time" (spec §5.2); state 'countered'.
++-- ============================================================================
++
++ALTER TABLE proposals ALTER COLUMN case_id DROP NOT NULL;
++ALTER TABLE proposals ALTER COLUMN to_user_id DROP NOT NULL;
++
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS claim_token TEXT;
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS counter_times_json JSONB;
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS counter_by INTEGER REFERENCES users(id);
++ALTER TABLE proposals ADD COLUMN IF NOT EXISTS countered_at TIMESTAMPTZ;
++
++-- UNIQUE-when-present: many NULLs allowed, each real token unique.
++CREATE UNIQUE INDEX IF NOT EXISTS idx_proposals_claim_token
++    ON proposals (claim_token) WHERE claim_token IS NOT NULL;
++
++-- State CHECK gains 'countered'. Drop the auto-named inline CHECK, re-add named.
++ALTER TABLE proposals DROP CONSTRAINT IF EXISTS proposals_state_check;
++ALTER TABLE proposals ADD CONSTRAINT proposals_state_check
++    CHECK (state IN ('pending', 'accepted', 'declined', 'expired', 'countered'));
+diff --git a/db/migrations/021_missed_and_pairing_shortcode.sql b/db/migrations/021_missed_and_pairing_shortcode.sql
+new file mode 100644
+index 0000000..ab57ee4
+--- /dev/null
++++ b/db/migrations/021_missed_and_pairing_shortcode.sql
+@@ -0,0 +1,21 @@
++-- ============================================================================
++-- 021 — 'missed' session state + pairing short-codes (roadmap §B1, spec §8/A3)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/021_missed_and_pairing_shortcode.sql
++-- Idempotent:  DROP CONSTRAINT IF EXISTS + re-ADD; DROP NOT NULL no-op; ADD
++--              COLUMN IF NOT EXISTS; CREATE UNIQUE INDEX IF NOT EXISTS.
++--
++-- 'missed' = accepted session never joined by start+60min (A3), distinct from
++-- 'aborted' (the 6-h stale backstop). pairing_tokens.case_id NULL = case chosen
++-- in negotiation (B3); short_code = 6-char manual pairing fallback (spec §8).
++-- ============================================================================
++
++ALTER TABLE practice_sessions DROP CONSTRAINT IF EXISTS practice_sessions_state_check;
++ALTER TABLE practice_sessions ADD CONSTRAINT practice_sessions_state_check
++    CHECK (state IN ('scheduled', 'lobby', 'live', 'debrief', 'finalized', 'aborted', 'missed'));
++
++ALTER TABLE pairing_tokens ALTER COLUMN case_id DROP NOT NULL;
++ALTER TABLE pairing_tokens ADD COLUMN IF NOT EXISTS short_code TEXT;
++
++CREATE UNIQUE INDEX IF NOT EXISTS idx_pairing_tokens_short_code
++    ON pairing_tokens (short_code) WHERE short_code IS NOT NULL;
+diff --git a/tests/test_api_v1_sessions.py b/tests/test_api_v1_sessions.py
+index be8c41a..df966d0 100644
+--- a/tests/test_api_v1_sessions.py
++++ b/tests/test_api_v1_sessions.py
+@@ -124,25 +124,26 @@ class TestApiV1Sessions(unittest.TestCase):
+         body = r.json()
+         self.assertIn("proposals", body)
+         mine = [p for p in body["proposals"] if p["id"] == self.proposal["id"]]
+         self.assertEqual(len(mine), 1)
+         item = mine[0]
+         for key in ("id", "from_name", "from_role", "case_id", "case_title",
+                     "case_type", "difficulty", "message", "proposed_times",
+                     "created_at"):
+             self.assertIn(key, item)
+         self.assertNotIn("to_user_id", item)
+         self.assertNotIn("session_id", item)
+         self.assertNotIn("responded_at", item)
+-        self.assertNotIn("state", item)
++        self.assertIn("state", item)
++        self.assertIn("direction", item)
+         self.assertEqual(item["case_id"], self.proposal_case)
+         self.assertEqual(item["case_title"], "P8 Proposal Case")
+         self.assertEqual(len(item["proposed_times"]), 1)
+ 
+     def test_unauthenticated_proposals_returns_401(self):
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).get("/api/v1/proposals")
+         self.assertEqual(r.status_code, 401)
+ 
+     # ── sessions ──────────────────────────────────────────────────────────
+ 
+diff --git a/tests/test_b1_api_v1_proposals.py b/tests/test_b1_api_v1_proposals.py
+new file mode 100644
+index 0000000..d354618
+--- /dev/null
++++ b/tests/test_b1_api_v1_proposals.py
+@@ -0,0 +1,86 @@
++"""
++B1 Task 9: /api/v1/proposals parity — claim_token + counter fields, and the
++proposer sees their countered proposals (so they can accept the counter).
++Needs seeded dev Postgres.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestApiV1ProposalsParity(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 V1 Case', 'b1 v1 case',"
++                    " 'DevSchool', 2088, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid = ids["a@yale.edu"], ids["b@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_received_pending_has_counter_and_claim_fields(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": self.case_id,
++            "from_role": "interviewer", "proposed_times": [when]})
++        items = self.bob.get("/api/v1/proposals").json()["proposals"]
++        self.assertTrue(items)
++        item = items[0]
++        for key in ("claim_token", "state", "counter_times", "counter_by",
++                    "countered_at", "direction"):
++            self.assertIn(key, item)
++        self.assertEqual(item["direction"], "received")
++
++    def test_proposer_sees_countered_proposal(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        pid = self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": self.case_id,
++            "from_role": "interviewer", "proposed_times": [when]}).json()["id"]
++        t2 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
++        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t2]})
++        # Countered proposal drops out of Bob's pending inbox but appears for
++        # Alice (the proposer) so she can accept the counter.
++        alice_items = self.alice.get("/api/v1/proposals").json()["proposals"]
++        match = [p for p in alice_items if p["id"] == pid]
++        self.assertEqual(len(match), 1)
++        self.assertEqual(match[0]["state"], "countered")
++        self.assertEqual(match[0]["direction"], "sent")
++        self.assertIsNotNone(match[0]["counter_times"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b1_expiry_missed.py b/tests/test_b1_expiry_missed.py
+new file mode 100644
+index 0000000..3307151
+--- /dev/null
++++ b/tests/test_b1_expiry_missed.py
+@@ -0,0 +1,140 @@
++"""
++B1 Task 6: A3 expiry (now/scheduled/countered proposals) and missed sessions.
++Needs seeded dev Postgres. Seeds rows directly, calls the sweep repo fns, and
++asserts state — no push/network involved.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++class TestExpiryAndMissed(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()  # init pool
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Expiry Case', 'b1 expiry case',"
++                    " 'DevSchool', 2091, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid = ids["a@yale.edu"], ids["b@yale.edu"]
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        from webapp.repositories.rooms import get_or_create_room
++        cls.room_id = get_or_create_room(cls.aid)["id"]
++        cls.template_id = get_default_rubric_template_id(cls.case_id, cls.aid)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _proposal(self, *, proposed=None, countered=None, state="pending", created_sql="NOW()"):
++        import json
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO proposals (from_user_id, to_user_id, case_id, from_role,"
++                    " proposed_times_json, counter_times_json, state, created_at)"
++                    f" VALUES (%s, %s, %s, 'interviewer', %s, %s, %s, {created_sql})"
++                    " RETURNING id;",
++                    (self.aid, self.bid, self.case_id,
++                     json.dumps(proposed) if proposed is not None else None,
++                     json.dumps(countered) if countered is not None else None,
++                     state))
++                return cur.fetchone()[0]
++
++    def _state(self, table, pid):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(f"SELECT state FROM {table} WHERE id = %s;", (pid,))
++                return cur.fetchone()[0]
++
++    def test_now_proposal_expires_after_window(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(proposed=[], created_sql="NOW() - INTERVAL '3 hours'")
++        sweep_expired(now_expiry_min=120)
++        self.assertEqual(self._state("proposals", pid), "expired")
++
++    def test_fresh_now_proposal_survives(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(proposed=[])
++        sweep_expired(now_expiry_min=120)
++        self.assertEqual(self._state("proposals", pid), "pending")
++
++    def test_scheduled_proposal_expires_at_earliest_start(self):
++        from webapp.repositories.proposals import sweep_expired
++        past = (datetime.now(timezone.utc).replace(microsecond=0)).isoformat()
++        # earliest proposed time already elapsed
++        pid = self._proposal(proposed=["2000-01-01T00:00:00+00:00", past])
++        sweep_expired()
++        self.assertEqual(self._state("proposals", pid), "expired")
++
++    def test_future_scheduled_survives(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(proposed=["2999-01-01T00:00:00+00:00"])
++        sweep_expired()
++        self.assertEqual(self._state("proposals", pid), "pending")
++
++    def test_countered_proposal_expires_at_earliest_counter(self):
++        from webapp.repositories.proposals import sweep_expired
++        pid = self._proposal(state="countered", countered=["2000-01-01T00:00:00+00:00"])
++        sweep_expired()
++        self.assertEqual(self._state("proposals", pid), "expired")
++
++    def _session(self, *, state, scheduled_sql):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++                    " case_id, rubric_template_id, state, scheduled_at, state_changed_at)"
++                    f" VALUES (%s, %s, %s, %s, %s, %s, {scheduled_sql}, NOW())"
++                    " RETURNING id;",
++                    (self.room_id, self.aid, self.bid, self.case_id, self.template_id, state))
++                return cur.fetchone()[0]
++
++    def test_session_missed_past_start_plus_window(self):
++        from webapp.repositories.practice_sessions import sweep_missed
++        sid = self._session(state="scheduled", scheduled_sql="NOW() - INTERVAL '2 hours'")
++        n = sweep_missed(missed_after_min=60)
++        self.assertGreaterEqual(n, 1)
++        self.assertEqual(self._state("practice_sessions", sid), "missed")
++
++    def test_session_not_missed_before_window(self):
++        from webapp.repositories.practice_sessions import sweep_missed
++        sid = self._session(state="scheduled", scheduled_sql="NOW() + INTERVAL '10 minutes'")
++        sweep_missed(missed_after_min=60)
++        self.assertEqual(self._state("practice_sessions", sid), "scheduled")
++
++    def test_now_session_without_scheduled_at_not_missed(self):
++        from webapp.repositories.practice_sessions import sweep_missed
++        sid = self._session(state="scheduled", scheduled_sql="NULL")
++        sweep_missed(missed_after_min=60)
++        self.assertEqual(self._state("practice_sessions", sid), "scheduled")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b1_maintenance.py b/tests/test_b1_maintenance.py
+new file mode 100644
+index 0000000..66fd6d3
+--- /dev/null
++++ b/tests/test_b1_maintenance.py
+@@ -0,0 +1,92 @@
++"""
++B1 Task 7: consolidated 60-s maintenance pass (webapp/maintenance.py). Seeds an
++expired proposal + a missed session, patches push so no network fires, and
++asserts one pass sweeps all of them. Needs seeded dev Postgres.
++"""
++
++from __future__ import annotations
++
++import unittest
++from unittest.mock import patch
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestMaintenancePass(unittest.IsolatedAsyncioTestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Maint Case', 'b1 maint case',"
++                    " 'DevSchool', 2090, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid = ids["a@yale.edu"], ids["b@yale.edu"]
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        from webapp.repositories.rooms import get_or_create_room
++        cls.room_id = get_or_create_room(cls.aid)["id"]
++        cls.template_id = get_default_rubric_template_id(cls.case_id, cls.aid)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    async def test_one_pass_sweeps_expired_and_missed(self):
++        import psycopg
++        from webapp import maintenance
++        from webapp.settings import load_settings
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO proposals (from_user_id, to_user_id, case_id, from_role,"
++                    " proposed_times_json, state, created_at) VALUES"
++                    " (%s, %s, %s, 'interviewer', '[]'::jsonb, 'pending',"
++                    " NOW() - INTERVAL '3 hours') RETURNING id;",
++                    (self.aid, self.bid, self.case_id))
++                prop_id = cur.fetchone()[0]
++                cur.execute(
++                    "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++                    " case_id, rubric_template_id, state, scheduled_at, state_changed_at)"
++                    " VALUES (%s, %s, %s, %s, %s, 'scheduled', NOW() - INTERVAL '2 hours',"
++                    " NOW()) RETURNING id;",
++                    (self.room_id, self.aid, self.bid, self.case_id, self.template_id))
++                sess_id = cur.fetchone()[0]
++
++        async def _no_push(*a, **k):
++            return None
++
++        with patch("webapp.push.starting_soon.push_to_user", _no_push):
++            counts = await maintenance.run_maintenance_pass(load_settings())
++
++        self.assertGreaterEqual(counts["expired"], 1)
++        self.assertGreaterEqual(counts["missed"], 1)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT state FROM proposals WHERE id = %s;", (prop_id,))
++                self.assertEqual(cur.fetchone()[0], "expired")
++                cur.execute("SELECT state FROM practice_sessions WHERE id = %s;", (sess_id,))
++                self.assertEqual(cur.fetchone()[0], "missed")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b1_pairing_shortcode.py b/tests/test_b1_pairing_shortcode.py
+new file mode 100644
+index 0000000..976ad3f
+--- /dev/null
++++ b/tests/test_b1_pairing_shortcode.py
+@@ -0,0 +1,113 @@
++"""
++B1 Task 8: pairing short-codes, optional case at mint, claim by token OR
++short_code. Needs seeded dev Postgres. Cookie idiom per tests/test_pairing.py.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestPairingShortCode(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Pair Case', 'b1 pair case',"
++                    " 'DevSchool', 2089, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM pairing_tokens WHERE interviewer_id = %s;", (cls.aid,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def test_mint_returns_short_code(self):
++        r = self.alice.post("/api/practice/pair/create", json={"case_id": self.case_id})
++        self.assertEqual(r.status_code, 200, r.text)
++        code = r.json()["short_code"]
++        self.assertEqual(len(code), 6)
++        self.assertTrue(set(code) <= set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789"))
++        self.assertTrue(r.json()["token"])
++
++    def test_mint_case_optional(self):
++        r = self.alice.post("/api/practice/pair/create", json={})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["short_code"])
++
++    def test_claim_by_short_code_creates_session(self):
++        code = self.alice.post("/api/practice/pair/create",
++                               json={"case_id": self.case_id}).json()["short_code"]
++        r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])
++
++    def test_claim_by_token_still_works(self):
++        tok = self.alice.post("/api/practice/pair/create",
++                              json={"case_id": self.case_id}).json()["token"]
++        r = self.bob.post("/api/practice/pair/claim", json={"token": tok})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNotNone(r.json()["session_id"])
++
++    def test_claim_requires_token_or_code(self):
++        r = self.bob.post("/api/practice/pair/claim", json={})
++        self.assertEqual(r.status_code, 422)
++
++    def test_unknown_short_code_404(self):
++        r = self.bob.post("/api/practice/pair/claim", json={"short_code": "ZZZZZZ"})
++        self.assertEqual(r.status_code, 404)
++
++    def test_self_claim_by_code_409(self):
++        # IDOR/guard: the minter cannot claim their own code as candidate.
++        code = self.alice.post("/api/practice/pair/create",
++                               json={"case_id": self.case_id}).json()["short_code"]
++        r = self.alice.post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 409)
++
++    def test_case_less_token_claim_409(self):
++        # DD-1: sessions stay case-bound in B1; a case-less pairing token can't
++        # create a session yet (case negotiation lands in B3).
++        code = self.alice.post("/api/practice/pair/create", json={}).json()["short_code"]
++        r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 409)
++
++    def test_claim_requires_auth(self):
++        code = self.alice.post("/api/practice/pair/create",
++                               json={"case_id": self.case_id}).json()["short_code"]
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 401)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+new file mode 100644
+index 0000000..01f611c
+--- /dev/null
++++ b/tests/test_b1_proposals_open.py
+@@ -0,0 +1,326 @@
++"""
++B1 Tasks 3-5: open (send-a-link) proposals, case-less proposals, claim, and
++one-round counter. Needs the seeded dev Postgres — skips cleanly otherwise.
++Follows the login/cookie idiom of tests/test_queues_proposals.py.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestOpenProposals(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cls.case_ids = []
++                for i in range(1, 4):
++                    cur.execute(
++                        "INSERT INTO cases (case_title, normalized_title,"
++                        " source_school, source_year, industry, case_type,"
++                        " difficulty, difficulty_score, page_count, pdf_path)"
++                        " VALUES (%s, %s, 'DevSchool', 2094, 'Technology',"
++                        " 'Profitability', 'Easy', 3.0, 2, 'output/none.pdf')"
++                        " RETURNING id;",
++                        (f"B1 Open Case {i}", f"b1 open case {i}"))
++                    cls.case_ids.append(cur.fetchone()[0])
++        cls.aid, cls.bid, cls.cid = (ids["a@yale.edu"], ids["b@yale.edu"],
++                                     ids["c@yale.edu"])
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = ANY(%s) OR case_id IS NULL"
++                            " AND from_user_id = ANY(%s);", (cls.case_ids, [cls.aid, cls.bid, cls.cid]))
++                cur.execute("DELETE FROM proposals WHERE from_user_id = ANY(%s);",
++                            ([cls.aid, cls.bid, cls.cid],))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = ANY(%s);", (cls.case_ids,))
++                cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls.case_ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _open_link(self, **overrides):
++        payload = {"case_id": self.case_ids[0], "from_role": "interviewer"}
++        payload.update(overrides)
++        return self.alice.post("/api/proposals", json=payload)
++
++    def test_open_link_returns_claim_token(self):
++        r = self._open_link()  # to_user_id omitted -> open link
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertTrue(body["claim_token"])
++        self.assertIsNone(body["to_user_id"])
++
++    def test_case_less_proposal_allowed(self):
++        r = self._open_link(case_id=None)
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNone(r.json()["case_id"])
++
++    def test_named_recipient_has_no_claim_token(self):
++        r = self._open_link(to_user_id=self.bid)
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNone(r.json()["claim_token"])
++        self.assertEqual(r.json()["to_user_id"], self.bid)
++
++    def test_bad_case_still_404(self):
++        r = self._open_link(case_id=999999)
++        self.assertEqual(r.status_code, 404)
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestClaim(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Claim Case', 'b1 claim case',"
++                    " 'DevSchool', 2093, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s OR "
++                            "(case_id IS NULL AND from_user_id = %s);", (cls.case_id, cls.aid))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _mk_open(self, client, **overrides):
++        payload = {"case_id": self.case_id, "from_role": "interviewer"}
++        payload.update(overrides)
++        return client.post("/api/proposals", json=payload).json()["claim_token"]
++
++    def test_creator_cannot_claim(self):
++        tok = self._mk_open(self.alice)
++        self.assertEqual(self.alice.post(f"/api/proposals/claim/{tok}").status_code, 409)
++
++    def test_unknown_token_404(self):
++        self.assertEqual(self.bob.post("/api/proposals/claim/nope-nope").status_code, 404)
++
++    def test_requires_auth(self):
++        tok = self._mk_open(self.alice)
++        anon = self.__class__._ctx.__class__  # unused; explicit anon client below
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 401)
++
++    def test_claim_now_with_case_auto_accepts_and_creates_session(self):
++        tok = self._mk_open(self.alice)  # no proposed_times -> "now"
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertTrue(body["accepted"])
++        self.assertIsNotNone(body["session_id"])
++        self.assertFalse(body["needs_negotiation"])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT interviewer_id, candidate_id FROM practice_sessions"
++                            " WHERE id = %s;", (body["session_id"],))
++                ivr, cand = cur.fetchone()
++        self.assertEqual((ivr, cand), (self.aid, self.bid))  # from_role=interviewer
++
++    def test_claim_scheduled_stays_pending(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        tok = self._mk_open(self.alice, proposed_times=[when])
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertEqual(r.json()["state"], "pending")
++        self.assertIsNone(r.json()["session_id"])
++        # to_user_id now bound to the claimer -> shows in Bob's inbox.
++        inbox = self.bob.get("/api/proposals/inbox").json()["proposals"]
++        self.assertIn(r.json()["proposal_id"], [p["id"] for p in inbox])
++
++    def test_claim_case_less_now_needs_negotiation(self):
++        tok = self._mk_open(self.alice, case_id=None)
++        r = self.bob.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["accepted"])
++        self.assertIsNone(r.json()["session_id"])
++        self.assertTrue(r.json()["needs_negotiation"])
++
++    def test_double_claim_409(self):
++        tok = self._mk_open(self.alice)
++        self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
++        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestCounter(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('B1 Counter Case', 'b1 counter case',"
++                    " 'DevSchool', 2092, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.aid), (cls.bob, cls.bid), (cls.cara, cls.cid)):
++            s = create_session(uid, user_agent="b1-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _propose_to_bob(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
++        return self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": self.case_id,
++            "from_role": "interviewer", "proposed_times": [when.isoformat()],
++        }).json()["id"]
++
++    def test_recipient_counters_then_proposer_accepts(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
++        r = self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
++        self.assertEqual(r.status_code, 200, r.text)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT state, counter_by FROM proposals WHERE id = %s;", (pid,))
++                state, counter_by = cur.fetchone()
++        self.assertEqual(state, "countered")
++        self.assertEqual(counter_by, self.bid)
++        # Original proposer (Alice) accepts a counter time -> session created.
++        r = self.alice.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
++        self.assertEqual(r.status_code, 200, r.text)
++        sid = r.json()["session_id"]
++        self.assertIsNotNone(sid)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT scheduled_at FROM practice_sessions WHERE id = %s;", (sid,))
++                sched = cur.fetchone()[0]
++        self.assertEqual(sched.astimezone(timezone.utc), t1)
++
++    def test_only_recipient_may_counter(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
++        # Proposer cannot counter their own proposal; existence undisclosed -> 404.
++        self.assertEqual(self.alice.post(f"/api/proposals/{pid}/counter",
++                                         json={"times": [t1]}).status_code, 404)
++        # Third party cannot either.
++        self.assertEqual(self.cara.post(f"/api/proposals/{pid}/counter",
++                                        json={"times": [t1]}).status_code, 404)
++
++    def test_one_round_only(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
++        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
++                                       json={"times": [t1]}).status_code, 200)
++        # A second counter (from 'countered') is rejected — one round only.
++        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
++                                       json={"times": [t1]}).status_code, 409)
++
++    def test_counter_times_capped_at_three(self):
++        pid = self._propose_to_bob()
++        times = [(datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
++                 for d in range(2, 6)]  # 4 times
++        self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
++                                       json={"times": times}).status_code, 422)
++
++    def test_accept_of_counter_requires_a_listed_time(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
++        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
++        bogus = (datetime.now(timezone.utc) + timedelta(days=9)).isoformat()
++        r = self.alice.post(f"/api/proposals/{pid}/accept", json={"time": bogus})
++        self.assertEqual(r.status_code, 409)
++
++    def test_recipient_cannot_accept_countered(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
++        self.bob.post(f"/api/proposals/{pid}/counter", json={"times": [t1.isoformat()]})
++        # Only the original proposer accepts from 'countered'; Bob gets 404.
++        r = self.bob.post(f"/api/proposals/{pid}/accept", json={"time": t1.isoformat()})
++        self.assertEqual(r.status_code, 404)
++
++    def test_accept_case_less_scheduled_needs_negotiation(self):
++        # DD-1: a case-less ("interviewer decides") scheduled proposal accepted
++        # via POST /accept marks accepted with no session (B3 negotiation).
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
++        pid = self.alice.post("/api/proposals", json={
++            "to_user_id": self.bid, "case_id": None,
++            "from_role": "interviewer", "proposed_times": [when.isoformat()],
++        }).json()["id"]
++        r = self.bob.post(f"/api/proposals/{pid}/accept",
++                          json={"scheduled_at": when.isoformat()})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIsNone(r.json()["session_id"])
++        self.assertTrue(r.json()["needs_negotiation"])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b1_settings.py b/tests/test_b1_settings.py
+new file mode 100644
+index 0000000..cc8993c
+--- /dev/null
++++ b/tests/test_b1_settings.py
+@@ -0,0 +1,43 @@
++"""
++B1 Task 2: env-tunable expiry settings (webapp/settings.py). Pure unit test,
++no DB — manipulates os.environ around load_settings().
++"""
++
++from __future__ import annotations
++
++import os
++import unittest
++
++
++class TestExpirySettings(unittest.TestCase):
++    def setUp(self):
++        os.environ.setdefault("DATABASE_URL", "postgresql://localhost/caserepo_bgap_b1")
++        self._saved = {k: os.environ.get(k)
++                       for k in ("PROPOSAL_NOW_EXPIRY_MIN", "SESSION_MISSED_AFTER_MIN")}
++        for k in self._saved:
++            os.environ.pop(k, None)
++
++    def tearDown(self):
++        for k, v in self._saved.items():
++            if v is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = v
++
++    def test_defaults(self):
++        from webapp.settings import load_settings
++        s = load_settings()
++        self.assertEqual(s.proposal_now_expiry_min, 120)
++        self.assertEqual(s.session_missed_after_min, 60)
++
++    def test_env_override(self):
++        from webapp.settings import load_settings
++        os.environ["PROPOSAL_NOW_EXPIRY_MIN"] = "45"
++        os.environ["SESSION_MISSED_AFTER_MIN"] = "90"
++        s = load_settings()
++        self.assertEqual(s.proposal_now_expiry_min, 45)
++        self.assertEqual(s.session_missed_after_min, 90)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_queues_proposals.py b/tests/test_queues_proposals.py
+index 97870c9..a16afc6 100644
+--- a/tests/test_queues_proposals.py
++++ b/tests/test_queues_proposals.py
+@@ -181,32 +181,45 @@ class TestQueuesAndProposals(unittest.TestCase):
+         self.assertNotIn(pid, [p["id"] for p in
+                                self.cara.get("/api/proposals/inbox").json()["proposals"]])
+ 
+         # Only the recipient may respond; existence undisclosed to others.
+         self.assertEqual(
+             self.alice.post(f"/api/proposals/{pid}/decline").status_code, 404)
+         self.assertEqual(
+             self.cara.post(f"/api/proposals/{pid}/decline").status_code, 404)
+ 
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/decline").status_code, 200)
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/decline").status_code, 409)
+ 
+-    def test_expiry_sweep(self):
+-        pid = self._propose().json()["id"]
++    def test_expiry_sweep_scheduled_past_start(self):
++        # A3: a scheduled proposal whose earliest proposed start has passed
++        # expires on the next sweep (accept must expire it, not accept it).
++        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
++        pid = self._propose(proposed_times=[past]).json()["id"]
++        r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
++        self.assertEqual(r.status_code, 409)
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT state FROM proposals WHERE id = %s;", (pid,))
++                self.assertEqual(cur.fetchone()[0], "expired")
++
++    def test_expiry_sweep_now_proposal(self):
++        # A3: a now-proposal (no proposed_times) older than the 2-h window expires.
++        pid = self._propose(proposed_times=[]).json()["id"]
+         import psycopg
+         with psycopg.connect(_DB_URL) as conn:
+             with conn.cursor() as cur:
+                 cur.execute("UPDATE proposals SET created_at = NOW() - INTERVAL"
+-                            " '8 days' WHERE id = %s;", (pid,))
+-        # Accept must expire it first, not accept it.
++                            " '3 hours' WHERE id = %s;", (pid,))
+         r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
+         self.assertEqual(r.status_code, 409)
+         with psycopg.connect(_DB_URL) as conn:
+             with conn.cursor() as cur:
+                 cur.execute("SELECT state FROM proposals WHERE id = %s;", (pid,))
+                 self.assertEqual(cur.fetchone()[0], "expired")
+ 
+     # ── accept → session + .ics (T8.4) ───────────────────────────────────────
+ 
+     def test_accept_creates_session_and_ics(self):
+         when = (datetime.now(timezone.utc) + timedelta(days=2)).replace(microsecond=0)
+         pid = self._propose(from_role="candidate",
+diff --git a/webapp/main.py b/webapp/main.py
+index f061b0a..90782b1 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -38,26 +38,25 @@ def _load_dotenv(path: Path) -> None:
+         if key and key not in os.environ:
+             os.environ[key] = value
+ 
+ 
+ _load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+ 
+ 
+ # ── App ────────────────────────────────────────────────────────────────────────
+ 
+ from webapp.auth.dependencies import RedirectToLogin
+ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+-from webapp.push.events import push_enabled
+-from webapp.push.starting_soon import starting_soon_loop
++from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+@@ -73,39 +72,36 @@ logger = logging.getLogger(__name__)
+ 
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     """Open the Postgres pool at startup, close it cleanly at shutdown."""
+     settings = load_settings()
+     app.state.settings = settings
+ 
+     init_pool(settings.database_url)
+     logger.info("Connected to Postgres at %s", _safe_url(settings.database_url))
+ 
+     app.state.templates = Jinja2Templates(directory=settings.templates_dir)
+ 
+-    # Single-worker constraint: with multiple workers each would run its own
+-    # loop (wasteful, though still correct — the UPDATE...RETURNING claim in
+-    # notify_starting_soon() is atomic, so no session is ever double-pushed).
+-    starting_soon_task = None
+-    if push_enabled(settings):
+-        starting_soon_task = asyncio.create_task(starting_soon_loop())
++    # DD-3: the maintenance loop (sweeps + starting-soon push) runs even when
++    # APNs is unconfigured — sweeps must fire for app-only clients. push inside
++    # notify_starting_soon() self-guards when push is disabled.
++    maintenance_task = asyncio.create_task(maintenance_loop())
+ 
+     yield
+ 
+-    if starting_soon_task is not None:
+-        starting_soon_task.cancel()
+-        try:
+-            await starting_soon_task
+-        except asyncio.CancelledError:
+-            pass
++    maintenance_task.cancel()
++    try:
++        await maintenance_task
++    except asyncio.CancelledError:
++        pass
+ 
+     close_pool()
+ 
+ 
+ def create_app() -> FastAPI:
+     app = FastAPI(
+         title="Case Repo",
+         description="Consulting cases, searchable.",
+         lifespan=lifespan,
+     )
+ 
+     # Session middleware runs first — sets request.state.user on every
+diff --git a/webapp/maintenance.py b/webapp/maintenance.py
+new file mode 100644
+index 0000000..38972ad
+--- /dev/null
++++ b/webapp/maintenance.py
+@@ -0,0 +1,49 @@
++"""
++Purpose: Run every background sweep (proposal expiry, missed sessions, stale
++  aborts) plus the starting-soon push on one 60-s cadence, so app-only clients
++  get correct lifecycle without page loads (roadmap §B1).
++Inputs: Settings (proposal_now_expiry_min, session_missed_after_min); the
++  practice_sessions / proposals tables via the repos.
++Outputs: state transitions (expired / missed / aborted), starting-soon pushes.
++Run: maintenance_loop() is spawned from webapp.main's lifespan; run one pass
++  directly with run_maintenance_pass(load_settings()).
++"""
++
++from __future__ import annotations
++
++import asyncio
++import logging
++
++from webapp.push.starting_soon import notify_starting_soon
++from webapp.repositories.practice_sessions import sweep_missed, sweep_stale_sessions
++from webapp.repositories.proposals import sweep_expired
++from webapp.settings import load_settings
++
++logger = logging.getLogger(__name__)
++
++
++async def run_maintenance_pass(settings) -> dict:
++    """One sweep cycle. Order matters: sweep_missed marks past-start scheduled
++    sessions 'missed' before sweep_stale_sessions could abort them at +6 h."""
++    expired = sweep_expired(now_expiry_min=settings.proposal_now_expiry_min)
++    missed = sweep_missed(missed_after_min=settings.session_missed_after_min)
++    aborted = sweep_stale_sessions()
++    starting_soon = await notify_starting_soon()
++    return {"expired": expired, "missed": missed,
++            "aborted": aborted, "starting_soon": starting_soon}
++
++
++async def maintenance_loop(interval_seconds: int = 60) -> None:
++    """Run run_maintenance_pass() every interval_seconds forever. Sleep-FIRST so
++    a short-lived app lifespan (e.g. every TestClient(app) startup) never fires a
++    sweep against the shared dev DB — the 60-s startup delay is harmless in prod.
++    One bad pass is logged and swallowed; CancelledError propagates (including
++    during the sleep) for clean shutdown."""
++    while True:
++        await asyncio.sleep(interval_seconds)
++        try:
++            await run_maintenance_pass(load_settings())
++        except asyncio.CancelledError:
++            raise
++        except Exception:
++            logger.exception("maintenance pass failed")
+diff --git a/webapp/push/starting_soon.py b/webapp/push/starting_soon.py
+index 4e8cf14..8180ae4 100644
+--- a/webapp/push/starting_soon.py
++++ b/webapp/push/starting_soon.py
+@@ -1,20 +1,21 @@
+ """
+ Purpose: Push a "starting soon" alert to both participants of a practice
+   session shortly before it begins.
+ Inputs: practice_sessions rows (state='scheduled', scheduled_at, starting_soon_pushed_at).
+ Outputs: APNs pushes via webapp.push.events.push_to_user; sets
+   practice_sessions.starting_soon_pushed_at so a session is only pushed once.
+-Run: starting_soon_loop() is spawned as a background task from webapp.main's
+-  lifespan (when push is enabled); no CLI entrypoint.
++Run: notify_starting_soon() now runs each pass of the consolidated background
++  loop in webapp/maintenance.py:maintenance_loop (spawned from webapp.main's
++  lifespan); no CLI entrypoint.
+ """
+ 
+ from __future__ import annotations
+ 
+ import asyncio
+ import logging
+ 
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.push.events import push_to_user
+ 
+diff --git a/webapp/repositories/pairing_tokens.py b/webapp/repositories/pairing_tokens.py
+index cb93da5..b7f3716 100644
+--- a/webapp/repositories/pairing_tokens.py
++++ b/webapp/repositories/pairing_tokens.py
+@@ -1,77 +1,110 @@
+ """
+ Pairing-token repository — ad-hoc in-person pairing (db/migrations/014).
+ 
+ An interviewer mints a short-TTL token bound to a chosen case; the scanner
+ (candidate) later claims it, which creates the practice session.
+ """
+ 
+ from __future__ import annotations
+ 
+ import secrets
+ from typing import Optional
+ 
++from psycopg import errors as pg_errors
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+ from webapp.repositories.feedback import is_burned
+ from webapp.repositories.practice_sessions import create_practice_session
+ 
+ 
+-def mint_token(interviewer_id: int, case_id: int, ttl_minutes: int = 10) -> dict:
+-    token = secrets.token_urlsafe(24)
++# Unambiguous 6-char set (spec §8): A-Z + 2-9, minus 0/O/1/I.
++_SHORT_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
++
++
++def _gen_short_code(n: int = 6) -> str:
++    return "".join(secrets.choice(_SHORT_ALPHABET) for _ in range(n))
++
++
++def mint_token(interviewer_id: int, case_id: Optional[int] = None,
++               ttl_minutes: int = 10) -> dict:
++    """Mint a pairing token (spec §8). case_id optional ("interviewer decides",
++    negotiated in B3). Returns token + 6-char short_code + expiry. Retries on
++    the astronomically rare short_code collision (partial-unique index)."""
+     sql = """
+-        INSERT INTO pairing_tokens (token, interviewer_id, case_id, expires_at)
+-        VALUES (%s, %s, %s, now() + make_interval(mins => %s))
+-        RETURNING token, expires_at;
++        INSERT INTO pairing_tokens (token, interviewer_id, case_id, short_code, expires_at)
++        VALUES (%s, %s, %s, %s, now() + make_interval(mins => %s))
++        RETURNING token, short_code, expires_at;
+     """
+     with get_pool().connection() as conn:
+-        with conn.cursor(row_factory=dict_row) as cur:
+-            cur.execute(sql, (token, interviewer_id, case_id, ttl_minutes))
+-            return cur.fetchone()
++        for _ in range(5):
++            try:
++                with conn.cursor(row_factory=dict_row) as cur:
++                    # Regenerate BOTH on retry so a token clash (astronomically
++                    # rare) is also escaped, not just a short_code clash.
++                    cur.execute(sql, (secrets.token_urlsafe(24), interviewer_id,
++                                      case_id, _gen_short_code(), ttl_minutes))
++                    return cur.fetchone()
++            except pg_errors.UniqueViolation:
++                conn.rollback()  # token/short_code clash — regenerate
++                continue
++        raise TransitionError(500, "Could not allocate a pairing code")
+ 
+ 
+-def claim(token: str, candidate_id: int) -> dict:
+-    """Claim a token: creates the practice session in one transaction.
++def claim(*, candidate_id: int, token: Optional[str] = None,
++          short_code: Optional[str] = None) -> dict:
++    """Claim a pairing token by token OR short_code (spec §8), creating the
++    practice session in one transaction. Case-less tokens can't create a
++    session in B1 (sessions stay case-bound) — they 409 pending B3 negotiation.
+ 
+     The token row is locked with SELECT ... FOR UPDATE for the whole
+     transaction — this is the anti-double-claim mechanism. A concurrent
+     second claim of the same token blocks on the lock until this one
+     commits, then sees claimed_session_id already set and gets a 409.
+ 
+     create_practice_session() opens its OWN connection/transaction (repo
+     convention) and commits independently of the lock we're holding here.
+     Accepted caveat: if the process crashes after that commit but before
+     our UPDATE ... claimed_session_id below commits, a stray 'scheduled'
+     session can be left behind while the token remains claimable. Rare
+     crash window, low harm (an orphaned scheduled session, not a data
+     corruption), acceptable for v1.
+     """
++    if token:
++        where, val = "token = %s", token
++    elif short_code:
++        where, val = "short_code = %s", short_code
++    else:
++        raise TransitionError(400, "Provide a token or short_code")
++
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 "SELECT *, (expires_at < now()) AS expired"
+-                " FROM pairing_tokens WHERE token = %s FOR UPDATE;",
+-                (token,),
++                f" FROM pairing_tokens WHERE {where} FOR UPDATE;",
++                (val,),
+             )
+             row = cur.fetchone()
+             if row is None:
+                 raise TransitionError(404, "No such pairing token")
+             if row["expired"]:
+                 raise TransitionError(409, "Pairing token has expired")
+             if row["claimed_session_id"] is not None:
+                 raise TransitionError(409, "Pairing token already claimed")
+             if row["interviewer_id"] == candidate_id:
+                 raise TransitionError(409, "Cannot claim your own pairing token")
++            if row["case_id"] is None:
++                raise TransitionError(409, "Choose a case before pairing")
+             if is_burned(candidate_id, row["case_id"]):
+                 raise TransitionError(409, "You have already completed this case")
+ 
+             session = create_practice_session(
+                 interviewer_id=row["interviewer_id"],
+                 candidate_id=candidate_id,
+                 case_id=row["case_id"],
+                 mode="in_person",
+             )
+             cur.execute(
+                 "UPDATE pairing_tokens SET claimed_session_id = %s WHERE id = %s;",
+                 (session["id"], row["id"]),
+diff --git a/webapp/repositories/practice_sessions.py b/webapp/repositories/practice_sessions.py
+index d426f98..3d608b7 100644
+--- a/webapp/repositories/practice_sessions.py
++++ b/webapp/repositories/practice_sessions.py
+@@ -274,12 +274,32 @@ def sweep_stale_sessions() -> int:
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "UPDATE practice_sessions"
+                 " SET state = 'aborted', ended_at = NOW(), state_changed_at = NOW()"
+                 " WHERE (state IN ('lobby', 'live')"
+                 "        AND state_changed_at < NOW() - INTERVAL '6 hours')"
+                 "    OR (state = 'scheduled'"
+                 "        AND COALESCE(scheduled_at, created_at)"
+                 "            < NOW() - INTERVAL '6 hours');"
+             )
+             return cur.rowcount
++
++
++def sweep_missed(missed_after_min: int = 60) -> int:
++    """A3: an accepted session never joined (still 'scheduled'/'lobby')
++    missed_after_min past its scheduled start becomes 'missed' — distinct from
++    the 6-h 'aborted' backstop (sweep_stale_sessions). Only scheduled sessions
++    (scheduled_at set) qualify; unscheduled "now" sessions fall to the backstop.
++    Run this BEFORE sweep_stale_sessions so a past-start scheduled session is
++    marked 'missed', not 'aborted'. Returns rows swept."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "UPDATE practice_sessions"
++                " SET state = 'missed', ended_at = NOW(), state_changed_at = NOW()"
++                " WHERE state IN ('scheduled', 'lobby')"
++                "   AND scheduled_at IS NOT NULL"
++                "   AND scheduled_at < NOW() - make_interval(mins => %s);",
++                (missed_after_min,),
++            )
++            return cur.rowcount
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index b3caa89..d679212 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -3,154 +3,319 @@ Proposals repository — create / inbox / accept / decline / expire
+ (spec §4.7, T8.3/T8.4).
+ 
+ Accept runs under SELECT … FOR UPDATE so a double-click or two racing
+ accepts serialize: the second sees state != 'pending' and gets a 409. The
+ practice_session row is inserted in the SAME transaction that flips the
+ proposal, so a crash between the two can't leave an accepted proposal
+ without its session (room and rubric-template ids are resolved beforehand —
+ both are idempotent reads/creates).
+ """
+ 
+ from __future__ import annotations
+ 
++import secrets
++
+ from datetime import datetime
+ from typing import Optional
+ 
+ from psycopg.rows import dict_row
+ from psycopg.types.json import Jsonb
+ 
+ from webapp.db import get_pool
+ from webapp.practice_states import TransitionError
+ from webapp.repositories.feedback import is_burned
+ from webapp.repositories.practice_sessions import get_default_rubric_template_id
+ from webapp.repositories.rooms import get_or_create_room
+ 
+ MAX_PROPOSED_TIMES = 3
+-EXPIRY_DAYS = 7
+ 
+ _COLS = """
+     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
+-    p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at
++    p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at,
++    p.claim_token, p.counter_times_json, p.counter_by, p.countered_at
+ """
+ 
+ 
+ def candidate_of(from_user_id: int, to_user_id: int, from_role: str) -> int:
+     """Who would sit as candidate if this proposal became a session."""
+     return to_user_id if from_role == "interviewer" else from_user_id
+ 
+ 
+-def create_proposal(*, from_user_id: int, to_user_id: int, case_id: int,
+-                    from_role: str, message: Optional[str],
++def _resolve_roles(prop: dict) -> tuple[int, int]:
++    """(interviewer_id, candidate_id) for a proposal, per from_role."""
++    if prop["from_role"] == "interviewer":
++        return prop["from_user_id"], prop["to_user_id"]
++    return prop["to_user_id"], prop["from_user_id"]
++
++
++def _create_session_within(cur, prop: dict, scheduled_at) -> int:
++    """Create the practice session for an accepted proposal, using the caller's
++    already-locked cursor for the INSERT. Room/template lookups open their own
++    idempotent connections (existing repo convention). Requires prop['case_id']
++    not None (case-less proposals never reach here — see claim_proposal/respond).
++    """
++    interviewer_id, candidate_id = _resolve_roles(prop)
++    if is_burned(candidate_id, prop["case_id"]):
++        raise TransitionError(409, "This case is burned for the would-be candidate")
++    room = get_or_create_room(interviewer_id)
++    template_id = get_default_rubric_template_id(prop["case_id"], interviewer_id)
++    cur.execute(
++        "INSERT INTO practice_sessions (room_id, interviewer_id, candidate_id,"
++        " case_id, rubric_template_id, scheduled_at)"
++        " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
++        (room["id"], interviewer_id, candidate_id, prop["case_id"],
++         template_id, scheduled_at),
++    )
++    return cur.fetchone()["id"]
++
++
++def claim_proposal(token: str, user_id: int) -> dict:
++    """Claim an open ('send a link') proposal. The claimer becomes to_user_id.
++    Scheduled proposals stay 'pending' (claimer now responds); "now" proposals
++    (no proposed_times) auto-accept — creating a session when a case is set, or
++    marking accepted with needs_negotiation when the case is "interviewer
++    decides" (B3 wires the negotiating session). Any authed non-creator may
++    claim; B2 overrides the route's auth dependency for guests.
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(f"SELECT {_COLS} FROM proposals p"
++                        " WHERE p.claim_token = %s FOR UPDATE;", (token,))
++            prop = cur.fetchone()
++            if prop is None:
++                raise TransitionError(404, "No such claim link")
++            if prop["state"] != "pending":
++                raise TransitionError(409, f"Proposal is already {prop['state']}")
++            if prop["to_user_id"] is not None:
++                raise TransitionError(409, "This link has already been claimed")
++            if user_id == prop["from_user_id"]:
++                raise TransitionError(409, "You can't claim your own link")
++
++            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
++                        (user_id, prop["id"]))
++            prop["to_user_id"] = user_id
++
++            result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
++            if prop["proposed_times_json"]:
++                # Scheduled: claimer is now the recipient; awaits accept/counter.
++                result.update(state="pending", session_id=None,
++                              accepted=False, needs_negotiation=False)
++                return result
++
++            if prop["case_id"] is None:
++                cur.execute("UPDATE proposals SET state = 'accepted',"
++                            " responded_at = NOW() WHERE id = %s;", (prop["id"],))
++                result.update(state="accepted", session_id=None,
++                              accepted=True, needs_negotiation=True)
++                return result
++
++            session_id = _create_session_within(cur, prop, None)
++            cur.execute("UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
++                        " session_id = %s WHERE id = %s;", (session_id, prop["id"]))
++            result.update(state="accepted", session_id=session_id,
++                          accepted=True, needs_negotiation=False)
++            return result
++
++
++def counter_proposal(proposal_id: int, user_id: int,
++                     times: list[datetime]) -> dict:
++    """Recipient's one-round "Suggest new time" (spec §5.2). Only the recipient,
++    only from 'pending'. Returns the countered row (incl. from_user_id, for the
++    proposal_countered push to the proposer)."""
++    if not times:
++        raise TransitionError(400, "Provide at least one counter time")
++    if len(times) > MAX_PROPOSED_TIMES:
++        raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} counter times")
++    iso = [t.isoformat() for t in times]
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
++                        " FOR UPDATE;", (proposal_id,))
++            prop = cur.fetchone()
++            if prop is None or user_id != prop["to_user_id"]:
++                raise TransitionError(404, "No such proposal")
++            if prop["state"] != "pending":
++                raise TransitionError(409, f"Proposal is already {prop['state']}")
++            cur.execute(
++                "UPDATE proposals SET state = 'countered', counter_times_json = %s,"
++                " counter_by = %s, countered_at = NOW() WHERE id = %s"
++                f" RETURNING {_COLS.replace('p.', '')};",
++                (Jsonb(iso), user_id, proposal_id),
++            )
++            return cur.fetchone()
++
++
++def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
++                    case_id: Optional[int], from_role: str,
++                    message: Optional[str],
+                     proposed_times: list[datetime]) -> dict:
+-    if from_user_id == to_user_id:
++    if to_user_id is not None and from_user_id == to_user_id:
+         raise TransitionError(400, "You can't propose to yourself")
+     if len(proposed_times) > MAX_PROPOSED_TIMES:
+         raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} proposed times")
+-    if is_burned(candidate_of(from_user_id, to_user_id, from_role), case_id):
+-        # A6 — checked again at accept; this just fails fast.
+-        raise TransitionError(409, "This case is burned for the would-be candidate")
++    # Burned only checkable when both case and candidate are known up front;
++    # open-link / case-less proposals defer the check to claim/accept.
++    if case_id is not None and to_user_id is not None:
++        if is_burned(candidate_of(from_user_id, to_user_id, from_role), case_id):
++            raise TransitionError(409, "This case is burned for the would-be candidate")
+ 
+     times = [t.isoformat() for t in proposed_times]
++    claim_token = secrets.token_urlsafe(24) if to_user_id is None else None
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 "INSERT INTO proposals (from_user_id, to_user_id, case_id,"
+-                " from_role, message, proposed_times_json)"
+-                " VALUES (%s, %s, %s, %s, %s, %s)"
++                " from_role, message, proposed_times_json, claim_token)"
++                " VALUES (%s, %s, %s, %s, %s, %s, %s)"
+                 f" RETURNING {_COLS.replace('p.', '')};",
+                 (from_user_id, to_user_id, case_id, from_role, message,
+-                 Jsonb(times)),
++                 Jsonb(times), claim_token),
+             )
+             return cur.fetchone()
+ 
+ 
+-def sweep_expired() -> int:
+-    """T8.3: pending proposals older than 7 days flip to 'expired' on page
+-    load — no cron dependency. Returns rows swept."""
++def sweep_expired(now_expiry_min: int = 120) -> int:
++    """Spec A3 expiry (tunable via PROPOSAL_NOW_EXPIRY_MIN):
++      - now-proposals (no proposed_times) expire now_expiry_min after creation
++      - scheduled proposals expire once their earliest proposed start passes
++      - countered proposals expire once their earliest counter time passes
++    Returns rows swept. Runs from the 60-s maintenance loop (Task 7)."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute(
+                 "UPDATE proposals SET state = 'expired', responded_at = NOW()"
+-                " WHERE state = 'pending'"
+-                f"  AND created_at < NOW() - INTERVAL '{EXPIRY_DAYS} days';"
++                " WHERE (state = 'pending'"
++                "        AND (proposed_times_json IS NULL"
++                "             OR jsonb_array_length(proposed_times_json) = 0)"
++                "        AND created_at < NOW() - make_interval(mins => %s))"
++                "    OR (state = 'pending'"
++                "        AND proposed_times_json IS NOT NULL"
++                "        AND jsonb_array_length(proposed_times_json) > 0"
++                "        AND (SELECT MIN((e)::timestamptz)"
++                "               FROM jsonb_array_elements_text(proposed_times_json) e)"
++                "            < NOW())"
++                "    OR (state = 'countered'"
++                "        AND counter_times_json IS NOT NULL"
++                "        AND jsonb_array_length(counter_times_json) > 0"
++                "        AND (SELECT MIN((e)::timestamptz)"
++                "               FROM jsonb_array_elements_text(counter_times_json) e)"
++                "            < NOW());",
++                (now_expiry_min,),
+             )
+             return cur.rowcount
+ 
+ 
+ def inbox(user_id: int) -> list[dict]:
+     """Pending proposals RECEIVED by the user, with proposer and case info."""
+     sql = f"""
+         SELECT {_COLS},
+                COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS from_name,
+                c.case_title, c.case_type, c.difficulty
+         FROM proposals p
+         JOIN users u ON u.id = p.from_user_id
+-        JOIN cases c ON c.id = p.case_id
++        LEFT JOIN cases c ON c.id = p.case_id
+         WHERE p.to_user_id = %s AND p.state = 'pending'
+         ORDER BY p.created_at DESC;
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(sql, (user_id,))
+             return cur.fetchall()
+ 
+ 
++def list_for_api(user_id: int) -> list[dict]:
++    """Actionable proposals for the native app: pending proposals RECEIVED by
++    the user (accept/counter/decline) plus countered proposals the user SENT
++    (accept the counter / decline). Carries claim_token + counter fields."""
++    sql = f"""
++        SELECT {_COLS},
++               COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS from_name,
++               c.case_title, c.case_type, c.difficulty,
++               CASE WHEN p.to_user_id = %(u)s THEN 'received' ELSE 'sent' END AS direction
++        FROM proposals p
++        JOIN users u ON u.id = p.from_user_id
++        LEFT JOIN cases c ON c.id = p.case_id
++        WHERE (p.to_user_id = %(u)s AND p.state = 'pending')
++           OR (p.from_user_id = %(u)s AND p.state = 'countered')
++        ORDER BY p.created_at DESC;
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, {"u": user_id})
++            return cur.fetchall()
++
++
+ def pending_count(user_id: int) -> int:
+     """Nav badge. Uses idx_proposals_inbox; called on every page render."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute("SELECT COUNT(*) FROM proposals"
+                         " WHERE to_user_id = %s AND state = 'pending';",
+                         (user_id,))
+             return cur.fetchone()[0]
+ 
+ 
+ def respond(proposal_id: int, user_id: int, *, accept: bool,
+-            scheduled_at: Optional[datetime]) -> dict:
+-    """Accept (creates + links the session) or decline. Only the recipient,
+-    only while pending. Returns the proposal row (with session_id on accept).
++            scheduled_at: Optional[datetime] = None,
++            counter_time: Optional[datetime] = None) -> dict:
++    """Accept or decline. 'pending' → the recipient acts (existing flow).
++    'countered' → the original proposer acts, choosing counter_time from the
++    stored counter times (spec §5.2). Case-less accepts mark the proposal
++    accepted with session_id NULL and needs_negotiation=True (B3 negotiation).
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(f"SELECT {_COLS} FROM proposals p WHERE p.id = %s"
+                         " FOR UPDATE;", (proposal_id,))
+             prop = cur.fetchone()
+-            if prop is None or user_id != prop["to_user_id"]:
+-                # Existence undisclosed to non-recipients (DV-11 philosophy).
++            if prop is None:
+                 raise TransitionError(404, "No such proposal")
+-            if prop["state"] != "pending":
+-                raise TransitionError(409, f"Proposal is already {prop['state']}")
++
++            state = prop["state"]
++            if state == "pending":
++                if user_id != prop["to_user_id"]:
++                    raise TransitionError(404, "No such proposal")
++            elif state == "countered":
++                if user_id != prop["from_user_id"]:
++                    raise TransitionError(404, "No such proposal")
++            else:
++                # DV-11: existence undisclosed to non-participants — a stranger
++                # gets the same 404 as a missing proposal, only a participant
++                # sees the 409 "already {state}".
++                if user_id not in (prop["from_user_id"], prop["to_user_id"]):
++                    raise TransitionError(404, "No such proposal")
++                raise TransitionError(409, f"Proposal is already {state}")
+ 
+             if not accept:
+                 cur.execute(
+                     "UPDATE proposals SET state = 'declined', responded_at = NOW()"
+                     f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                     (proposal_id,),
+                 )
+                 return cur.fetchone()
+ 
+-            if prop["from_role"] == "interviewer":
+-                interviewer_id, candidate_id = prop["from_user_id"], prop["to_user_id"]
++            if state == "countered":
++                allowed = {datetime.fromisoformat(s)
++                           for s in (prop["counter_times_json"] or [])}
++                if counter_time is None or counter_time not in allowed:
++                    raise TransitionError(409, "Chosen time must be one of the counter times")
++                use_scheduled = counter_time
+             else:
+-                interviewer_id, candidate_id = prop["to_user_id"], prop["from_user_id"]
++                use_scheduled = scheduled_at
+ 
+-            if is_burned(candidate_id, prop["case_id"]):
+-                raise TransitionError(409, "This case is burned for the would-be candidate")
+-
+-            # Resolved outside the locked insert: both are idempotent.
+-            room = get_or_create_room(interviewer_id)
+-            template_id = get_default_rubric_template_id(prop["case_id"], interviewer_id)
++            if prop["case_id"] is None:
++                cur.execute(
++                    "UPDATE proposals SET state = 'accepted', responded_at = NOW()"
++                    f" WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
++                    (proposal_id,),
++                )
++                row = cur.fetchone()
++                row["needs_negotiation"] = True
++                return row
+ 
+-            cur.execute(
+-                "INSERT INTO practice_sessions (room_id, interviewer_id,"
+-                " candidate_id, case_id, rubric_template_id, scheduled_at)"
+-                " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
+-                (room["id"], interviewer_id, candidate_id, prop["case_id"],
+-                 template_id, scheduled_at),
+-            )
+-            session_id = cur.fetchone()["id"]
++            session_id = _create_session_within(cur, prop, use_scheduled)
+             cur.execute(
+                 "UPDATE proposals SET state = 'accepted', responded_at = NOW(),"
+                 f" session_id = %s WHERE id = %s RETURNING {_COLS.replace('p.', '')};",
+                 (session_id, proposal_id),
+             )
+             return cur.fetchone()
+diff --git a/webapp/routes/api_v1.py b/webapp/routes/api_v1.py
+index a21bb80..80cdcb5 100644
+--- a/webapp/routes/api_v1.py
++++ b/webapp/routes/api_v1.py
+@@ -306,39 +306,44 @@ def _recent_session_json(row: dict) -> dict:
+         "role": row["your_role"],
+         "other_user": row["counterpart"],
+         "case_title": row["case_title"],
+         "scheduled_at": None,
+         "state": None,
+         "ended_at": row["ended_at"],
+         "grade": row["grade"],
+     }
+ 
+ 
+ @router.get("/proposals")
+ def list_proposals(user: User = Depends(require_auth_api)):
+-    proposals_repo.sweep_expired()  # T8.3: page loads stand in for cron
+-    rows = proposals_repo.inbox(user.id)
+-    # Curated subset of the inbox row — to_user_id/session_id/responded_at/
+-    # state are internal bookkeeping the iOS inbox view has no use for.
++    # Sweeps run on the 60-s loop now (B1); a page-load sweep here is redundant
++    # but harmless for web-first callers, so we drop it.
++    rows = proposals_repo.list_for_api(user.id)
+     proposals = [
+         {
+             "id": row["id"],
++            "direction": row["direction"],
++            "state": row["state"],
+             "from_name": row["from_name"],
+             "from_role": row["from_role"],
+             "case_id": row["case_id"],
+             "case_title": row["case_title"],
+             "case_type": row["case_type"],
+             "difficulty": row["difficulty"],
+             "message": row["message"],
+             "proposed_times": row["proposed_times_json"],
++            "claim_token": row["claim_token"],
++            "counter_times": row["counter_times_json"],
++            "counter_by": row["counter_by"],
++            "countered_at": row["countered_at"],
+             "created_at": row["created_at"],
+         }
+         for row in rows
+     ]
+     return {"proposals": proposals}
+ 
+ 
+ @router.get("/sessions")
+ def list_sessions(
+     scope: Literal["upcoming", "recent"] = "upcoming",
+     user: User = Depends(require_auth_api),
+ ):
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index c7455b5..c638fea 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -38,29 +38,30 @@ class PracticeCreateBody(BaseModel):
+     interviewer_id: int
+     candidate_id: int
+     case_id: int
+     rubric_template_id: Optional[int] = None
+     scheduled_at: Optional[datetime] = None
+ 
+ 
+ class ConsentBody(BaseModel):
+     consent: bool
+ 
+ 
+ class PairCreateBody(BaseModel):
+-    case_id: int
++    case_id: Optional[int] = None
+ 
+ 
+ class PairClaimBody(BaseModel):
+-    token: str
++    token: Optional[str] = None
++    short_code: Optional[str] = None
+ 
+ 
+ class StateBody(BaseModel):
+     target: Literal["scheduled", "lobby", "live", "debrief", "finalized", "aborted"]
+ 
+ 
+ def _session_or_404(session_id: int, user_id: int) -> tuple[dict, str]:
+     session = repo.get_practice_session(session_id)
+     role = repo.role_of(session, user_id) if session else None
+     if session is None or role is None:
+         raise HTTPException(status_code=404, detail="No such session")
+     return session, role
+@@ -146,35 +147,39 @@ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     background.add_task(hub.broadcast_session_update, session_id)
+     # ActivityKit update push (P3 T9): state changes (lobby→live→debrief→
+     # finalized) refresh the Live Activity; "end" dismisses it on finalize.
+     event = "end" if body.target in ("finalized", "aborted") else "update"
+     background.add_task(push_live_activity_update, session_id, event=event)
+     return _public(result)
+ 
+ 
+ @router.post("/api/practice/pair/create", dependencies=_MUTATING)
+ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_api)):
+-    """Mint a short-TTL pairing token for in-person QR pairing (§ pairing)."""
+-    if get_case_by_id(body.case_id) is None:
++    """Mint a short-TTL pairing token for in-person QR pairing (spec §8).
++    case_id optional — "interviewer decides" pairs case-less (negotiated in B3)."""
++    if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
+ 
+ 
+ @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
+ def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
+-    """Claim a pairing token, creating the practice session (§ pairing)."""
++    """Claim a pairing token by token OR short_code (spec §8)."""
++    if not body.token and not body.short_code:
++        raise HTTPException(status_code=422, detail="Provide a token or short_code")
+     try:
+-        return pairing_repo.claim(token=body.token, candidate_id=user.id)
++        return pairing_repo.claim(candidate_id=user.id, token=body.token,
++                                  short_code=body.short_code)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+     (§ pairing). 404 if the token doesn't exist or isn't owned by the caller."""
+     try:
+         session_id = pairing_repo.status(token=token, interviewer_id=user.id)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index a3b098b..b351d1d 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -27,98 +27,161 @@ from webapp.repositories import proposals as repo
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories.practice_sessions import get_practice_session
+ from webapp.routes.practice import _session_or_404
+ 
+ logger = logging.getLogger(__name__)
+ 
+ router = APIRouter(tags=["proposals"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+ 
+ 
+ class ProposalBody(BaseModel):
+-    to_user_id: int
+-    case_id: int
++    to_user_id: Optional[int] = None
++    case_id: Optional[int] = None
+     from_role: str = Field(pattern="^(interviewer|candidate)$")
+     message: Optional[str] = Field(default=None, max_length=500)
+     proposed_times: list[datetime] = Field(default_factory=list,
+                                            max_length=repo.MAX_PROPOSED_TIMES)
+ 
+ 
+ class RespondBody(BaseModel):
+     scheduled_at: Optional[datetime] = None
++    time: Optional[datetime] = None  # chosen counter time (counter-accept)
++
++
++class CounterBody(BaseModel):
++    times: list[datetime] = Field(min_length=1, max_length=repo.MAX_PROPOSED_TIMES)
+ 
+ 
+ @router.post("/api/proposals", dependencies=_MUTATING)
+ def create_proposal(body: ProposalBody, background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+-    if get_case_by_id(body.case_id) is None:
++    if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     try:
+         proposal = repo.create_proposal(
+             from_user_id=user.id, to_user_id=body.to_user_id,
+             case_id=body.case_id, from_role=body.from_role,
+             message=body.message, proposed_times=body.proposed_times,
+         )
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+-    sender_name = user.email.split("@")[0]
+-    background.add_task(
+-        push_to_user, body.to_user_id,
+-        title="New session proposal",
+-        body=f"{sender_name} proposed a case session",
+-        data={"kind": "proposal", "proposal_id": proposal["id"]},
+-    )
++    # Named-recipient proposals notify the recipient; open links have no
++    # recipient yet (notified when someone claims, Task 4).
++    if body.to_user_id is not None:
++        sender_name = user.email.split("@")[0]
++        background.add_task(
++            push_to_user, body.to_user_id,
++            title="New session proposal",
++            body=f"{sender_name} proposed a case session",
++            data={"kind": "proposal", "proposal_id": proposal["id"]},
++        )
+     return proposal
+ 
+ 
+ @router.get("/api/proposals/inbox")
+ def proposal_inbox(user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # T8.3: page loads stand in for cron
+     return {"proposals": repo.inbox(user.id)}
+ 
+ 
+ @router.post("/api/proposals/{proposal_id}/accept", dependencies=_MUTATING)
+ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+                     background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # an 8-day-old proposal must expire, not accept
+     try:
+         prop = repo.respond(proposal_id, user.id, accept=True,
+-                            scheduled_at=body.scheduled_at)
++                            scheduled_at=body.scheduled_at, counter_time=body.time)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
++    if prop["session_id"] is None:
++        # Case-less "interviewer decides" accept — session created in B3
++        # negotiation; still notify the counterpart the proposal was accepted.
++        other = (prop["from_user_id"] if user.id == prop["to_user_id"]
++                 else prop["to_user_id"])
++        if other is not None:
++            background.add_task(
++                push_to_user, other, title="Proposal accepted",
++                body="Your case session proposal was accepted",
++                data={"kind": "accepted", "proposal_id": prop["id"]})
++        return {"accepted": True, "session_id": None, "needs_negotiation": True}
++
+     _send_invites(request, prop["session_id"])
++    other = (prop["from_user_id"] if user.id == prop["to_user_id"]
++             else prop["to_user_id"])
+     background.add_task(
+-        push_to_user, prop["from_user_id"],
++        push_to_user, other,
+         title="Proposal accepted",
+         body="Your case session proposal was accepted",
+         data={"kind": "accepted", "session_id": prop["session_id"]},
+     )
+     return {"accepted": True, "session_id": prop["session_id"],
+             "session_url": f"/session/{prop['session_id']}",
+             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
+ 
+ 
++@router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
++def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
++                   user: User = Depends(require_auth_api)):
++    """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
++    the creator; guests arrive in B2 by overriding require_auth_api."""
++    try:
++        result = repo.claim_proposal(claim_token, user.id)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++
++    if result["session_id"] is not None:
++        _send_invites(request, result["session_id"])
++        background.add_task(
++            push_to_user, result["from_user_id"],
++            title="Your invite was claimed",
++            body="Someone claimed your session link",
++            data={"kind": "accepted", "session_id": result["session_id"]},
++        )
++    return result
++
++
+ @router.post("/api/proposals/{proposal_id}/decline", dependencies=_MUTATING)
+ def decline_proposal(proposal_id: int, user: User = Depends(require_auth_api)):
+     try:
+         repo.respond(proposal_id, user.id, accept=False, scheduled_at=None)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"declined": True}
+ 
+ 
++@router.post("/api/proposals/{proposal_id}/counter", dependencies=_MUTATING)
++def counter_proposal(proposal_id: int, body: CounterBody, background: BackgroundTasks,
++                     user: User = Depends(require_auth_api)):
++    """Recipient's one-round "Suggest new time" (spec §5.2). Pushes
++    proposal_countered to the proposer — the pattern B3 reuses for swap invites.
++    """
++    try:
++        prop = repo.counter_proposal(proposal_id, user.id, body.times)
++    except TransitionError as exc:
++        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
++    background.add_task(
++        push_to_user, prop["from_user_id"],
++        title="New times suggested",
++        body="Your proposal got a counter — pick a time",
++        data={"kind": "proposal_countered", "proposal_id": prop["id"]},
++    )
++    return {"countered": True, "proposal_id": prop["id"],
++            "counter_times": prop["counter_times_json"]}
++
++
+ @router.get("/ics/session-{session_id}.ics")
+ def session_ics(session_id: int, request: Request,
+                 user: User = Depends(require_auth_api)):
+     """Download link for the invite (spec §4.7) — participants only."""
+     session, _ = _session_or_404(session_id, user.id)
+     ics = _build_ics_for(request, session)
+     return Response(
+         ics, media_type="text/calendar; charset=utf-8; method=REQUEST",
+         headers={"Content-Disposition":
+                  f'attachment; filename="caseroom-session-{session_id}.ics"'},
+     )
+ 
+diff --git a/webapp/settings.py b/webapp/settings.py
+index 4009b5d..c0584b5 100644
+--- a/webapp/settings.py
++++ b/webapp/settings.py
+@@ -33,24 +33,27 @@ class Settings:
+     ice_servers: tuple
+     #: APNs provider auth (ES256 .p8 key path/id, Apple team id, app bundle id).
+     apns_key_path: str | None
+     apns_key_id: str | None
+     apns_team_id: str | None
+     apns_bundle_id: str | None
+     #: True for the APNs sandbox host (dev builds); False for production.
+     apns_use_sandbox: bool
+     #: TURN provider for short-lived ICE credentials (Cloudflare Calls). Empty when unset -> STUN-only degrade.
+     turn_provider: str
+     turn_key_id: str | None
+     turn_token: str | None
++    #: Spec A3 expiry windows (tunable server-side). Minutes.
++    proposal_now_expiry_min: int
++    session_missed_after_min: int
+ 
+     def is_admin(self, email: str | None) -> bool:
+         """True iff `email` is in the admin allowlist (case-insensitive)."""
+         if not email:
+             return False
+         return email.strip().lower() in self.admin_emails
+ 
+     @property
+     def turn_enabled(self) -> bool:
+         """True iff both TURN key id and token are configured."""
+         return bool(self.turn_key_id and self.turn_token)
+ 
+@@ -91,13 +94,15 @@ def load_settings() -> Settings:
+         search_result_limit = int(os.environ.get("WEBAPP_RESULT_LIMIT", "100")),
+         admin_emails      = _parse_admin_emails(os.environ.get("ADMIN_EMAILS")),
+         case_preview_public_base_url = preview_base or None,
+         ice_servers       = ice_servers,
+         apns_key_path     = os.environ.get("APNS_KEY_PATH") or None,
+         apns_key_id       = os.environ.get("APNS_KEY_ID") or None,
+         apns_team_id      = os.environ.get("APNS_TEAM_ID") or None,
+         apns_bundle_id    = os.environ.get("APNS_BUNDLE_ID") or None,
+         apns_use_sandbox  = os.environ.get("APNS_USE_SANDBOX", "true").lower() in ("1", "true"),
+         turn_provider     = os.environ.get("TURN_PROVIDER", "cloudflare"),
+         turn_key_id       = os.environ.get("TURN_KEY_ID") or None,
+         turn_token        = os.environ.get("TURN_TOKEN") or None,
++        proposal_now_expiry_min = int(os.environ.get("PROPOSAL_NOW_EXPIRY_MIN", "120")),
++        session_missed_after_min = int(os.environ.get("SESSION_MISSED_AFTER_MIN", "60")),
+     )

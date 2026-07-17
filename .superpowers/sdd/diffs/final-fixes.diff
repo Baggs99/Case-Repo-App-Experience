@@ -1,0 +1,130 @@
+=== diff --stat ===
+ tests/test_b1_proposals_open.py |  8 ++++++++
+ webapp/push/starting_soon.py    | 17 -----------------
+ webapp/routes/proposals.py      |  2 +-
+ webapp/templates/room.html      |  2 +-
+ 4 files changed, 10 insertions(+), 19 deletions(-)
+
+=== full diff ===
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 01f611c..4952d2b 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -279,16 +279,24 @@ class TestCounter(unittest.TestCase):
+         pid = self._propose_to_bob()
+         t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
+                                        json={"times": [t1]}).status_code, 200)
+         # A second counter (from 'countered') is rejected — one round only.
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
+                                        json={"times": [t1]}).status_code, 409)
+ 
++    def test_counter_requires_auth(self):
++        pid = self._propose_to_bob()
++        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).post(f"/api/proposals/{pid}/counter", json={"times": [t1]})
++        self.assertEqual(r.status_code, 401)
++
+     def test_counter_times_capped_at_three(self):
+         pid = self._propose_to_bob()
+         times = [(datetime.now(timezone.utc) + timedelta(days=d)).isoformat()
+                  for d in range(2, 6)]  # 4 times
+         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
+                                        json={"times": times}).status_code, 422)
+ 
+     def test_accept_of_counter_requires_a_listed_time(self):
+diff --git a/webapp/push/starting_soon.py b/webapp/push/starting_soon.py
+index 8180ae4..4e07177 100644
+--- a/webapp/push/starting_soon.py
++++ b/webapp/push/starting_soon.py
+@@ -6,17 +6,16 @@ Outputs: APNs pushes via webapp.push.events.push_to_user; sets
+   practice_sessions.starting_soon_pushed_at so a session is only pushed once.
+ Run: notify_starting_soon() now runs each pass of the consolidated background
+   loop in webapp/maintenance.py:maintenance_loop (spawned from webapp.main's
+   lifespan); no CLI entrypoint.
+ """
+ 
+ from __future__ import annotations
+ 
+-import asyncio
+ import logging
+ 
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ from webapp.push.events import push_to_user
+ 
+ logger = logging.getLogger(__name__)
+@@ -48,24 +47,8 @@ async def notify_starting_soon(window_minutes: int = 15) -> int:
+                 user_id,
+                 title="Your session starts soon",
+                 body="Your practice session starts soon.",
+                 data={"kind": "starting_soon", "session_id": row["id"]},
+                 interruption_level="time-sensitive",
+             )
+ 
+     return len(rows)
+-
+-
+-async def starting_soon_loop(interval_seconds: int = 60) -> None:
+-    """Call notify_starting_soon() every interval_seconds, forever.
+-
+-    One bad pass must never kill the loop — exceptions are logged and
+-    swallowed. CancelledError propagates so shutdown can stop it cleanly.
+-    """
+-    while True:
+-        try:
+-            await notify_starting_soon()
+-        except asyncio.CancelledError:
+-            raise
+-        except Exception:
+-            logger.exception("starting_soon pass failed")
+-        await asyncio.sleep(interval_seconds)
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index b351d1d..7934329 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -85,17 +85,17 @@ def proposal_inbox(user: User = Depends(require_auth_api)):
+     repo.sweep_expired()  # T8.3: page loads stand in for cron
+     return {"proposals": repo.inbox(user.id)}
+ 
+ 
+ @router.post("/api/proposals/{proposal_id}/accept", dependencies=_MUTATING)
+ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+                     background: BackgroundTasks,
+                     user: User = Depends(require_auth_api)):
+-    repo.sweep_expired()  # an 8-day-old proposal must expire, not accept
++    repo.sweep_expired()  # A3: an over-window proposal (now-ping >2h, or past its earliest start) must expire, not accept
+     try:
+         prop = repo.respond(proposal_id, user.id, accept=True,
+                             scheduled_at=body.scheduled_at, counter_time=body.time)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+     if prop["session_id"] is None:
+         # Case-less "interviewer decides" accept — session created in B3
+diff --git a/webapp/templates/room.html b/webapp/templates/room.html
+index a5ec2b7..222aea9 100644
+--- a/webapp/templates/room.html
++++ b/webapp/templates/room.html
+@@ -40,17 +40,17 @@
+             <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">
+                 Proposals{% if inbox %} <span class="badge badge-easy align-middle">{{ inbox|length }}</span>{% endif %}
+             </h2>
+             {% if inbox %}
+             <ul class="space-y-4">
+                 {% for p in inbox %}
+                 <li class="text-sm" data-proposal="{{ p.id }}">
+                     <div class="font-medium text-slate-900 dark:text-slate-100">
+-                        {{ p.from_name }} proposes <span class="italic">{{ p.case_title }}</span>
++                        {{ p.from_name }} proposes <span class="italic">{{ p.case_title or "a case (interviewer's choice)" }}</span>
+                     </div>
+                     <div class="text-[13px] text-slate-500 dark:text-slate-400 mb-1.5">
+                         They'd be the {{ p.from_role }} — you'd be the
+                         {{ 'candidate' if p.from_role == 'interviewer' else 'interviewer' }}.
+                         {% if p.message %}<span class="block mt-0.5">“{{ p.message }}”</span>{% endif %}
+                     </div>
+                     {% if p.proposed_times_json %}
+                     <div class="flex flex-wrap gap-1.5 mb-2" data-times>

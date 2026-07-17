@@ -26,3 +26,6 @@ Branch: bgap/b1-scheduling · DB: caserepo_bgap_b1 · Interpreter: /Users/thomas
 - Task 9: complete (commit c49cd82, review PASS both verdicts — api_v1 proposals parity claim_token/counter/direction + LEFT JOIN cases, IDOR-safe, claim_token exposure benign, suite 401 green). MINOR (final review): (m9a) REGRESSION webapp/templates/room.html:48 renders `{{ p.case_title }}` → literal "None" for case-less proposals now surfaced by inbox() LEFT JOIN — cosmetic web, guard with `{{ p.case_title or "..." }}`; (m9b) iOS contract note: sent-countered items' from_name = caller's own name, counterparty only as counter_by id (document for iOS).
 
 ## Final verification (pending)
+- FINAL: full suite 402 passed (baseline 360 + 42). Migrations 020/021 idempotent (re-applied clean).
+- Whole-branch review (Opus, 16cea76..HEAD): SHIP-AFTER-FIXES — 0 Critical/Important. 4 fixes applied (commit 56670a3): room.html case_title guard, counter 401 auth test, A3 accept comment, dead starting_soon_loop removal. Re-review: CLEAN — ship.
+- Report: docs/superpowers/sdd/bgap-b1-report.md. Status DONE. Head 56670a3.
