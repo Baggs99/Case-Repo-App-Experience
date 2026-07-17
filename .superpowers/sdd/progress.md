@@ -34,3 +34,5 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 - BASE for Task 9 = 7031f58
 - Task 9: complete (commits a588ba2..203bc01, review APPROVE, crypto sound: alg pinned RS256/no HMAC path/kid-must-match/claims-post-signature). MINORs (ledger, for final-review fix pass): verify_id_token could wrap base64/JSON/int-parse errors in OAuthError (currently a malformed id_token raises stdlib exc → 500 in callback rather than clean auth-fail); optional kty=="RSA" + kid-present asserts. All fail-closed, no bypass.
 - BASE for Task 10 = 203bc01
+- Task 10: complete (commits 643805f..8657cf3, review APPROVE). IMPORTANT (LinkedIn-style string email_verified defeats the gate: bool("false")==True) FIXED in 0a19216 (_coerce_bool + 4 coercion tests). MINOR (state cookie missing secure) FIXED same commit (secure=_cookie_secure()). Remaining MINOR (ledger): no test for unverified+new-registered create path (structurally blocked); avatar fetch follow_redirects SSRF-shape mitigated by provider-signed picture URL.
+- All 10 implementation tasks complete. Proceeding to full-suite + final whole-branch review.
