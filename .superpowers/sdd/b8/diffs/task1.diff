@@ -1,0 +1,86 @@
+# Task 1 diff  BASE=35b0882 HEAD=9d0f274
+## git log
+9d0f274 Add migrations 034/035: drill_attempts scoring columns + gauntlet rank indexes
+
+## stat
+ db/migrations/034_drill_scores.sql          |  7 +++++
+ db/migrations/035_gauntlet_rank_indexes.sql |  8 ++++++
+ tests/test_b8_migration.py                  | 42 +++++++++++++++++++++++++++++
+ 3 files changed, 57 insertions(+)
+
+## full diff
+diff --git a/db/migrations/034_drill_scores.sql b/db/migrations/034_drill_scores.sql
+new file mode 100644
+index 0000000..5996050
+--- /dev/null
++++ b/db/migrations/034_drill_scores.sql
+@@ -0,0 +1,7 @@
++-- db/migrations/034_drill_scores.sql
++-- B8: gauntlet scoring substrate. drill_attempts gains a run score, per-slot
++-- duration, and the date-seeded gauntlet set membership key. All NULL for the
++-- pre-existing P4 per-user attempts (untouched); populated for gauntlet slots.
++ALTER TABLE drill_attempts ADD COLUMN IF NOT EXISTS score       REAL;
++ALTER TABLE drill_attempts ADD COLUMN IF NOT EXISTS duration_ms INTEGER;
++ALTER TABLE drill_attempts ADD COLUMN IF NOT EXISTS set_key     TEXT;
+diff --git a/db/migrations/035_gauntlet_rank_indexes.sql b/db/migrations/035_gauntlet_rank_indexes.sql
+new file mode 100644
+index 0000000..3311ed7
+--- /dev/null
++++ b/db/migrations/035_gauntlet_rank_indexes.sql
+@@ -0,0 +1,8 @@
++-- db/migrations/035_gauntlet_rank_indexes.sql
++-- B8: indexes for the gauntlet rank/percentile queries. The daily board groups
++-- today's submitters by (set_key, user_id) summing score; the per-user trend and
++-- one-per-day guard filter (user_id, set_key). Both partial on gauntlet rows only.
++CREATE INDEX IF NOT EXISTS idx_drill_attempts_setkey
++    ON drill_attempts (set_key, user_id) WHERE set_key IS NOT NULL;
++CREATE INDEX IF NOT EXISTS idx_drill_attempts_user_setkey
++    ON drill_attempts (user_id, set_key) WHERE set_key IS NOT NULL;
+diff --git a/tests/test_b8_migration.py b/tests/test_b8_migration.py
+new file mode 100644
+index 0000000..b7c3ba5
+--- /dev/null
++++ b/tests/test_b8_migration.py
+@@ -0,0 +1,42 @@
++# tests/test_b8_migration.py
++"""B8 Task 1: assert migration 034/035 shape on the live dev DB (columns + indexes)."""
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires dev Postgres")
++class TestB8Migration(unittest.TestCase):
++    def _cols(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute(
++                "SELECT column_name, data_type, is_nullable FROM information_schema.columns"
++                " WHERE table_name = 'drill_attempts';")
++            return {r[0]: (r[1], r[2]) for r in cur.fetchall()}
++
++    def _indexes(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'drill_attempts';")
++            return {r[0] for r in cur.fetchall()}
++
++    def test_new_columns_present_and_nullable(self):
++        cols = self._cols()
++        self.assertIn("score", cols)
++        self.assertEqual(cols["score"], ("real", "YES"))
++        self.assertIn("duration_ms", cols)
++        self.assertEqual(cols["duration_ms"], ("integer", "YES"))
++        self.assertIn("set_key", cols)
++        self.assertEqual(cols["set_key"], ("text", "YES"))
++
++    def test_rank_indexes_present(self):
++        idx = self._indexes()
++        self.assertIn("idx_drill_attempts_setkey", idx)
++        self.assertIn("idx_drill_attempts_user_setkey", idx)
++
++
++if __name__ == "__main__":
++    unittest.main()
