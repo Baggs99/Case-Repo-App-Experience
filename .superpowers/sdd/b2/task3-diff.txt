@@ -1,0 +1,667 @@
+=== git log 169fa5d5db745e80def50bc072dd5417fa55b25f..cda02a2001726509e6ff788c3813962d125fd8ab ===
+cda02a2 Reap guest minted on a failed claim (close unauth orphan-row vector)
+b9294d0 Mint scoped guests on unauthenticated claim endpoints; null dead claim_token (N-1)
+
+=== diff --stat ===
+ tests/test_b1_pairing_shortcode.py |   2 +-
+ tests/test_b1_proposals_open.py    |  16 ++-
+ tests/test_b2_guest_claim.py       | 226 +++++++++++++++++++++++++++++++++++++
+ tests/test_pairing.py              |   5 +-
+ webapp/auth/guest.py               |  51 ++++++++-
+ webapp/repositories/proposals.py   |   5 +-
+ webapp/routes/practice.py          |   6 +-
+ webapp/routes/proposals.py         |  14 ++-
+ 8 files changed, 306 insertions(+), 19 deletions(-)
+
+=== diff -U10 ===
+diff --git a/tests/test_b1_pairing_shortcode.py b/tests/test_b1_pairing_shortcode.py
+index 976ad3f..8895e41 100644
+--- a/tests/test_b1_pairing_shortcode.py
++++ b/tests/test_b1_pairing_shortcode.py
+@@ -99,15 +99,15 @@ class TestPairingShortCode(unittest.TestCase):
+         code = self.alice.post("/api/practice/pair/create", json={}).json()["short_code"]
+         r = self.bob.post("/api/practice/pair/claim", json={"short_code": code})
+         self.assertEqual(r.status_code, 409)
+ 
+     def test_claim_requires_auth(self):
+         code = self.alice.post("/api/practice/pair/create",
+                                json={"case_id": self.case_id}).json()["short_code"]
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
+-        self.assertEqual(r.status_code, 401)
++        self.assertEqual(r.status_code, 200, r.text)
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 4952d2b..70508d8 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -138,27 +138,28 @@ class TestClaim(unittest.TestCase):
+         payload.update(overrides)
+         return client.post("/api/proposals", json=payload).json()["claim_token"]
+ 
+     def test_creator_cannot_claim(self):
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.alice.post(f"/api/proposals/claim/{tok}").status_code, 409)
+ 
+     def test_unknown_token_404(self):
+         self.assertEqual(self.bob.post("/api/proposals/claim/nope-nope").status_code, 404)
+ 
+-    def test_requires_auth(self):
++    def test_unauthenticated_claim_mints_guest(self):
++        # B2: an unauthenticated claim mints a scoped guest instead of 401.
+         tok = self._mk_open(self.alice)
+-        anon = self.__class__._ctx.__class__  # unused; explicit anon client below
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+-        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
+-        self.assertEqual(r.status_code, 401)
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
+ 
+     def test_claim_now_with_case_auto_accepts_and_creates_session(self):
+         tok = self._mk_open(self.alice)  # no proposed_times -> "now"
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         body = r.json()
+         self.assertTrue(body["accepted"])
+         self.assertIsNotNone(body["session_id"])
+         self.assertFalse(body["needs_negotiation"])
+         import psycopg
+@@ -181,24 +182,27 @@ class TestClaim(unittest.TestCase):
+         self.assertIn(r.json()["proposal_id"], [p["id"] for p in inbox])
+ 
+     def test_claim_case_less_now_needs_negotiation(self):
+         tok = self._mk_open(self.alice, case_id=None)
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertTrue(r.json()["accepted"])
+         self.assertIsNone(r.json()["session_id"])
+         self.assertTrue(r.json()["needs_negotiation"])
+ 
+-    def test_double_claim_409(self):
++    def test_double_claim_404_dead_token(self):
++        # B2 N-1: claiming nulls the now-dead claim_token, so a second claim of
++        # the same token no longer finds the row → 404 "No such claim link"
++        # (was 409 in B1, before the token was nulled on claim).
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
+-        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
++        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 404)
+ 
+ 
+ @unittest.skipUnless(_READY, "requires seeded dev Postgres")
+ @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+ class TestCounter(unittest.TestCase):
+     @classmethod
+     def setUpClass(cls):
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
+diff --git a/tests/test_b2_guest_claim.py b/tests/test_b2_guest_claim.py
+new file mode 100644
+index 0000000..bc1f093
+--- /dev/null
++++ b/tests/test_b2_guest_claim.py
+@@ -0,0 +1,226 @@
++"""
++B2 Task 3: unauthenticated claim endpoints mint a scoped guest + session
++cookie. Needs the seeded dev Postgres with migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestClaim(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='b@yale.edu';")
++                cls.bid = cur.fetchone()[0]
++                # Dedicated case so guest sessions here never collide with the
++                # seeded dummy or other B2 files (re-runnable teardown below).
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Claim Case', 'b2 guest claim case', 'DevSchool',"
++                    " 2098, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++
++        # Bob (candidate) logs in to create open-link proposals.
++        cls.bob = TestClient(app)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++    @classmethod
++    def tearDownClass(cls):
++        _cleanup_case(cls.case_id)
++        cls._ctx.__exit__(None, None, None)
++
++    def _mk_open_now_case(self) -> str:
++        """Bob (candidate) opens a case-set 'now' link — the claimer becomes
++        the interviewer and the session is auto-created (B1 DD-1)."""
++        r = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id})
++        self.assertEqual(r.status_code, 200, r.text)
++        return r.json()["claim_token"]
++
++    def test_unauth_proposal_claim_mints_guest_interviewer(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok = self._mk_open_now_case()
++
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertTrue(body["accepted"])
++        sid = body["session_id"]
++        self.assertIsNotNone(sid)
++        # A guest session cookie was minted.
++        self.assertIn(self.SESSION_COOKIE_NAME, anon.cookies)
++
++        # The guest is the interviewer and can read its own session.
++        gr = anon.get(f"/api/practice/{sid}")
++        self.assertEqual(gr.status_code, 200, gr.text)
++        self.assertEqual(gr.json()["your_role"], "interviewer")
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT interviewer_id FROM practice_sessions WHERE id=%s;", (sid,))
++                iv_id = cur.fetchone()[0]
++                cur.execute("SELECT is_guest, email FROM users WHERE id=%s;", (iv_id,))
++                is_guest, email = cur.fetchone()
++        self.assertTrue(is_guest)
++        self.assertIsNone(email)
++
++    def test_authenticated_claim_still_works_for_real_user(self):
++        # Regression: a real logged-in user claiming is unchanged.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='c@yale.edu';")
++                cid = cur.fetchone()[0]
++        cara = TestClient(app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(cid, user_agent="b2-test").id)
++        tok = self._mk_open_now_case()
++        r = cara.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++
++    def test_guest_cannot_reclaim_a_second_link(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok1 = self._mk_open_now_case()
++        anon = TestClient(app)
++        self.assertEqual(anon.post(f"/api/proposals/claim/{tok1}").status_code, 200)
++        # Same guest cookie, a different open link → 403 (scoped to one session).
++        tok2 = self._mk_open_now_case()
++        r = anon.post(f"/api/proposals/claim/{tok2}")
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_unauth_pair_claim_mints_guest(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        mint = self.bob.post("/api/practice/pair/create", json={"case_id": self.case_id})
++        self.assertEqual(mint.status_code, 200, mint.text)
++        token = mint.json()["token"]
++        anon = TestClient(app)
++        r = anon.post("/api/practice/pair/claim", json={"token": token})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIn(self.SESSION_COOKIE_NAME, anon.cookies)
++
++    def test_guest_interviewer_claim_sends_no_invite_to_null_email(self):
++        # NULL-email guard: the guest-interviewer claim must not blow up on
++        # the invite path, and the guest can still fetch its own .ics.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok = self._mk_open_now_case()
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        sid = r.json()["session_id"]
++        ics = anon.get(f"/ics/session-{sid}.ics")
++        self.assertEqual(ics.status_code, 200, ics.text)
++
++    def test_claim_nulls_dead_claim_token(self):
++        # B1 report N-1 (lands in B2 scope): claiming nulls the now-dead
++        # claim_token so it never surfaces on the claimed row / in the inbox.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        from datetime import datetime, timedelta, timezone
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='c@yale.edu';")
++                cid = cur.fetchone()[0]
++        cara = TestClient(app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(cid, user_agent="b2-test").id)
++        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id,
++            "proposed_times": [future]}).json()["claim_token"]
++        res = cara.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(res.status_code, 200, res.text)
++        pid = res.json()["proposal_id"]
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT claim_token FROM proposals WHERE id=%s;", (pid,))
++                self.assertIsNone(cur.fetchone()[0])
++
++    def test_failed_proposal_claim_leaves_no_orphan_guest(self):
++        # Unauthenticated bad-token claim must not persist a guest user/session.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        import psycopg
++        def _counts():
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
++                    g = cur.fetchone()[0]
++                    cur.execute("SELECT count(*) FROM sessions;")
++                    s = cur.fetchone()[0]
++            return g, s
++        before = _counts()
++        r = TestClient(app).post("/api/proposals/claim/nope-nope-nope")
++        self.assertEqual(r.status_code, 404, r.text)
++        self.assertEqual(_counts(), before)
++
++    def test_failed_pair_claim_leaves_no_orphan_guest(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        import psycopg
++        def _gcount():
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
++                    return cur.fetchone()[0]
++        before = _gcount()
++        r = TestClient(app).post("/api/practice/pair/claim", json={})
++        self.assertEqual(r.status_code, 422, r.text)
++        self.assertEqual(_gcount(), before)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_pairing.py b/tests/test_pairing.py
+index e183773..1c597a1 100644
+--- a/tests/test_pairing.py
++++ b/tests/test_pairing.py
+@@ -202,26 +202,27 @@ class TestPairingTokenClaim(unittest.TestCase):
+ 
+     def test_self_claim_returns_409(self):
+         token = self._mint()
+         r = self.alice.post("/api/practice/pair/claim", json={"token": token})
+         self.assertEqual(r.status_code, 409, r.text)
+ 
+     def test_unknown_token_returns_404(self):
+         r = self.bob.post("/api/practice/pair/claim", json={"token": "does-not-exist"})
+         self.assertEqual(r.status_code, 404, r.text)
+ 
+-    def test_unauthenticated_returns_401(self):
++    def test_unauthenticated_claim_mints_guest(self):
++        # B2: pair/claim mints a scoped guest when unauthenticated.
+         token = self._mint()
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).post("/api/practice/pair/claim", json={"token": token})
+-        self.assertEqual(r.status_code, 401)
++        self.assertEqual(r.status_code, 200, r.text)
+ 
+ 
+ @unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
+ @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+ class TestPairingTokenStatus(unittest.TestCase):
+     """Task 14: status endpoint (interviewer discovers the claimed session)."""
+ 
+     @classmethod
+     def setUpClass(cls):
+         from fastapi.testclient import TestClient
+diff --git a/webapp/auth/guest.py b/webapp/auth/guest.py
+index 010d2f3..9055aee 100644
+--- a/webapp/auth/guest.py
++++ b/webapp/auth/guest.py
+@@ -1,29 +1,30 @@
+ """
+ Purpose: Guest-interviewer identity — mint scoped guest users, convert them
+          to real accounts in place, and the FastAPI dependency guests use.
+ Inputs:  users table (via get_pool); the current request's request.state.user.
+ Outputs: guest users rows (is_guest=TRUE, NULL email/password); in-place
+          upgrades (is_guest→FALSE + real email/password). No files written.
+-Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest
++Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest, require_auth_or_mint_guest
+ """
+ 
+ from __future__ import annotations
+ 
+ import logging
+ 
+ import psycopg
+-from fastapi import HTTPException, Request
++from fastapi import HTTPException, Request, Response
+ from psycopg.rows import dict_row
+ 
+ from webapp.auth.dependencies import get_current_user
+ from webapp.auth.passwords import hash_password, validate_password
++from webapp.auth.sessions import attach_session_cookie, create_session, destroy_session
+ from webapp.auth.users import (
+     EmailAlreadyRegistered,
+     User,
+     _row_to_user,
+     validate_email,
+ )
+ from webapp.db import get_pool
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -96,10 +97,56 @@ def upgrade_guest(user_id: int, email: str, password: str) -> User:
+ 
+ def require_guest(request: Request) -> User:
+     """Dependency for the upgrade endpoint: the caller must be a guest.
+     401 when unauthenticated, 403 when a real (non-guest) user."""
+     user = get_current_user(request)
+     if user is None:
+         raise HTTPException(status_code=401, detail="Authentication required")
+     if not user.is_guest:
+         raise HTTPException(status_code=403, detail="Only guests can upgrade")
+     return user
++
++
++def require_auth_or_mint_guest(request: Request, response: Response) -> User:
++    """Auth dependency for the claim endpoints. Returns the current real user
++    unchanged; when the request is unauthenticated, mints a guest user + server
++    session and sets the session cookie on the response, returning the guest.
++
++    A user who is *already a guest* is rejected (403): a guest is scoped to the
++    single session it claimed — claiming again would accrue cross-session
++    history before upgrade, which the design forbids.
++    """
++    user = get_current_user(request)
++    if user is not None:
++        if user.is_guest:
++            raise HTTPException(
++                status_code=403,
++                detail="Guests are limited to one session. Create an account to continue.",
++            )
++        return user
++    guest = mint_guest_user()
++    session = create_session(guest.id, user_agent=request.headers.get("user-agent"))
++    attach_session_cookie(response, session)
++    # Stash so a failed claim can reap the just-minted guest (below): an
++    # unauthenticated bad-token POST must not leave an orphan users/sessions row.
++    request.state.b2_minted_guest = guest
++    request.state.b2_minted_guest_session = session
++    return guest
++
++
++def discard_minted_guest(request: Request) -> None:
++    """Delete a guest + session minted for THIS request when the claim it was
++    minted for did not succeed. Closes the unauthenticated row-creation vector:
++    a bad / expired / already-claimed token leaves no orphan guest behind. A
++    real (pre-authenticated) user request has nothing stashed, so this is a
++    no-op for them."""
++    guest = getattr(request.state, "b2_minted_guest", None)
++    if guest is None:
++        return
++    session = getattr(request.state, "b2_minted_guest_session", None)
++    request.state.b2_minted_guest = None
++    request.state.b2_minted_guest_session = None
++    if session is not None:
++        destroy_session(session.id)
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("DELETE FROM users WHERE id = %s AND is_guest = TRUE;", (guest.id,))
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index d679212..20950ff 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -83,22 +83,23 @@ def claim_proposal(token: str, user_id: int) -> dict:
+             prop = cur.fetchone()
+             if prop is None:
+                 raise TransitionError(404, "No such claim link")
+             if prop["state"] != "pending":
+                 raise TransitionError(409, f"Proposal is already {prop['state']}")
+             if prop["to_user_id"] is not None:
+                 raise TransitionError(409, "This link has already been claimed")
+             if user_id == prop["from_user_id"]:
+                 raise TransitionError(409, "You can't claim your own link")
+ 
+-            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
+-                        (user_id, prop["id"]))
++            cur.execute(
++                "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",
++                (user_id, prop["id"]))
+             prop["to_user_id"] = user_id
+ 
+             result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
+             if prop["proposed_times_json"]:
+                 # Scheduled: claimer is now the recipient; awaits accept/counter.
+                 result.update(state="pending", session_id=None,
+                               accepted=False, needs_negotiation=False)
+                 return result
+ 
+             if prop["case_id"] is None:
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index 746f4b7..2c21b08 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -10,20 +10,21 @@ illegal transitions and consent gates get 409.
+ from __future__ import annotations
+ 
+ from datetime import datetime
+ from typing import Literal, Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+ from pydantic import BaseModel, Field
+ from starlette.concurrency import run_in_threadpool
+ 
+ from webapp.auth.dependencies import require_auth, require_auth_api
++from webapp.auth.guest import discard_minted_guest, require_auth_or_mint_guest
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.live_activity import push_live_activity_update
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as feedback_repo
+ from webapp.repositories import pairing_tokens as pairing_repo
+ from webapp.repositories import practice_sessions as repo
+ from webapp.routes.signal_ws import hub
+@@ -158,28 +159,31 @@ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
+ @router.post("/api/practice/pair/create", dependencies=_MUTATING)
+ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_api)):
+     """Mint a short-TTL pairing token for in-person QR pairing (spec §8).
+     case_id optional — "interviewer decides" pairs case-less (negotiated in B3)."""
+     if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
+ 
+ 
+ @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
+-def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
++def claim_pair_token(body: PairClaimBody, request: Request,
++                     user: User = Depends(require_auth_or_mint_guest)):
+     """Claim a pairing token by token OR short_code (spec §8)."""
+     if not body.token and not body.short_code:
++        discard_minted_guest(request)
+         raise HTTPException(status_code=422, detail="Provide a token or short_code")
+     try:
+         return pairing_repo.claim(candidate_id=user.id, token=body.token,
+                                   short_code=body.short_code)
+     except TransitionError as exc:
++        discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+     (§ pairing). 404 if the token doesn't exist or isn't owned by the caller.
+     Once claimed, the response carries the candidate's top-3 recommendations
+     (spec §7.2 — "Recommended for [name]", interviewer-side)."""
+     try:
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index 7934329..6067572 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -11,20 +11,21 @@ from __future__ import annotations
+ 
+ import logging
+ from datetime import datetime
+ from typing import Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+ from fastapi.responses import Response
+ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import discard_minted_guest, require_auth_or_mint_guest
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.ics import build_session_ics
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.repositories import proposals as repo
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories.practice_sessions import get_practice_session
+ from webapp.routes.practice import _session_or_404
+ 
+@@ -118,26 +119,27 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+         body="Your case session proposal was accepted",
+         data={"kind": "accepted", "session_id": prop["session_id"]},
+     )
+     return {"accepted": True, "session_id": prop["session_id"],
+             "session_url": f"/session/{prop['session_id']}",
+             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
+ 
+ 
+ @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+ def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+-                   user: User = Depends(require_auth_api)):
++                   user: User = Depends(require_auth_or_mint_guest)):
+     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+     the creator; guests arrive in B2 by overriding require_auth_api."""
+     try:
+         result = repo.claim_proposal(claim_token, user.id)
+     except TransitionError as exc:
++        discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+     if result["session_id"] is not None:
+         _send_invites(request, result["session_id"])
+         background.add_task(
+             push_to_user, result["from_user_id"],
+             title="Your invite was claimed",
+             body="Someone claimed your session link",
+             data={"kind": "accepted", "session_id": result["session_id"]},
+         )
+@@ -188,52 +190,54 @@ def session_ics(session_id: int, request: Request,
+ 
+ def _build_ics_for(request: Request, session: dict) -> str:
+     base_url = str(request.base_url).rstrip("/")
+     host = request.base_url.hostname or "caseroom.local"
+     emails = _participant_emails(session)
+     return build_session_ics(
+         session_id=session["id"],
+         case_title=session["case_title"],
+         starts_at=session["scheduled_at"],
+         organizer_name=session["interviewer_name"],
+-        organizer_email=emails["interviewer"],
++        organizer_email=emails["interviewer"] or "guest@caseroom.invalid",
+         attendee_name=session["candidate_name"],
+-        attendee_email=emails["candidate"],
++        attendee_email=emails["candidate"] or "guest@caseroom.invalid",
+         session_url=f"{base_url}/session/{session['id']}",
+         host=host,
+     )
+ 
+ 
+ def _participant_emails(session: dict) -> dict:
+     from webapp.db import get_pool
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute("SELECT id, email FROM users WHERE id = ANY(%s);",
+                         ([session["interviewer_id"], session["candidate_id"]],))
+             by_id = {row[0]: row[1] for row in cur.fetchall()}
+-    return {"interviewer": by_id[session["interviewer_id"]],
+-            "candidate": by_id[session["candidate_id"]]}
++    return {"interviewer": by_id.get(session["interviewer_id"]),
++            "candidate": by_id.get(session["candidate_id"])}
+ 
+ 
+ def _send_invites(request: Request, session_id: int) -> None:
+     """Email both parties; failures are logged, never raised (the session
+     already exists and the .ics is downloadable)."""
+     try:
+         from webapp.auth.email_sender import get_email_sender
+         session = get_practice_session(session_id)
+         ics = _build_ics_for(request, session)
+         emails = _participant_emails(session)
+         base_url = str(request.base_url).rstrip("/")
+         when = (session["scheduled_at"].strftime("%A %b %-d, %H:%M %Z")
+                 if session["scheduled_at"] else "now — join when ready")
+         sender = get_email_sender()
+         for role, addr in emails.items():
++            if not addr:
++                continue  # guest participant: no inbox to invite
+             counterpart = (session["candidate_name"] if role == "interviewer"
+                            else session["interviewer_name"])
+             sender.send(
+                 to=addr,
+                 subject=f"Case practice scheduled: {session['case_title']}",
+                 text_body=(
+                     f"Your case practice with {counterpart} is scheduled ({when}).\n\n"
+                     f"Case: {session['case_title']}\n"
+                     f"Your role: {role}\n"
+                     f"Join: {base_url}/session/{session_id}\n\n"

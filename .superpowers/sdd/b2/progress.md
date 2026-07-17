@@ -15,6 +15,9 @@ Interpreter (`$PY`): `/Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/bin
 ## Tasks
 - Task 1: complete (commits a982f78..18361a3, review CLEAN) — migration 025 + User.is_guest; suite 422 passed.
 - Task 2: complete (commits 18361a3..bc4ffff, review CLEAN) — webapp/auth/guest.py (mint_guest_user, upgrade_guest race-safe, require_guest); suite 428 passed. Minor: test uses inherited datetime.utcnow() deprecation (repo-wide norm, no fix).
-- Task 3: pending (mint guests on claim; N-1 fix)
+- Task 3: complete (commits 169fa5d..cda02a2, review MINOR-ONLY → fixed). Mint scoped guests on unauthenticated proposals-claim + pair-claim; NULL-email invite guard; N-1 claim_token null.
+  - Review Important finding: orphan guest rows on FAILED claims (mint-before-validate) = unauthenticated scriptable row-creation vector. FIXED (cda02a2): `discard_minted_guest(request)` reaps the just-minted guest+session at every claim failure path (bad token, empty pair body, TransitionError). Covering tests added (no orphan on failed claim). Minor docblock Run: line updated.
+  - Deviation DV-B2-1: N-1 (null claim_token on claim) changes a pre-existing B1 test — `test_b1_proposals_open.py::test_double_claim_409` → `test_double_claim_404_dead_token` (a re-claim of a now-dead token is 404 "No such claim link", not 409). Reviewer APPROVED as the only correct reconciliation. Plus the 3 planned B1 test updates (unauth claim/pair-claim now 200, not 401).
+  - Suite: 436 passed (428 + 8: 6 claim tests + 2 orphan-guard tests).
 - Task 4: pending (require_session_participant + guest-reject + is_guest payload)
 - Task 5: pending (upgrade endpoint)
