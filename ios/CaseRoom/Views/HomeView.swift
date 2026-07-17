@@ -116,7 +116,7 @@ struct HomeView: View {
                         .lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 12)
-                Text("Re-read").dsText(.meta).underline().foregroundStyle(DSPalette.dark.ink)
+                Text("Re-read").dsText(.actionLabel).underline().foregroundStyle(DSPalette.dark.ink)
             }
             .padding(.horizontal, 20).padding(.vertical, 15)
         }
@@ -159,7 +159,7 @@ struct HomeView: View {
         HStack(spacing: 12) {
             Text(message).dsText(.meta).foregroundStyle(palette.muted)
             Button { Task { await viewModel.load() } } label: {
-                Text("Retry").dsText(.meta).underline().foregroundStyle(palette.ink)
+                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
             }
             .buttonStyle(.plain)
         }
@@ -250,7 +250,7 @@ struct HomeView: View {
                         .lineLimit(1).truncationMode(.tail)
                 }
                 Spacer(minLength: 12)
-                Text("Details").dsText(.meta).underline().foregroundStyle(palette.ink)
+                Text("Details").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
             }
             .padding(.horizontal, 20).padding(.vertical, 15)
         }
@@ -335,7 +335,7 @@ struct HomeView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("TIMELINE — FIRM DEADLINES").dsText(.kicker).foregroundStyle(palette.muted)
                     Spacer()
-                    Text("Add a firm").dsText(.meta).underline().foregroundStyle(palette.muted)
+                    Text("Add a firm").dsText(.actionLabel).underline().foregroundStyle(palette.muted)
                 }
                 SteppedTimeline(firms: viewModel.timelineFirms)
             }

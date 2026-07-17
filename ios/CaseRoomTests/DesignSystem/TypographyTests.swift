@@ -44,6 +44,7 @@ final class TypographyTests: XCTestCase {
         XCTAssertEqual(DSTextStyle.takeoverDisplay.tracking, -1.12, accuracy: 0.001) // 32 × -.035em
         XCTAssertEqual(DSTextStyle.kicker.tracking, 1.6, accuracy: 0.001)        // 10 × .16em
         XCTAssertEqual(DSTextStyle.rowTitle.tracking, 0, accuracy: 0.001)
+        XCTAssertEqual(DSTextStyle.actionLabel.tracking, 0, accuracy: 0.001) // 11.5/600 small underlined actions
     }
 
     // Timeline label statics = canvas pixel-truth (3a 1484-1497 / 7b 365-377):

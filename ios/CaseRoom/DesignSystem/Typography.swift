@@ -79,6 +79,8 @@ struct DSTextStyle {
     static let rowTitleStrong  = DSTextStyle(font: .archivo(14.5, weight: 700), tracking: 0,   lineSpacing: 0)
     static let kicker          = DSTextStyle(font: .archivo(10, weight: 600), tracking: 1.6,   lineSpacing: 0)  // .16em caps
     static let meta            = DSTextStyle(font: .archivo(11.5, weight: 400), tracking: 0,   lineSpacing: 0)
+    // Small underlined text actions (canvas: Details/Re-read/Add a firm 11–11.5/600).
+    static let actionLabel     = DSTextStyle(font: .archivo(11.5, weight: 600), tracking: 0,   lineSpacing: 0)
     static let timerLarge      = DSTextStyle(font: .archivo(34, weight: 700), tracking: 0,     lineSpacing: 0)
 
     // Stepped-timeline label grid (canvas 3a 1484-1497 / 7b 365-377). The days
