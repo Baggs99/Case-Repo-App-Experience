@@ -112,7 +112,7 @@
                 {% for rec in recommended %}
                 <li class="text-sm flex items-center justify-between gap-2">
                     <span class="truncate">
-                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.case_title }}</a>
+                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.title }}</a>
                         <span class="text-[12px] text-slate-500 dark:text-slate-500">· {{ rec.difficulty }}</span>
                     </span>
                     <span class="badge badge-easy shrink-0">{{ rec.rule }}</span>
