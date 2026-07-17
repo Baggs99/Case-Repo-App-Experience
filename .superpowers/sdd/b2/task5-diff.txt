@@ -1,0 +1,311 @@
+=== git log d377048d307e8731fb1834b2d972c4b0d676c9da..9c745427d375effa370a37f0615b9c8e64fbd257 ===
+9c74542 Add POST /api/v1/auth/upgrade (guest → real account in place)
+
+=== diff --stat ===
+ .superpowers/sdd/b2/task-5-report.md |  41 ++++++++++
+ tests/test_b2_guest_upgrade.py       | 149 +++++++++++++++++++++++++++++++++++
+ webapp/main.py                       |   2 +
+ webapp/routes/guest.py               |  44 +++++++++++
+ 4 files changed, 236 insertions(+)
+
+=== diff -U10 ===
+diff --git a/.superpowers/sdd/b2/task-5-report.md b/.superpowers/sdd/b2/task-5-report.md
+new file mode 100644
+index 0000000..15439f2
+--- /dev/null
++++ b/.superpowers/sdd/b2/task-5-report.md
+@@ -0,0 +1,41 @@
++# B2 Task 5 report — Upgrade endpoint (`POST /api/v1/auth/upgrade`)
++
++**Status:** DONE
++**Commit:** HEAD of bgap/b2-guest — "Add POST /api/v1/auth/upgrade (guest → real account in place)"
++**Branch:** bgap/b2-guest (worktree /Users/thomaskgould/dev/bgap-b2)
++**Baseline:** 444 (plan says 440 for this point; extra security-fix tests from Tasks 3-4 landed earlier, so 444 is the real baseline). Finish line = 444 + 6 = 450.
++
++## What changed
++- `webapp/routes/guest.py` — NEW. `POST /api/v1/auth/upgrade`, body `{email, password}` (Pydantic `UpgradeBody`, `email` 3–320 / `password` 1–1024). Guarded by `Depends(require_guest)` (401 unauth / 403 real user) and CSRF-guarded by `dependencies=[Depends(require_same_origin)]`. Delegates the in-place conversion to `upgrade_guest(user.id, ...)` and maps its exceptions: `InvalidEmailDomain`→400, `WeakPasswordError`→400, `EmailAlreadyRegistered`→409, `GuestUpgradeConflict`→409. On success returns `200 {upgraded: true, user_id, email}`; the session cookie is untouched and now authenticates the (now-real) user. 4-line header docblock present.
++- `webapp/main.py` — MODIFY. Added `from webapp.routes import guest as guest_routes` (with the other route imports) and `app.include_router(guest_routes.router)` (after `proposals_routes`).
++- `tests/test_b2_guest_upgrade.py` — NEW, 6 tests: happy-path (guest 403 on `/api/v1/me` before → 200 after upgrade; history FK intact, `interviewer_is_guest` now false); second upgrade rejected **403** as a now-real user (per plan: the 409 GuestUpgradeConflict concurrent-race path is proven at repo level in Task 2, not re-tested here); bad domain → 400; taken email (`a@yale.edu`) → 409; non-guest (real user) → 403; unauthenticated → 401. Module-level `_cleanup_case` helper + dedicated case (source_year 2100) + teardown that also reaps `grad-%@yale.edu` upgraded users for re-runnability.
++
++## Security invariants preserved
++- State-changing route carries `require_same_origin` (CSRF).
++- Auth guard `require_guest` on the endpoint (401/403 before the handler runs).
++- Parameterized SQL only (all DB work is inside the pre-existing `upgrade_guest`, which uses a `WHERE id=%s AND is_guest=TRUE` parameterized UPDATE).
++- No placeholders; new module has the 4-line header docblock; repo style matched (mirrors `_MUTATING = [Depends(require_same_origin)]` idiom used elsewhere).
++
++## Evidence
++
++(a) New test — before implementation (Step 2), route not registered:
++```
++6 failed  (all 404 — route does not exist)
++```
++
++After implementation (Step 5):
++```
++$ DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_upgrade.py -q -p no:warnings
++......
++6 passed in 0.76s
++```
++
++(b) Full suite (Step 6):
++```
++$ DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q -p no:warnings
++450 passed in 6.75s
++```
++(444 baseline + 6 new = 450, zero failures.)
++
++## Concerns
++None.
+diff --git a/tests/test_b2_guest_upgrade.py b/tests/test_b2_guest_upgrade.py
+new file mode 100644
+index 0000000..43a00d3
+--- /dev/null
++++ b/tests/test_b2_guest_upgrade.py
+@@ -0,0 +1,149 @@
++"""
++B2 Task 5: POST /api/v1/auth/upgrade converts a guest to a real account in
++place — history FKs intact, cookie now authenticates a real user, previously
++403'd endpoints open. Needs seeded dev Postgres + migration 025 — skips
++otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++import uuid
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestUpgrade(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.app = app
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='b@yale.edu';")
++                cls.bid = cur.fetchone()[0]
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Upgrade Case', 'b2 guest upgrade case', 'DevSchool',"
++                    " 2100, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.bob = TestClient(app)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _cleanup_case(cls.case_id)  # removes case sessions first (frees FKs)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email LIKE %s;",
++                            ("grad-%@yale.edu",))
++                ids = [r[0] for r in cur.fetchall()]
++                if ids:
++                    cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (ids,))
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _fresh_email(self):
++        return f"grad-{uuid.uuid4().hex[:10]}@yale.edu"
++
++    def _new_guest_with_session(self):
++        from fastapi.testclient import TestClient
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id}).json()["claim_token"]
++        guest = TestClient(self.app)
++        sid = guest.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        return guest, sid
++
++    def test_upgrade_happy_path_keeps_history_and_opens_endpoints(self):
++        guest, sid = self._new_guest_with_session()
++        # Before upgrade: guest is 403 on /me.
++        self.assertEqual(guest.get("/api/v1/me").status_code, 403)
++        email = self._fresh_email()
++        r = guest.post("/api/v1/auth/upgrade", json={"email": email, "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["upgraded"])
++        # After upgrade: same cookie now authenticates a real user.
++        me = guest.get("/api/v1/me")
++        self.assertEqual(me.status_code, 200, me.text)
++        # History FK intact: the guest's finalized-or-not session still lists them.
++        s = guest.get(f"/api/practice/{sid}")
++        self.assertEqual(s.status_code, 200, s.text)
++        self.assertEqual(s.json()["your_role"], "interviewer")
++        self.assertFalse(s.json()["interviewer_is_guest"])
++
++    def test_second_upgrade_rejected_as_real_user(self):
++        # After the first upgrade, the SAME cookie now resolves to a real
++        # (is_guest=FALSE) user, so require_guest rejects the second call with
++        # 403 before the handler runs. (The genuine concurrent-race path — two
++        # requests both seeing is_guest=TRUE — returns 409 via GuestUpgradeConflict
++        # and is proven at the repo level in test_b2_guest_crud.)
++        guest, _ = self._new_guest_with_session()
++        self.assertEqual(guest.post("/api/v1/auth/upgrade",
++                         json={"email": self._fresh_email(), "password": "correct horse battery staple"}).status_code, 200)
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_upgrade_bad_domain_rejected(self):
++        guest, _ = self._new_guest_with_session()
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": "someone@gmail.com", "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 400, r.text)
++
++    def test_upgrade_taken_email_conflicts(self):
++        guest, _ = self._new_guest_with_session()
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": "a@yale.edu", "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 409, r.text)
++
++    def test_non_guest_cannot_upgrade(self):
++        r = self.bob.post("/api/v1/auth/upgrade",
++                          json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_unauthenticated_upgrade_401(self):
++        from fastapi.testclient import TestClient
++        r = TestClient(self.app).post("/api/v1/auth/upgrade",
++                                      json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 401, r.text)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/main.py b/webapp/main.py
+index 33fbc9d..8b9c3e9 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -45,20 +45,21 @@ _load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+ # ── App ────────────────────────────────────────────────────────────────────────
+ 
+ from webapp.auth.dependencies import RedirectToLogin
+ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+ from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import files as files_routes
++from webapp.routes import guest as guest_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+ from webapp.routes import recommendations as recommendations_routes
+ from webapp.routes import rooms as rooms_routes
+@@ -135,20 +136,21 @@ def create_app() -> FastAPI:
+     app.include_router(files_routes.router)
+     app.include_router(votes_routes.router)
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
++    app.include_router(guest_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(api_v1_routes.router)
+ 
+     return app
+ 
+ 
+ def _safe_url(url: str) -> str:
+     """Strip the password from a connection URL before logging."""
+diff --git a/webapp/routes/guest.py b/webapp/routes/guest.py
+new file mode 100644
+index 0000000..71a0ed9
+--- /dev/null
++++ b/webapp/routes/guest.py
+@@ -0,0 +1,44 @@
++"""
++Purpose: Guest account upgrade — POST /api/v1/auth/upgrade converts the current
++         guest row into a real account in place (spec §6.2, "keep it on a
++         record?"), preserving every FK to session history.
++Inputs:  JSON body {email, password}; the guest session cookie (require_guest).
++Outputs: Mutates the guest's users row (is_guest→FALSE, real email/password).
++Run:     included from webapp.main via app.include_router(guest_routes.router)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException
++from pydantic import BaseModel, Field
++
++from webapp.auth.guest import GuestUpgradeConflict, require_guest, upgrade_guest
++from webapp.auth.passwords import WeakPasswordError
++from webapp.auth.users import InvalidEmailDomain, EmailAlreadyRegistered, User
++from webapp.csrf import require_same_origin
++
++router = APIRouter(tags=["guest"])
++
++_MUTATING = [Depends(require_same_origin)]
++
++
++class UpgradeBody(BaseModel):
++    email: str = Field(min_length=3, max_length=320)
++    password: str = Field(min_length=1, max_length=1024)
++
++
++@router.post("/api/v1/auth/upgrade", dependencies=_MUTATING)
++def upgrade(body: UpgradeBody, user: User = Depends(require_guest)):
++    """Convert the current guest to a real account in place (history FKs stay
++    attached). require_guest guarantees the caller is a guest (403 otherwise)."""
++    try:
++        upgraded = upgrade_guest(user.id, body.email, body.password)
++    except InvalidEmailDomain as exc:
++        raise HTTPException(status_code=400, detail=str(exc))
++    except WeakPasswordError as exc:
++        raise HTTPException(status_code=400, detail=str(exc))
++    except EmailAlreadyRegistered as exc:
++        raise HTTPException(status_code=409, detail=str(exc))
++    except GuestUpgradeConflict as exc:
++        raise HTTPException(status_code=409, detail=str(exc))
++    return {"upgraded": True, "user_id": upgraded.id, "email": upgraded.email}
