@@ -18,7 +18,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from webapp.auth.dependencies import require_auth_api
-from webapp.auth.guest import discard_minted_guest, require_auth_or_mint_guest
+from webapp.auth.guest import (
+    discard_minted_guest,
+    require_auth_or_mint_guest,
+    require_session_participant,
+)
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.ics import build_session_ics
@@ -177,7 +181,7 @@ def counter_proposal(proposal_id: int, body: CounterBody, background: Background
 
 @router.get("/ics/session-{session_id}.ics")
 def session_ics(session_id: int, request: Request,
-                user: User = Depends(require_auth_api)):
+                user: User = Depends(require_session_participant)):
     """Download link for the invite (spec §4.7) — participants only."""
     session, _ = _session_or_404(session_id, user.id)
     ics = _build_ics_for(request, session)

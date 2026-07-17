@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
 from webapp.auth.dependencies import require_auth_api
+from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
@@ -49,7 +50,7 @@ async def upload_chunk(session_id: int,
                        seq: int = Form(ge=0),
                        mime: str = Form(),
                        blob: UploadFile = File(),
-                       user: User = Depends(require_auth_api)):
+                       user: User = Depends(require_session_participant)):
     session, role = _session_or_404(session_id, user.id)
     if session["state"] not in ("live", "debrief"):
         # The final flush lands right after End (state already debrief).
@@ -77,7 +78,7 @@ async def upload_chunk(session_id: int,
 
 @router.post("/api/practice/{session_id}/recordings/complete",
              dependencies=_MUTATING)
-def complete_recording(session_id: int, user: User = Depends(require_auth_api)):
+def complete_recording(session_id: int, user: User = Depends(require_session_participant)):
     _session_or_404(session_id, user.id)
     try:
         row = repo.complete(session_id, user.id)
@@ -87,14 +88,14 @@ def complete_recording(session_id: int, user: User = Depends(require_auth_api)):
 
 
 @router.get("/api/practice/{session_id}/recordings")
-def list_recordings(session_id: int, user: User = Depends(require_auth_api)):
+def list_recordings(session_id: int, user: User = Depends(require_session_participant)):
     _session_or_404(session_id, user.id)
     return {"recordings": repo.list_for_session(session_id)}
 
 
 @router.get("/api/practice/{session_id}/recordings/{target_user_id}")
 def download_recording(session_id: int, target_user_id: int,
-                       user: User = Depends(require_auth_api)):
+                       user: User = Depends(require_session_participant)):
     """Authed passthrough — either participant may fetch either side
     (spec §5: 'the two participants')."""
     session, _ = _session_or_404(session_id, user.id)

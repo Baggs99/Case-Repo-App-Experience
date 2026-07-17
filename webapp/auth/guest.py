@@ -133,6 +133,29 @@ def require_auth_or_mint_guest(request: Request, response: Response) -> User:
     return guest
 
 
+def require_session_participant(session_id: int, request: Request) -> User:
+    """Auth guard for session-scoped endpoints that a guest may drive.
+
+    Real users: identical to require_auth_api (401 when unauthenticated);
+    per-session participant enforcement stays in each handler's _session_or_404,
+    so a real non-participant still gets 404 (unchanged, DV-11).
+
+    Guests: additionally scoped to their own session — 403 on any session they
+    do not participate in (the guest-cookie IDOR guard). Import the repo lazily
+    to avoid an import cycle (routes → repos → auth).
+    """
+    from webapp.repositories.practice_sessions import get_practice_session, role_of
+
+    user = get_current_user(request)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if user.is_guest:
+        session = get_practice_session(session_id)
+        if session is None or role_of(session, user.id) is None:
+            raise HTTPException(status_code=403, detail="Forbidden")
+    return user
+
+
 def discard_minted_guest(request: Request) -> None:
     """Delete a guest + session minted for THIS request when the claim it was
     minted for did not succeed. Closes the unauthenticated row-creation vector:
