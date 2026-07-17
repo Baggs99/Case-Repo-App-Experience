@@ -101,6 +101,16 @@ final class TimelineDetailViewModel {
 
     var nextRiserName: String { soonestFirm?.name ?? "" }
 
+    /// The firm the quant remediation races toward — earliest non-passed firm
+    /// tagged `focus` (canvas 7b: "…extra cases before BCG", the PUSH-QUANT
+    /// firm), falling back to the soonest riser if none is focus-tagged.
+    private var pushTargetName: String {
+        let focus = readinessFirms
+            .filter { $0.readinessTag == "focus" }
+            .min { ($0.deadline?.daysRemaining ?? .max) < ($1.deadline?.daysRemaining ?? .max) }
+        return (focus ?? soonestFirm)?.name ?? ""
+    }
+
     var addableChips: [FirmCatalogEntry] {
         catalog.filter { !$0.tracked && !addedFirmIds.contains($0.firmId) }
     }
@@ -138,7 +148,7 @@ final class TimelineDetailViewModel {
 
     func noOfferBody(_ reweight: Reweight) -> String {
         "Noted, not dwelt on. The plan reweights tonight: \(Self.drillPhrase(reweight.suggestedDrillType))" +
-        " and \(Self.spellOut(reweight.extraCases.count).lowercased()) extra cases before \(nextRiserName)."
+        " and \(Self.spellOut(reweight.extraCases.count).lowercased()) extra cases before \(pushTargetName)."
     }
 
     func noOfferKicker(_ reweight: Reweight) -> String {
@@ -203,6 +213,7 @@ final class TimelineDetailViewModel {
         return rem == 0 ? tens[ten] : "\(tens[ten])-\(ones[rem].lowercased())"
     }
 
+    /// Timeline 3-col summary label (canvas 7b line 372: focus → "PUSH QUANT").
     static func tagLabel(_ tag: String) -> String {
         switch tag {
         case "on_track": return "ON PACE"
@@ -210,6 +221,12 @@ final class TimelineDetailViewModel {
         case "early": return "EARLY"
         default: return tag.uppercased()
         }
+    }
+
+    /// Short-form label for the READINESS-PER-FIRM rows (canvas 7b line 394:
+    /// the focus tag reads "PUSH" there, not the timeline chip's "PUSH QUANT").
+    static func readinessRowTag(_ tag: String) -> String {
+        tag == "focus" ? "PUSH" : tagLabel(tag)
     }
 
     static func drillPhrase(_ type: String) -> String {
@@ -233,7 +250,7 @@ final class TimelineDetailViewModel {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)
-        f.dateFormat = "MMM d"
+        f.dateFormat = "MMM dd"   // canvas 7b zero-pads: "SEP 12" / "OCT 08" / "JUL 02"
         return f
     }()
 

@@ -1,0 +1,8 @@
+f78db05 Add Timeline detail (canvas 7b) + passed-deadline prompt flow
+ .superpowers/sdd/f2/shots/timeline-detail.png      | Bin 0 -> 1709091 bytes
+ .../sdd/f2/shots/timeline-prompt-nooffer.png       | Bin 0 -> 1750457 bytes
+ ios/CaseRoom/App/CaseRoomApp.swift                 |  18 +-
+ ios/CaseRoom/State/TimelineDetailViewModel.swift   | 257 ++++++++++++++++
+ ios/CaseRoom/Views/TimelineDetailView.swift        | 342 +++++++++++++++++++++
+ .../TimelineDetailViewModelTests.swift             | 238 ++++++++++++++
+ 6 files changed, 853 insertions(+), 2 deletions(-)

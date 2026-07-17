@@ -101,7 +101,7 @@ struct TimelineDetailView: View {
                 Text(viewModel.secondaryLine(for: firm)).dsText(.meta).foregroundStyle(palette.muted)
             }
             Spacer(minLength: 12)
-            Text(TimelineDetailViewModel.tagLabel(firm.readinessTag))
+            Text(TimelineDetailViewModel.readinessRowTag(firm.readinessTag))
                 .dsText(.kicker)
                 .foregroundStyle(firm.readinessTag == "on_track" ? palette.green : palette.muted)
         }

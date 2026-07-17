@@ -28,6 +28,9 @@ final class TimelineDetailViewModelTests: XCTestCase {
         XCTAssertEqual(TimelineDetailViewModel.tagLabel("on_track"), "ON PACE")
         XCTAssertEqual(TimelineDetailViewModel.tagLabel("focus"), "PUSH QUANT")
         XCTAssertEqual(TimelineDetailViewModel.tagLabel("early"), "EARLY")
+        // Readiness-per-firm rows shorten focus to "PUSH" (canvas 7b line 394).
+        XCTAssertEqual(TimelineDetailViewModel.readinessRowTag("focus"), "PUSH")
+        XCTAssertEqual(TimelineDetailViewModel.readinessRowTag("on_track"), "ON PACE")
     }
 
     // MARK: - Headline / readiness derivation
@@ -109,8 +112,10 @@ final class TimelineDetailViewModelTests: XCTestCase {
         guard case .result(let result) = vm.promptStage, let reweight = result.reweight else {
             return XCTFail("expected a no_offer result with a reweight")
         }
+        // "before BCG" — the reweight targets the focus/PUSH-QUANT firm (BCG),
+        // not the on-pace soonest riser (McKinsey). Canvas 7b line 454.
         XCTAssertEqual(vm.noOfferBody(reweight),
-                        "Noted, not dwelt on. The plan reweights tonight: quant drills daily and two extra cases before McKinsey.")
+                        "Noted, not dwelt on. The plan reweights tonight: quant drills daily and two extra cases before BCG.")
         XCTAssertEqual(vm.noOfferKicker(reweight), "DIAGNOSTIC UPDATED · FOCUS UNCHANGED: MARKET SIZING")
     }
 
