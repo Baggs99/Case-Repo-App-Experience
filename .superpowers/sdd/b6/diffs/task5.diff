@@ -1,0 +1,318 @@
+=== git log --oneline f6fc551..c2b840e ===
+c2b840e Add groups router with admin-gated progress (B6 Task 5)
+
+=== git diff --stat f6fc551..c2b840e ===
+ tests/test_b6_groups_api.py | 114 +++++++++++++++++++++++++++++++++++++
+ webapp/main.py              |   2 +
+ webapp/routes/groups.py     | 134 ++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 250 insertions(+)
+
+=== git diff -U10 f6fc551..c2b840e ===
+diff --git a/tests/test_b6_groups_api.py b/tests/test_b6_groups_api.py
+new file mode 100644
+index 0000000..415c024
+--- /dev/null
++++ b/tests/test_b6_groups_api.py
+@@ -0,0 +1,114 @@
++"""B6 Task 5: groups API — create/join/leave/transfer, detail+leaderboard,
++admin-only progress, auth + IDOR + same-origin. Needs seeded Postgres + httpx."""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_b6_connections_api import _assert_no_counts
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGroupsApi(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++        cls.bob = TestClient(app)
++        cls.cara = TestClient(app)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++        cls.a, cls.b, cls.c = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        for client, uid in ((cls.alice, cls.a), (cls.bob, cls.b), (cls.cara, cls.c)):
++            s = create_session(uid, user_agent="b6-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def tearDown(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM groups WHERE created_by = ANY(%s);",
++                            ([self.a, self.b, self.c],))
++
++    def _create(self, client, name="Cohort C-14"):
++        r = client.post("/api/v1/groups", json={"name": name})
++        self.assertEqual(r.status_code, 200, r.text)
++        return r.json()
++
++    def test_requires_auth(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        self.assertEqual(TestClient(app).get("/api/v1/groups").status_code, 401)
++
++    def test_cross_origin_rejected(self):
++        r = self.alice.post("/api/v1/groups", json={"name": "X"},
++                            headers={"Origin": "http://evil.example"})
++        self.assertEqual(r.status_code, 403)
++
++    def test_create_blank_name_422(self):
++        self.assertEqual(self.alice.post("/api/v1/groups", json={"name": "  "}).status_code, 422)
++
++    def test_create_join_detail(self):
++        g = self._create(self.alice)
++        self.assertEqual(g["role"], "admin")
++        j = self.bob.post("/api/v1/groups/join", json={"invite_code": g["invite_code"]})
++        self.assertEqual(j.status_code, 200, j.text)
++        self.assertFalse(j.json()["already_member"])
++        self.assertEqual(j.json()["role"], "member")  # C2: role visible on first join
++        detail = self.alice.get(f"/api/v1/groups/{g['id']}").json()
++        self.assertEqual({m["user_id"] for m in detail["members"]}, {self.a, self.b})
++        self.assertTrue(any("rank" in row for row in detail["leaderboard"]))
++        _assert_no_counts(self, detail)
++
++    def test_join_bad_code_404(self):
++        self.assertEqual(self.bob.post("/api/v1/groups/join",
++                                       json={"invite_code": "ZZZZZZ"}).status_code, 404)
++
++    def test_detail_non_member_404(self):
++        g = self._create(self.alice)
++        self.assertEqual(self.cara.get(f"/api/v1/groups/{g['id']}").status_code, 404)
++
++    def test_progress_admin_only(self):
++        g = self._create(self.alice)
++        self.bob.post("/api/v1/groups/join", json={"invite_code": g["invite_code"]})
++        prog = self.alice.get(f"/api/v1/groups/{g['id']}/progress")
++        self.assertEqual(prog.status_code, 200)
++        _assert_no_counts(self, prog.json())
++        # member (bob) forbidden
++        self.assertEqual(self.bob.get(f"/api/v1/groups/{g['id']}/progress").status_code, 403)
++        # non-member (cara) 404 (doesn't leak existence)
++        self.assertEqual(self.cara.get(f"/api/v1/groups/{g['id']}/progress").status_code, 404)
++
++    def test_transfer_admin_only(self):
++        g = self._create(self.alice)
++        self.bob.post("/api/v1/groups/join", json={"invite_code": g["invite_code"]})
++        # member cannot transfer
++        self.assertEqual(self.bob.post(f"/api/v1/groups/{g['id']}/transfer",
++                                       json={"user_id": self.b}).status_code, 403)
++        # admin transferring to self is rejected (would-be adminless group)
++        self.assertEqual(self.alice.post(f"/api/v1/groups/{g['id']}/transfer",
++                                         json={"user_id": self.a}).status_code, 400)
++        # admin transfers to bob
++        self.assertEqual(self.alice.post(f"/api/v1/groups/{g['id']}/transfer",
++                                         json={"user_id": self.b}).status_code, 200)
++        self.assertEqual(self.bob.get(f"/api/v1/groups/{g['id']}/progress").status_code, 200)
++
++    def test_leave_sole_admin_conflict(self):
++        g = self._create(self.alice)
++        self.bob.post("/api/v1/groups/join", json={"invite_code": g["invite_code"]})
++        self.assertEqual(self.alice.post(f"/api/v1/groups/{g['id']}/leave").status_code, 409)
++        self.assertEqual(self.bob.post(f"/api/v1/groups/{g['id']}/leave").status_code, 204)
++        self.assertEqual(self.alice.post(f"/api/v1/groups/{g['id']}/leave").status_code, 204)
+diff --git a/webapp/main.py b/webapp/main.py
+index b29cfa8..162da9e 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -48,20 +48,21 @@ from webapp.auth.dependencies import RedirectToLogin
+ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+ from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import auth_oauth as auth_oauth_routes
+ from webapp.routes import connections as connections_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import exhibits as exhibits_routes
++from webapp.routes import groups as groups_routes
+ from webapp.routes import onboarding as onboarding_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import profile as profile_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+ from webapp.routes import recommendations as recommendations_routes
+@@ -149,20 +150,21 @@ def create_app() -> FastAPI:
+     app.include_router(proposals_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(timeline_routes.router)
+     app.include_router(api_v1_routes.router)
+     app.include_router(profile_routes.router)
+     app.include_router(onboarding_routes.router)
+     app.include_router(auth_oauth_routes.router)
+     app.include_router(connections_routes.router)
++    app.include_router(groups_routes.router)
+ 
+     return app
+ 
+ 
+ def _safe_url(url: str) -> str:
+     """Strip the password from a connection URL before logging."""
+     try:
+         from urllib.parse import urlparse, urlunparse
+         u = urlparse(url)
+         if u.password:
+diff --git a/webapp/routes/groups.py b/webapp/routes/groups.py
+new file mode 100644
+index 0000000..ba459cc
+--- /dev/null
++++ b/webapp/routes/groups.py
+@@ -0,0 +1,134 @@
++"""
++Purpose: /api/v1/groups* — create/join/leave/transfer groups, group detail with
++         a points leaderboard, and admin-only member progress for B6 Community.
++Inputs:  session cookie (require_auth_api); name / invite_code / user_id bodies;
++         group id path.
++Outputs: JSON group payloads; group table writes; community push on join.
++Run:     POST /api/v1/groups  {"name":"Cohort C-14"}
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
++from fastapi.responses import Response
++from pydantic import BaseModel, field_validator
++
++from pipeline.storage import get_storage
++from webapp.auth.dependencies import require_auth_api
++from webapp.auth.users import User
++from webapp.csrf import require_same_origin
++from webapp.push.events import push_to_user
++from webapp.repositories import groups as repo
++from webapp.repositories import leaderboards as boards
++
++router = APIRouter(prefix="/api/v1")
++_MUTATING = [Depends(require_same_origin)]
++
++
++class CreateGroupBody(BaseModel):
++    name: str
++
++    @field_validator("name")
++    @classmethod
++    def _name_nonblank(cls, v: str) -> str:
++        v = v.strip()
++        if not v or len(v) > 100:
++            raise ValueError("name must be 1–100 chars")
++        return v
++
++
++class JoinBody(BaseModel):
++    invite_code: str
++
++
++class TransferBody(BaseModel):
++    user_id: int
++
++
++def _photo_url(photo_key):
++    return get_storage().url(photo_key) if photo_key else None
++
++
++def _require_member(group_id: int, user_id: int) -> str:
++    role = repo.member_role(group_id, user_id)
++    if role is None:
++        raise HTTPException(status_code=404, detail="No such group")
++    return role
++
++
++@router.get("/groups")
++def my_groups(user: User = Depends(require_auth_api)):
++    return {"groups": repo.list_my_groups(user.id)}
++
++
++@router.post("/groups", dependencies=_MUTATING)
++def create_group(body: CreateGroupBody, user: User = Depends(require_auth_api)):
++    return repo.create_group(body.name, user.id)
++
++
++@router.post("/groups/join", dependencies=_MUTATING)
++def join_group(body: JoinBody, background: BackgroundTasks,
++               user: User = Depends(require_auth_api)):
++    result = repo.join_by_code(body.invite_code, user.id)
++    if result is None:
++        raise HTTPException(status_code=404, detail="Unknown invite code")
++    if not result["already_member"]:
++        name = user.email.split("@")[0]
++        for admin_id in repo.admin_ids(result["id"]):
++            if admin_id != user.id:
++                background.add_task(
++                    push_to_user, admin_id,
++                    title="New group member",
++                    body=f"{name} joined {result['name']}.",
++                    data={"kind": "group_join", "group_id": result["id"],
++                          "user_id": user.id},
++                    category="community")
++    return result
++
++
++@router.get("/groups/{group_id}")
++def group_detail(group_id: int, user: User = Depends(require_auth_api)):
++    _require_member(group_id, user.id)
++    g = repo.get_group(group_id)
++    members = [{"user_id": m["user_id"], "display_name": m["display_name"],
++                "photo_url": _photo_url(m["photo_key"]), "role": m["role"]}
++               for m in repo.list_members(group_id)]
++    board = [{"user_id": r["user_id"], "display_name": r["display_name"],
++              "photo_url": _photo_url(r["photo_key"]), "points": r["points"],
++              "rank": r["rank"], "streak": r["streak"]}
++             for r in boards.group_leaderboard(group_id)]
++    return {"group": {"id": g["id"], "name": g["name"], "school_id": g["school_id"],
++                      "invite_code": g["invite_code"]},
++            "members": members, "leaderboard": board}
++
++
++@router.post("/groups/{group_id}/leave", dependencies=_MUTATING, status_code=204)
++def leave_group(group_id: int, user: User = Depends(require_auth_api)):
++    _require_member(group_id, user.id)
++    try:
++        repo.leave_group(group_id, user.id)
++    except PermissionError:
++        raise HTTPException(status_code=409,
++                            detail="Transfer admin before leaving the group")
++    return Response(status_code=204)
++
++
++@router.post("/groups/{group_id}/transfer", dependencies=_MUTATING)
++def transfer_admin(group_id: int, body: TransferBody,
++                   user: User = Depends(require_auth_api)):
++    role = _require_member(group_id, user.id)
++    if role != "admin":
++        raise HTTPException(status_code=403, detail="Only an admin can transfer leadership")
++    if body.user_id == user.id:
++        raise HTTPException(status_code=400, detail="You are already the admin")
++    if not repo.transfer_admin(group_id, user.id, body.user_id):
++        raise HTTPException(status_code=404, detail="Target is not a group member")
++    return {"status": "transferred"}
++
++
++@router.get("/groups/{group_id}/progress")
++def group_progress(group_id: int, user: User = Depends(require_auth_api)):
++    role = _require_member(group_id, user.id)
++    if role != "admin":
++        raise HTTPException(status_code=403, detail="Member progress is admin-only")
++    return {"members": boards.group_progress(group_id)}
