@@ -34,5 +34,8 @@ Migration numbers: 030 (connections), 031 (groups+members), 033 (leaderboard ind
 ## Tasks
 (executing task-by-task; fresh Opus implementer + Opus task-reviewer each)
 
-- Task 1: complete (commits 65bbb8b..162e27f, review SPEC+CODE PASS). Connections migration 030 + repo. 7/7 tests green, migration idempotent.
+- Task 1: complete (commits 65bbb8b..162e27f, review SPEC+CODE PASS). Connections migration 030 + repo. 7/7 tests green (now 8 after Task-2 fix), migration idempotent.
   - Deferred MINORs (final-review triage): (a) theoretical opposite-direction request() race under READ COMMITTED → two pending rows, non-corrupting, matches plan; (b) ORDER BY not covered by a multi-element assertion.
+- Task 2: complete (commits bcadc28..b8dc4fb, review SPEC PASS / CODE CHANGES_REQUESTED→fixed→clean). Connections router + main.py registration (additive +2). api 7/7 green.
+  - IMPORTANT fixed (b8dc4fb): push fired on idempotent re-request → added `created` bool to `request()`, router now gates push on `created` (no self-notification spam). Also strengthened accept-IDOR test (third client). connections_repo now 8/8.
+  - Deferred MINOR (final triage): TOCTOU `_user_exists`→FK INSERT (500 not 404 if user deleted between) — negligible.
