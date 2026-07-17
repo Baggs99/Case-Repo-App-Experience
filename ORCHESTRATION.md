@@ -120,6 +120,16 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   flags; avatar LINKED derives from linkedin_url — expose google_sub/
   linkedin_sub presence booleans in a future backend touch.
 
+- 2026-07-17 MAC MINI CUTOVER complete. Orchestration moved MacBook → mini
+  @ 72c4351. Baselines re-verified on the mini: backend 655 / iOS 313 (0
+  failures) on Xcode 27 beta 27A5218g via DEVELOPER_DIR (no xcode-select —
+  sudo pending, see escalations) — no toolchain deviation vs MacBook 26.6.
+  **FW3 DISPATCHED**: fe/f2-home (~/dev/fe-f2, DB caserepo_fe_f2, port
+  8102, sims 942222D4/653F37B8) + fe/f4-library (~/dev/fe-f4, DB
+  caserepo_fe_f4, port 8104, dedicated sims 49C5BC31/7D87AA5A), both cut
+  at 72c4351. Opus leads, sonnet implementers, synchronous subagents,
+  40-min stall watchdog armed.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn

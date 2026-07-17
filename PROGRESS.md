@@ -1,11 +1,37 @@
 # PROGRESS
-Updated: 2026-07-17 (handoff → MAC MINI CUTOVER; current handoff is the FIRST
-section below) · Branch: **feature/backend-gap** (backend gap B1–B8 COMPLETE +
-front-end F0 merged; F1 in flight on `fe/f1-shell`). Older sections below
-(UI-corrections handoff of 07-16 and earlier P-phase logs) are HISTORICAL —
-superseded by the backend-gap/front-end execution track.
+Updated: 2026-07-17T17:20Z (MAC MINI CUTOVER EXECUTED; FW3 in flight) ·
+Branch: **feature/backend-gap** @ 72c4351 (backend B1–B8 + F0 + F1 merged).
+Older sections below (UI-corrections handoff of 07-16 and earlier P-phase
+logs) are HISTORICAL — superseded by the backend-gap/front-end track.
 
-## ▶ NEXT SESSION — MAC MINI CUTOVER (handoff 2026-07-17)
+## ▶ CUTOVER EXECUTED — FW3 IN FLIGHT (Mac mini, 2026-07-17)
+
+Boot sequence below COMPLETED on the mini this session, all steps verified:
+- Repo at ~/dev/Case-Repo-App-Experience @ 72c4351, tree clean, synced via
+  /tmp/caserepo.bundle fast-forwards from the MacBook (reflog-verified).
+- venv REBUILT on Homebrew Python 3.13 (system 3.9.6 fails collection —
+  `X | Y` unions). pytest/httpx/icalendar installed (dev-only, per convention).
+- DB caserepo_bgap_integration built strict-order (schema → 32 migrations →
+  seed); .env repointed to it. Backend baseline **655 passed / 0 failed**.
+- Xcode: mini has NO Xcode installed; Xcode 27 beta (27A5218g) moved from
+  ~/Downloads to /Applications/Xcode-beta.app. NOT xcode-select'd (needs
+  sudo — queued for Thomas); all builds use
+  DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer.
+  iOS baseline **313 tests / 0 failures** on iPhone 17 sim (942222D4) —
+  matches the MacBook count: NO toolchain deviation, no 26.6 fallback needed.
+- F1 was already merged remotely (74d5ddc) → step-5 conditional resolved to
+  "merge done"; nothing to resume.
+- FW3 DISPATCHED: worktrees ~/dev/fe-f2 (fe/f2-home) + ~/dev/fe-f4
+  (fe/f4-library) cut at 72c4351, per-phase .env placed (DBs
+  caserepo_fe_f2/f4, ports 8102/8104). Two Opus phase leads running
+  (implementers sonnet, JUDGMENT opus, subagents synchronous). F4 has
+  dedicated sims "iPhone 17 (F4)" 49C5BC31 (mic granted) + "iPad Pro
+  11-inch (F4)" 7D87AA5A. 40-min stall watchdog armed (Monitor).
+- Thomas queue additions: `sudo xcode-select -s
+  /Applications/Xcode-beta.app/Contents/Developer` (until then every
+  session must export DEVELOPER_DIR); FW2 shell demo checkpoint still ready.
+
+## ▶ SUPERSEDED BY ABOVE — MAC MINI CUTOVER (handoff 2026-07-17)
 
 GOAL: continue the multi-agent front-end execution (waves FW2→FW7) of the
 myCase app on the Mac mini, exactly as governed by
