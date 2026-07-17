@@ -32,6 +32,14 @@ struct CaseRoomApp: App {
             // launch or navigation (F1 owns navigation).
             if ProcessInfo.processInfo.arguments.contains("-DSGallery") {
                 DesignSystemGallery()
+            } else if ProcessInfo.processInfo.arguments.contains("-AvatarSheet") {
+                ZStack { DSBackground() }
+                    .sheet(isPresented: .constant(true)) {
+                        // Fake-backed VM so the standalone shot shows the
+                        // populated canvas-7a persona (not a logged-out sheet).
+                        AvatarSheetView(viewModel: AvatarSheetViewModel(service: PreviewProfileService()))
+                            .environment(SessionStore())
+                    }
             } else {
                 rootView
             }
@@ -61,6 +69,28 @@ struct CaseRoomApp: App {
         APIClient.shared.baseURL.host ?? "127.0.0.1"
     }
 }
+
+#if DEBUG
+/// DEBUG-only fake backing the `-AvatarSheet` screenshot hatch: the canvas 7a
+/// persona (Amara Osei / Wharton → VERIFIED / a LinkedIn URL → LINKED /
+/// notifications all-on) so the standalone shot shows the populated sheet.
+private struct PreviewProfileService: ProfileService {
+    func profile() async throws -> ProfileDetail {
+        ProfileDetail(id: 1, email: "amara.osei@wharton.upenn.edu",
+                      displayName: "Amara Osei", bio: "MBA '27",
+                      linkedinUrl: "https://linkedin.com/in/amara-osei",
+                      school: "Wharton", photoUrl: nil)
+    }
+    func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail {
+        try await profile()
+    }
+    func uploadProfilePhoto(data: Data, mime: String) async throws -> String { "/avatars/1.png" }
+    func notificationSettings() async throws -> NotificationSettings {
+        NotificationSettings(proposals: true, sessionReminders: true, feedback: true, freeNow: true, community: true)
+    }
+    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { settings }
+}
+#endif
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     let pushCoordinator = PushCoordinator()
