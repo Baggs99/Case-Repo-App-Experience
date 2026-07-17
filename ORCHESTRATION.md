@@ -9,7 +9,7 @@ Integration branch: feature/backend-gap · base worktree: /Users/thomaskgould/de
 | Phase | Branch | Worktree | Status | Head | Suite |
 |---|---|---|---|---|---|
 | B1 scheduling | bgap/b1-scheduling | ~/dev/bgap-b1 | DISPATCHED w1 | — | — |
-| B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | DISPATCHED w1 | — | — |
+| B4 recs | bgap/b4-recs | ~/dev/bgap-b4 | MERGED c0f26ca | 27a2e2a | 376 pass (phase + integration) |
 | B5 identity | bgap/b5-identity | ~/dev/bgap-b5 | DISPATCHED w1 | — | — |
 | B2 guest | bgap/b2-guest | — | WAITING w2 (needs B1 merged) | — | — |
 | B7 timeline | bgap/b7-timeline | — | WAITING w2 (needs B4 merged) | — | — |
@@ -45,7 +45,12 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
 
 ## Merge log
 
-(none yet)
+- 2026-07-17 B4 → feature/backend-gap @ c0f26ca (phase head 27a2e2a).
+  Integration suite 376 passed on fresh caserepo_bgap_integration
+  (NOTE: integration DB needs `scripts/seed_caseroom_dev.py` after
+  migrations or 135 DB tests skip — added to protocol). API note for iOS:
+  recs payload key is `title` (never shipped as `case_title` in /api/v1).
+  Final review caught+fixed a grade leak to interviewer surface (33a982b).
 
 ## Escalations queued for Thomas
 
