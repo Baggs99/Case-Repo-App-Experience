@@ -1,0 +1,14 @@
+7ed0c4e Bump small underlined action labels to canvas weight 600 (final review minor e)
+4489928 Ledger: Task 5 complete (tablet Home, review PASS)
+d4edfd6 Add tablet Home two-column (canvas 2a) + LAST NIGHT strip
+74a1774 Ledger: Task 3 complete (Home phone, review PASS)
+80f3d36 Add Home screen (canvas 3a) + HomeViewModel + mount home NavigationStack
+ef1f6fe Ledger: Task 4 complete (Timeline detail, review fixes verified)
+30d87cd Timeline detail review fixes: before-BCG, zero-pad dates, PUSH short-form
+f78db05 Add Timeline detail (canvas 7b) + passed-deadline prompt flow
+0157c7b Make Reweight.focusDimension optional (no_offer null crash) — review fix
+5f7bfa5 Add Home/Timeline API models + APIClient endpoints (B4/B7/B8)
+b6518f4 Ledger: Task 1 complete (DS primitives, review PASS)
+0435129 Invert SteppedTimeline hierarchy + add flat glass-key variant (F0 deferred)
+76e26e1 Revise F2 plan per plan-review (identity source, T4-before-T3, 6 minors)
+c019546 Add F2 plan (Home + Timeline detail) + ledger

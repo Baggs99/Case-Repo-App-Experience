@@ -1,0 +1,40 @@
+ .superpowers/sdd/f2/diffs/task1-diff.txt           |  450 ++++
+ .superpowers/sdd/f2/diffs/task1-log.txt            |   10 +
+ .superpowers/sdd/f2/diffs/task2-diff.txt           |  735 +++++++
+ .superpowers/sdd/f2/diffs/task2-log.txt            |    6 +
+ .superpowers/sdd/f2/diffs/task3-diff.txt           | 1153 ++++++++++
+ .superpowers/sdd/f2/diffs/task3-log.txt            |   11 +
+ .superpowers/sdd/f2/diffs/task4-diff.txt           |  915 ++++++++
+ .superpowers/sdd/f2/diffs/task4-log.txt            |    8 +
+ .superpowers/sdd/f2/diffs/task5-diff.txt           | 2192 ++++++++++++++++++++
+ .superpowers/sdd/f2/diffs/task5-log.txt            |   14 +
+ .superpowers/sdd/f2/progress.md                    |   49 +
+ .superpowers/sdd/f2/shots/home-phone.png           |  Bin 0 -> 2078901 bytes
+ .superpowers/sdd/f2/shots/home-tablet.png          |  Bin 0 -> 1448285 bytes
+ .superpowers/sdd/f2/shots/task1-gallery-bottom.png |  Bin 0 -> 2740850 bytes
+ .superpowers/sdd/f2/shots/timeline-detail.png      |  Bin 0 -> 1706205 bytes
+ .../sdd/f2/shots/timeline-prompt-nooffer.png       |  Bin 0 -> 1746193 bytes
+ docs/superpowers/plans/2026-07-17-fe-f2-plan.md    |  379 ++++
+ ios/CaseRoom/App/CaseRoomApp.swift                 |  158 +-
+ ios/CaseRoom/App/RootShell.swift                   |   24 +-
+ .../DesignSystem/DesignSystemGallery.swift         |   11 +
+ ios/CaseRoom/DesignSystem/Glass.swift              |   45 +-
+ ios/CaseRoom/DesignSystem/PreviewFixtures.swift    |   12 +-
+ ios/CaseRoom/DesignSystem/SteppedTimeline.swift    |   40 +-
+ ios/CaseRoom/DesignSystem/Typography.swift         |   13 +
+ ios/CaseRoom/Intents/CaseRoomIntents.swift         |    3 +-
+ ios/CaseRoom/Networking/APIClient.swift            |   85 +-
+ ios/CaseRoom/Networking/HomeModels.swift           |  235 +++
+ ios/CaseRoom/Networking/Models.swift               |   26 +
+ ios/CaseRoom/Shared/NumberWords.swift              |   26 +
+ ios/CaseRoom/State/HomeViewModel.swift             |  385 ++++
+ ios/CaseRoom/State/TimelineDetailViewModel.swift   |  265 +++
+ ios/CaseRoom/Views/HomeView.swift                  |  416 ++++
+ ios/CaseRoom/Views/TimelineDetailView.swift        |  342 +++
+ ios/CaseRoomTests/APIClientTests.swift             |  325 +++
+ ios/CaseRoomTests/DesignSystem/GlassTests.swift    |    7 +
+ .../DesignSystem/PreviewFixturesTests.swift        |    3 +-
+ .../DesignSystem/TypographyTests.swift             |   11 +
+ ios/CaseRoomTests/HomeViewModelTests.swift         |  459 ++++
+ .../TimelineDetailViewModelTests.swift             |  243 +++
+ 39 files changed, 9015 insertions(+), 41 deletions(-)

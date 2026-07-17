@@ -33,7 +33,9 @@ Order: T1 DS primitives → T2 API → T4 Timeline detail → T3 Home phone → 
 - Task 5 (tablet Home canvas 2a, sonnet): COMPLETE — commit d4edfd6 (impl agent stopped pre-finalization; lead finished: killed an orphan/wedged xcodebuild on my sim, reset sim+regranted mic, ran bounded suite → green, captured iPad shot, committed). HomeView .regular two-column + dark LAST-NIGHT strip (sessions scope=recent) + UPCOMING w/ live T-minus; RootShell iPad Home header (date+greeting); Typography h1TabSmall (additive); -F2HomeTablet hatch. Review: PASS (0 crit/imp). Suite 358→367. Shot home-tablet.png (portrait, TCC landscape-rotate fallback per F0/F1) matches canvas 2a.
   - Phone .compact path byte-identical (no regression). recap-rating omitted (no GET source; backend follow-up).
   - Banked MINORs (Task 6 triage): (T5a) lastNight drops harmless `& ended` guard; (T5b) Re-read/UPCOMING secondaries weight-400 vs canvas 600 (matches approved phone pattern).
-- Task 6 (close-out): IN PROGRESS.
+- Task 6 (close-out): COMPLETE. Final whole-branch Opus review over 72c4351..HEAD → APPROVE (0 crit/0 imp). Fix batch = minor (e): small underlined action labels .meta(400)→.actionLabel(600), canvas-faithful (commit 7ed0c4e). Left (a)-(d) w/ rationale. iOS suite 313→367 green (0 fail). Backend 655 (F2 iOS-only; 1 flaky WS test passes isolated). Report committed: docs/superpowers/sdd/fe-f2-report.md. Shots: home-phone, home-tablet, timeline-detail, timeline-prompt-nooffer, task1-gallery-bottom. No dev server was started (fixture-backed shots); iPad sim shut down.
+
+## STATUS: F2 DONE — awaiting orchestrator merge.
 
 ## Banked MINORs for final triage
 - T1: glass-key reuses panel top-inset highlight (.85/1.5px) vs §1 (.9/1px).
