@@ -32,6 +32,7 @@ T1 DONE + APPROVED (78e7e4e; 304 tests/0 fail = 289+15 AppRouterTests). Dispatch
 ## Tasks
 - [x] Plan review (Opus) — APPROVED after 2 rounds (be346f2)
 - [x] T1 AppRoute registry + AppRouter + remap (opus) — 78e7e4e, APPROVE
+- [x] T2 profile/settings models + APIClient (sonnet) — 773c7df, APPROVE (309 tests/0; multipart field `file` confirmed vs profile.py)
 - [ ] T2 profile/settings models + APIClient (sonnet)
 - [ ] T3 avatar sheet 7a + VM (opus)
 - [ ] T4 RootShell: chrome + re-home + wire (opus)
