@@ -1,0 +1,847 @@
+diff --git a/tests/test_counterpart_recs.py b/tests/test_counterpart_recs.py
+new file mode 100644
+index 0000000..45fab13
+--- /dev/null
++++ b/tests/test_counterpart_recs.py
+@@ -0,0 +1,150 @@
++"""
++B4 Task 4: the recommendation "travels with the candidate" (spec §7.2) —
++an interviewer sees the candidate's top-3 recs on join-config and pair
++status; a candidate and a non-participant never do (IDOR/role guard).
++
++Alice interviews Cara. A dedicated '00-…' eligible case guarantees Cara's
++coverage-gap rule fires, so counterpart_recommendations is deterministically
++non-empty. Skips cleanly without the seeded dev Postgres.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestCounterpartRecs(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()          # interviewer; pool live
++        cls.cara = TestClient(app)                # candidate
++        cls.bob = TestClient(app)                 # non-participant prober
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++        cls.aid, cls.bid, cls.cid = (ids["a@yale.edu"], ids["b@yale.edu"],
++                                     ids["c@yale.edu"])
++        for client, uid in ((cls.alice, cls.aid), (cls.cara, cls.cid),
++                            (cls.bob, cls.bid)):
++            s = create_session(uid, user_agent="b4-cp-test", ip_address=None)
++            client.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++        def new_case(cur, title, ctype):
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path)"
++                " VALUES (%s, %s, 'DevSchool', 2095, 'Technology', %s,"
++                " 'Easy', 2, 2, 'output/none.pdf') RETURNING id;",
++                (title, title.lower(), ctype))
++            return cur.fetchone()[0]
++
++        from webapp.repositories.practice_sessions import (
++            get_default_rubric_template_id)
++        from webapp.repositories.rooms import get_or_create_room
++        room_id = get_or_create_room(cls.aid)["id"]
++
++        cls.case_ids = []
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                # '00-…' zero-count type → deterministic coverage-gap rec for Cara.
++                cls.gap_case = new_case(cur, "B4CP Gap Case", "00-B4CP-Gap")
++                cls.join_case = new_case(cur, "B4CP Join Case", "B4CP-Join")
++                cls.token_case = new_case(cur, "B4CP Token Case", "B4CP-Token")
++                cls.case_ids = [cls.gap_case, cls.join_case, cls.token_case]
++
++                # Joinable session (lobby, in_person → no TURN mint): Alice
++                # interviews Cara. rubric_template_id is NOT NULL — resolve the
++                # generic default the same way claim()/create_practice_session do.
++                template_id = get_default_rubric_template_id(cls.join_case, cls.aid)
++                cur.execute(
++                    "INSERT INTO practice_sessions (room_id, interviewer_id,"
++                    " candidate_id, case_id, rubric_template_id, state, mode,"
++                    " consent_interviewer, consent_candidate, state_changed_at)"
++                    " VALUES (%s, %s, %s, %s, %s, 'lobby', 'in_person', TRUE,"
++                    " TRUE, NOW()) RETURNING id;",
++                    (room_id, cls.aid, cls.cid, cls.join_case, template_id))
++                cls.join_session_id = cur.fetchone()[0]
++
++        # Pairing token: Alice mints, Cara claims → status returns session_id.
++        from webapp.repositories import pairing_tokens as pairing_repo
++        cls.token = pairing_repo.mint_token(interviewer_id=cls.aid,
++                                            case_id=cls.token_case)["token"]
++        cls.pair_session_id = pairing_repo.claim(
++            token=cls.token, candidate_id=cls.cid)["session_id"]
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM pairing_tokens WHERE token = %s;",
++                            (cls.token,))
++                cur.execute("DELETE FROM practice_sessions WHERE id = ANY(%s);",
++                            ([cls.join_session_id, cls.pair_session_id],))
++                cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls.case_ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _expected_ids(self):
++        from webapp.repositories import dashboard as repo
++        return [rec["case_id"] for rec in repo.recommendations(self.cid, limit=3)]
++
++    # ── join-config ─────────────────────────────────────────────────────────
++
++    def test_interviewer_join_config_has_counterpart_recs(self):
++        r = self.alice.get(f"/api/practice/{self.join_session_id}/join-config")
++        self.assertEqual(r.status_code, 200, r.text)
++        recs = r.json()["counterpart_recommendations"]
++        self.assertTrue(recs)
++        self.assertLessEqual(len(recs), 3)
++        for rec in recs:
++            self.assertEqual(set(rec), {"case_id", "title", "case_type",
++                                        "difficulty", "why", "rule"})
++        self.assertEqual([rec["case_id"] for rec in recs], self._expected_ids())
++        # Cara has no finalized sessions here → only the coverage-gap rule
++        # fires; pins a real deterministic value (not just engine-echo).
++        self.assertEqual(recs[0]["rule"], "coverage-gap")
++
++    def test_candidate_join_config_omits_counterpart_recs(self):
++        r = self.cara.get(f"/api/practice/{self.join_session_id}/join-config")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertNotIn("counterpart_recommendations", r.json())
++
++    def test_nonparticipant_join_config_404(self):
++        r = self.bob.get(f"/api/practice/{self.join_session_id}/join-config")
++        self.assertEqual(r.status_code, 404, r.text)
++
++    # ── pair status ─────────────────────────────────────────────────────────
++
++    def test_interviewer_pair_status_has_counterpart_recs(self):
++        r = self.alice.get(f"/api/practice/pair/status/{self.token}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertEqual(body["session_id"], self.pair_session_id)
++        recs = body["counterpart_recommendations"]
++        self.assertTrue(recs)
++        self.assertLessEqual(len(recs), 3)
++        self.assertEqual([rec["case_id"] for rec in recs], self._expected_ids())
++        self.assertEqual(recs[0]["rule"], "coverage-gap")
++
++    def test_nonowner_pair_status_404_no_recs(self):
++        r = self.bob.get(f"/api/practice/pair/status/{self.token}")
++        self.assertEqual(r.status_code, 404, r.text)
++        self.assertNotIn("counterpart_recommendations", r.json())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_recommendations.py b/tests/test_recommendations.py
+new file mode 100644
+index 0000000..92fbe99
+--- /dev/null
++++ b/tests/test_recommendations.py
+@@ -0,0 +1,235 @@
++"""
++B4 Task 1-3 tests: the recommendation engine's human-readable `why`, the
++exclude/limit affordances and canonical item shape (Task 1), the native
++`GET /api/v1/recommendations` mouth (Task 2), and the `/api/v1/dashboard`
++Home card (Task 3).
++
++Reuses the proven §4.8 fixture idiom from tests/test_dashboard.py: three
++finalized sessions with a hand-tuned rubric make all three rules fire for
++one candidate (Cara). Skips cleanly without the seeded dev Postgres.
++"""
++
++from __future__ import annotations
++
++import json
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++# points per dimension per session: (structure, quant, insight, comm, synth)
++_SESSIONS = [
++    {"grade": 4.5, "pts": {"structure": 4, "quant": 2, "insight": 3,
++                           "communication": 5, "synthesis": 1}},
++    {"grade": 4.0, "pts": {"structure": 3, "quant": 0, "insight": 4,
++                           "communication": 4, "synthesis": 2}},
++    {"grade": 4.2, "pts": {"structure": 5, "quant": 1, "insight": 4,
++                           "communication": 4, "synthesis": 3}},
++]
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestRecommendationSurfaces(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.cara = cls._ctx.__enter__()          # enters app lifespan → pool live
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++        cls.aid, cls.cid = ids["a@yale.edu"], ids["c@yale.edu"]
++        s = create_session(cls.cid, user_agent="b4-test", ip_address=None)
++        cls.cara.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++        def new_case(cur, title, ctype, difficulty, score):
++            cur.execute(
++                "INSERT INTO cases (case_title, normalized_title, source_school,"
++                " source_year, industry, case_type, difficulty, difficulty_score,"
++                " page_count, pdf_path)"
++                " VALUES (%s, %s, 'DevSchool', 2095, 'Technology', %s, %s, %s,"
++                " 2, 'output/none.pdf') RETURNING id;",
++                (title, title.lower(), ctype, difficulty, score))
++            return cur.fetchone()[0]
++
++        from webapp.repositories.practice_sessions import get_default_rubric_template_id
++        from webapp.repositories.rooms import get_or_create_room
++        room_id = get_or_create_room(cls.aid)["id"]
++
++        cls.case_ids = []
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cls.a1 = new_case(cur, "B4 Trend Case 1", "B4-TypeA", "Easy", 2)
++                cls.a2 = new_case(cur, "B4 Trend Case 2", "B4-TypeA", "Easy", 3)
++                cls.a3 = new_case(cur, "B4 Trend Case 3", "B4-TypeA", "Easy", 4)
++                cls.a4 = new_case(cur, "B4 Ladder Target", "B4-TypeA", "Medium", 5)
++                # Coverage-gap type: '00-…' wins the zero-count alphabetical tie.
++                # B1 outrates B2 (DV-6); with B1 excluded, B2 is the runner-up.
++                cls.b1 = new_case(cur, "B4 Gap Rated", "00-B4-GapType", "Easy", 3)
++                cls.b2 = new_case(cur, "B4 Gap Unrated", "00-B4-GapType", "Easy", 3)
++                cls.w1 = new_case(cur, "B4 Quant Heavy", "B4-TypeA", "Easy", 3)
++                cls.case_ids = [cls.a1, cls.a2, cls.a3, cls.a4, cls.b1, cls.b2, cls.w1]
++
++                cur.execute(
++                    "INSERT INTO case_votes (case_id, user_id, vote_type)"
++                    " VALUES (%s, %s, 'useful');", (cls.b1, cls.aid))
++                cur.execute(
++                    "INSERT INTO rubric_templates (case_id, name, items_json,"
++                    " created_by) VALUES (%s, 'Quant heavy', %s, %s);",
++                    (cls.w1, json.dumps([
++                        {"id": "quant", "label": "Quant", "dimension": "quant",
++                         "max_points": 8},
++                        {"id": "structure", "label": "Structure",
++                         "dimension": "structure", "max_points": 2},
++                    ]), cls.aid))
++
++                template_id = get_default_rubric_template_id(cls.a1, cls.aid)
++                cls.session_ids = []
++                for i, (case_id, spec) in enumerate(
++                        zip((cls.a1, cls.a2, cls.a3), _SESSIONS)):
++                    cur.execute(
++                        "INSERT INTO practice_sessions (room_id, interviewer_id,"
++                        " candidate_id, case_id, rubric_template_id, state,"
++                        " consent_interviewer, consent_candidate, started_at,"
++                        " ended_at, state_changed_at)"
++                        " VALUES (%s, %s, %s, %s, %s, 'finalized', TRUE, TRUE,"
++                        " NOW() - (%s + 1) * INTERVAL '1 day',"
++                        " NOW() - (%s + 1) * INTERVAL '1 day' + INTERVAL '45 min',"
++                        " NOW()) RETURNING id;",
++                        (room_id, cls.aid, cls.cid, case_id, template_id, i, i))
++                    sid = cur.fetchone()[0]
++                    cls.session_ids.append(sid)
++                    items = {dim: {"points": pts, "note": ""}
++                             for dim, pts in spec["pts"].items()}
++                    cur.execute(
++                        "INSERT INTO feedback (session_id, rubric_json, notes_md,"
++                        " grade, finalized_at)"
++                        " VALUES (%s, %s, 'fixture', %s, NOW());",
++                        (sid, json.dumps({"items": items}), spec["grade"]))
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM practice_sessions WHERE id = ANY(%s);",
++                            (cls.session_ids,))
++                cur.execute("DELETE FROM case_votes WHERE case_id = ANY(%s);",
++                            (cls.case_ids,))
++                cur.execute("DELETE FROM cases WHERE id = ANY(%s);", (cls.case_ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    # ── Task 1: engine (repo-direct) ────────────────────────────────────────
++
++    def test_item_shape_is_canonical(self):
++        from webapp.repositories import dashboard as repo
++        recs = repo.recommendations(self.cid)
++        self.assertTrue(recs)
++        for rec in recs:
++            self.assertEqual(set(rec), {"case_id", "title", "case_type",
++                                        "difficulty", "why", "rule"})
++            self.assertIsInstance(rec["title"], str)
++            self.assertIsInstance(rec["why"], str)
++            self.assertTrue(rec["why"])
++
++    def test_why_strings_per_rule(self):
++        from webapp.repositories import dashboard as repo
++        by_rule = {r["rule"]: r for r in repo.recommendations(self.cid)}
++        self.assertIn("least-practiced", by_rule["coverage-gap"]["why"])
++        self.assertIn(by_rule["coverage-gap"]["case_type"],
++                      by_rule["coverage-gap"]["why"])
++        self.assertIn("step up", by_rule["difficulty-ladder"]["why"])
++        self.assertIn("Medium", by_rule["difficulty-ladder"]["why"])
++        self.assertIn("weakest dimension is quant",
++                      by_rule["weak-dimension"]["why"])
++
++    def test_exclude_drops_case_and_backfills(self):
++        from webapp.repositories import dashboard as repo
++        base = {r["rule"]: r["case_id"] for r in repo.recommendations(self.cid)}
++        self.assertEqual(base["coverage-gap"], self.b1)
++        excluded = repo.recommendations(self.cid, exclude_case_ids=[self.b1])
++        ids = {r["case_id"] for r in excluded}
++        self.assertNotIn(self.b1, ids)
++        # B2 is the same-type runner-up once B1 is excluded (DV-6 tie-break).
++        self.assertEqual({r["rule"]: r["case_id"]
++                          for r in excluded}["coverage-gap"], self.b2)
++
++    def test_limit_caps_results(self):
++        from webapp.repositories import dashboard as repo
++        self.assertLessEqual(len(repo.recommendations(self.cid, limit=1)), 1)
++        self.assertLessEqual(len(repo.recommendations(self.cid, limit=2)), 2)
++
++    def test_web_engine_selection_unchanged(self):
++        # Byte-compat guard: the three rules still select b1/a4/w1 (as
++        # test_dashboard.py asserts) — only the item key label changed.
++        from webapp.repositories import dashboard as repo
++        by_rule = {r["rule"]: r["case_id"] for r in repo.recommendations(self.cid)}
++        self.assertEqual(by_rule["coverage-gap"], self.b1)
++        self.assertEqual(by_rule["difficulty-ladder"], self.a4)
++        self.assertEqual(by_rule["weak-dimension"], self.w1)
++
++    # ── Task 2: native list mouth ───────────────────────────────────────────
++
++    def test_api_recommendations_shape(self):
++        r = self.cara.get("/api/v1/recommendations")
++        self.assertEqual(r.status_code, 200, r.text)
++        recs = r.json()["recommendations"]
++        self.assertTrue(recs)
++        for rec in recs:
++            self.assertEqual(set(rec), {"case_id", "title", "case_type",
++                                        "difficulty", "why", "rule"})
++        by_rule = {rec["rule"]: rec["case_id"] for rec in recs}
++        self.assertEqual(by_rule["coverage-gap"], self.b1)
++
++    def test_api_recommendations_exclude(self):
++        r = self.cara.get(f"/api/v1/recommendations?exclude={self.b1}")
++        self.assertEqual(r.status_code, 200, r.text)
++        ids = {rec["case_id"] for rec in r.json()["recommendations"]}
++        self.assertNotIn(self.b1, ids)
++        self.assertIn(self.b2, ids)
++
++    def test_api_recommendations_invalid_exclude_is_400(self):
++        r = self.cara.get("/api/v1/recommendations?exclude=1,abc")
++        self.assertEqual(r.status_code, 400, r.text)
++
++    def test_api_recommendations_requires_auth(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).get("/api/v1/recommendations")
++        self.assertEqual(r.status_code, 401)
++
++    # ── Task 3: Home-card mouth ─────────────────────────────────────────────
++
++    def test_api_v1_dashboard_gains_dims_and_recs(self):
++        r = self.cara.get("/api/v1/dashboard")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        # dimension_averages: existing web-dashboard shape, weakest first.
++        dims = body["dimension_averages"]
++        self.assertTrue(dims)
++        self.assertEqual(set(dims[0]), {"dimension", "avg_score", "samples"})
++        self.assertEqual(dims[0]["dimension"], "quant")
++        # recommendations: canonical item shape, rules fire.
++        recs = body["recommendations"]
++        by_rule = {rec["rule"]: rec["case_id"] for rec in recs}
++        self.assertEqual(by_rule["coverage-gap"], self.b1)
++        for rec in recs:
++            self.assertEqual(set(rec), {"case_id", "title", "case_type",
++                                        "difficulty", "why", "rule"})
++
++    def test_api_v1_dashboard_keeps_existing_keys(self):
++        body = self.cara.get("/api/v1/dashboard").json()
++        for key in ("sessions_finalized", "streak_weeks", "next_session",
++                    "streak_days", "drill_done_today"):
++            self.assertIn(key, body)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/main.py b/webapp/main.py
+index f061b0a..3584640 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -54,20 +54,21 @@ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
++from webapp.routes import recommendations as recommendations_routes
+ from webapp.routes import rooms as rooms_routes
+ from webapp.routes import search as search_routes
+ from webapp.routes import signal_ws as signal_ws_routes
+ from webapp.routes import votes as votes_routes
+ from webapp.settings import load_settings
+ 
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+@@ -140,20 +141,21 @@ def create_app() -> FastAPI:
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
++    app.include_router(recommendations_routes.router)
+     app.include_router(api_v1_routes.router)
+ 
+     return app
+ 
+ 
+ def _safe_url(url: str) -> str:
+     """Strip the password from a connection URL before logging."""
+     try:
+         from urllib.parse import urlparse, urlunparse
+         u = urlparse(url)
+diff --git a/webapp/repositories/dashboard.py b/webapp/repositories/dashboard.py
+index 092aaf8..b4c3d85 100644
+--- a/webapp/repositories/dashboard.py
++++ b/webapp/repositories/dashboard.py
+@@ -11,21 +11,20 @@ difficulty_score (DV-7).
+ 
+ from __future__ import annotations
+ 
+ from psycopg.rows import dict_row
+ 
+ from webapp.db import get_pool
+ 
+ HISTORY_LIMIT = 50
+ TREND_WINDOW = 10          # last N finalized-as-candidate sessions
+ LADDER_MIN_GRADE = 4.0     # §4.8 rule 2 threshold over the last 3 grades
+-RECOMMEND_CAP = 5
+ 
+ _LADDER = {"Easy": "Medium", "Medium": "Hard"}   # DV-7; Hard has no +1
+ 
+ 
+ def history(user_id: int, limit: int = HISTORY_LIMIT) -> list[dict]:
+     """Finalized sessions the user took part in, newest first. The grade is
+     session-scoped and both participants already see it post-finalize (P7),
+     so it appears for interviewer rows too."""
+     sql = """
+         SELECT ps.id, ps.ended_at, c.case_title, c.id AS case_id,
+@@ -95,31 +94,32 @@ def dimension_averages(user_id: int, window: int = TREND_WINDOW) -> list[dict]:
+ 
+ _ELIGIBLE = """
+     c.pdf_path IS NOT NULL
+     AND NOT COALESCE(c.is_duplicate_case, FALSE)
+     AND NOT EXISTS (SELECT 1 FROM burned b
+                     WHERE b.user_id = %(u)s AND b.case_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM queue_want qw
+                     WHERE qw.user_id = %(u)s AND qw.case_id = c.id)
+     AND NOT EXISTS (SELECT 1 FROM queue_give qg
+                     WHERE qg.user_id = %(u)s AND qg.case_id = c.id)
++    AND c.id <> ALL(%(exclude)s::int[])
+ """
+ 
+ _RATING = """
+     (SELECT COALESCE(
+         100.0 * COUNT(*) FILTER (WHERE cv.vote_type = 'useful')
+               / NULLIF(COUNT(*), 0), 0)
+      FROM case_votes cv WHERE cv.case_id = c.id)
+ """
+ 
+ 
+-def _rule_coverage_gap(cur, user_id: int) -> dict | None:
++def _rule_coverage_gap(cur, user_id: int, exclude_case_ids: list[int]) -> dict | None:
+     """Rule 1: the case type with the fewest finalized candidate-sessions →
+     highest-usefulness eligible case of that type."""
+     cur.execute(
+         f"""
+         WITH counts AS (
+             SELECT ct.case_type,
+                    COUNT(ps.id) FILTER (WHERE ps.candidate_id = %(u)s
+                                         AND ps.state = 'finalized') AS n
+             FROM (SELECT DISTINCT case_type FROM cases
+                   WHERE case_type IS NOT NULL) ct
+@@ -131,45 +131,51 @@ def _rule_coverage_gap(cur, user_id: int) -> dict | None:
+             ORDER BY n, ct.case_type
+             LIMIT 1
+         )
+         SELECT c.id, c.case_title, c.case_type, c.difficulty,
+                {_RATING} AS rating
+         FROM cases c JOIN counts ON c.case_type = counts.case_type
+         WHERE {_ELIGIBLE}
+         ORDER BY rating DESC, c.difficulty_score, c.id
+         LIMIT 1;
+         """,
+-        {"u": user_id},
++        {"u": user_id, "exclude": exclude_case_ids},
+     )
+-    return cur.fetchone()
++    row = cur.fetchone()
++    if row:
++        row["why"] = (f"{row['case_type']} is your least-practiced case type "
++                      f"— this is a top-rated one to start with.")
++    return row
+ 
+ 
+-def _rule_difficulty_ladder(cur, user_id: int) -> dict | None:
++def _rule_difficulty_ladder(cur, user_id: int,
++                            exclude_case_ids: list[int]) -> dict | None:
+     """Rule 2: mean grade over the last 3 finalized-as-candidate sessions
+     ≥ 4.0 → suggest the next difficulty up in their most-practiced type."""
+     cur.execute(
+         """
+         SELECT AVG(g.grade) AS mean_grade, COUNT(*) AS n FROM (
+             SELECT f.grade
+             FROM practice_sessions ps
+             JOIN feedback f ON f.session_id = ps.id
+             WHERE ps.state = 'finalized' AND ps.candidate_id = %(u)s
+               AND f.grade IS NOT NULL
+             ORDER BY ps.ended_at DESC LIMIT 3
+         ) g;
+         """,
+         {"u": user_id},
+     )
+     row = cur.fetchone()
+     if not row or row["n"] < 3 or row["mean_grade"] is None \
+             or float(row["mean_grade"]) < LADDER_MIN_GRADE:
+         return None
++    mean_grade = float(row["mean_grade"])
+ 
+     cur.execute(
+         """
+         SELECT c.case_type, c.difficulty, COUNT(*) AS n
+         FROM practice_sessions ps JOIN cases c ON c.id = ps.case_id
+         WHERE ps.state = 'finalized' AND ps.candidate_id = %(u)s
+           AND c.case_type IS NOT NULL AND c.difficulty IS NOT NULL
+         GROUP BY c.case_type, c.difficulty
+         ORDER BY n DESC, c.case_type LIMIT 1;
+         """,
+@@ -184,26 +190,33 @@ def _rule_difficulty_ladder(cur, user_id: int) -> dict | None:
+ 
+     cur.execute(
+         f"""
+         SELECT c.id, c.case_title, c.case_type, c.difficulty,
+                {_RATING} AS rating
+         FROM cases c
+         WHERE c.case_type = %(ct)s AND c.difficulty = %(d)s AND {_ELIGIBLE}
+         ORDER BY rating DESC, c.difficulty_score, c.id
+         LIMIT 1;
+         """,
+-        {"u": user_id, "ct": practiced["case_type"], "d": next_difficulty},
++        {"u": user_id, "ct": practiced["case_type"], "d": next_difficulty,
++         "exclude": exclude_case_ids},
+     )
+-    return cur.fetchone()
++    row = cur.fetchone()
++    if row:
++        row["why"] = (f"You're averaging {mean_grade:.1f} on recent cases "
++                      f"— ready to step up to {row['difficulty']} "
++                      f"{row['case_type']}.")
++    return row
+ 
+ 
+-def _rule_weak_dimension(cur, user_id: int, weakest: str | None) -> dict | None:
++def _rule_weak_dimension(cur, user_id: int, weakest: str | None,
++                         exclude_case_ids: list[int]) -> dict | None:
+     """Rule 3: suggest a case whose rubric template weights the user's
+     lowest-averaging dimension heaviest (share of total max_points)."""
+     if weakest is None:
+         return None
+     cur.execute(
+         f"""
+         WITH weighted AS (
+             SELECT rt.case_id,
+                    SUM((item->>'max_points')::numeric)
+                        FILTER (WHERE item->>'dimension' = %(dim)s)
+@@ -213,41 +226,57 @@ def _rule_weak_dimension(cur, user_id: int, weakest: str | None) -> dict | None:
+             WHERE rt.case_id IS NOT NULL
+             GROUP BY rt.case_id
+         )
+         SELECT c.id, c.case_title, c.case_type, c.difficulty,
+                {_RATING} AS rating, weighted.share
+         FROM weighted JOIN cases c ON c.id = weighted.case_id
+         WHERE weighted.share > 0.2 AND {_ELIGIBLE}
+         ORDER BY weighted.share DESC, rating DESC, c.id
+         LIMIT 1;
+         """,
+-        {"u": user_id, "dim": weakest},
++        {"u": user_id, "dim": weakest, "exclude": exclude_case_ids},
+     )
+-    return cur.fetchone()
++    row = cur.fetchone()
++    if row:
++        row["why"] = (f"Your weakest dimension is {weakest.replace('_', ' ')} "
++                      f"— this case weights it heavily.")
++    return row
++
+ 
++def recommendations(user_id: int, exclude_case_ids: list[int] = [],
++                    limit: int = 5) -> list[dict]:
++    """§4.8: run the rules in order, union + dedupe, cap at `limit`, each entry
++    tagged with the rule that produced it and a human-readable `why`.
+ 
+-def recommendations(user_id: int) -> list[dict]:
+-    """§4.8: run the rules in order, union + dedupe, cap at 5, each entry
+-    tagged with the rule that produced it."""
++    `exclude_case_ids` drops those cases from every rule (the "Swap
++    recommendation" affordance re-calls with the swapped id excluded). It is
++    read-only here, so the shared-default empty list is safe."""
+     trends = dimension_averages(user_id)
+     weakest = trends[0]["dimension"] if trends else None
+ 
+     out: list[dict] = []
+     seen: set[int] = set()
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             for rule, fetch in (
+-                ("coverage-gap", lambda: _rule_coverage_gap(cur, user_id)),
+-                ("difficulty-ladder", lambda: _rule_difficulty_ladder(cur, user_id)),
+-                ("weak-dimension", lambda: _rule_weak_dimension(cur, user_id, weakest)),
++                ("coverage-gap",
++                 lambda: _rule_coverage_gap(cur, user_id, exclude_case_ids)),
++                ("difficulty-ladder",
++                 lambda: _rule_difficulty_ladder(cur, user_id, exclude_case_ids)),
++                ("weak-dimension",
++                 lambda: _rule_weak_dimension(cur, user_id, weakest,
++                                              exclude_case_ids)),
+             ):
++                if len(out) >= limit:
++                    break
+                 row = fetch()
+-                if row and row["id"] not in seen and len(out) < RECOMMEND_CAP:
++                if row and row["id"] not in seen:
+                     seen.add(row["id"])
+                     out.append({
+                         "case_id": row["id"],
+-                        "case_title": row["case_title"],
++                        "title": row["case_title"],
+                         "case_type": row["case_type"],
+                         "difficulty": row["difficulty"],
++                        "why": row["why"],
+                         "rule": rule,
+                     })
+     return out
+diff --git a/webapp/routes/api_v1.py b/webapp/routes/api_v1.py
+index a21bb80..564a8a4 100644
+--- a/webapp/routes/api_v1.py
++++ b/webapp/routes/api_v1.py
+@@ -357,11 +357,16 @@ def dashboard(user: User = Depends(require_auth_api)):
+     # list_upcoming_for_user already orders soonest-first (scheduled_at NULLS
+     # FIRST — an unscheduled "now" session is the most urgent, then earliest
+     # scheduled_at); the first row is the soonest.
+     next_session = _upcoming_session_json(upcoming[0]) if upcoming else None
+     return {
+         "sessions_finalized": stats["sessions_finalized"],
+         "streak_weeks": stats["streak_weeks"],
+         "next_session": next_session,
+         "streak_days": drills_repo.streak_days(user.id),
+         "drill_done_today": drills_repo.attempted_today(user.id),
++        # B4 §7 Home card: the recommendation engine's two candidate-facing
++        # surfaces travel on the dashboard payload (dimension_averages =
++        # existing web shape, recommendations = canonical item shape).
++        "dimension_averages": dashboard_repo.dimension_averages(user.id),
++        "recommendations": dashboard_repo.recommendations(user.id),
+     }
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index c7455b5..47ec8c1 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -15,20 +15,21 @@ from typing import Literal, Optional
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+ from pydantic import BaseModel, Field
+ from starlette.concurrency import run_in_threadpool
+ 
+ from webapp.auth.dependencies import require_auth, require_auth_api
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.live_activity import push_live_activity_update
+ from webapp.repositories.cases import get_case_by_id
++from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as feedback_repo
+ from webapp.repositories import pairing_tokens as pairing_repo
+ from webapp.repositories import practice_sessions as repo
+ from webapp.routes.signal_ws import hub
+ from webapp.templating import render
+ from webapp.turn import mint_turn_credentials
+ 
+ router = APIRouter(tags=["practice"])
+ 
+ _MUTATING = [Depends(require_same_origin)]
+@@ -166,37 +167,52 @@ def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)
+     """Claim a pairing token, creating the practice session (§ pairing)."""
+     try:
+         return pairing_repo.claim(token=body.token, candidate_id=user.id)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+-    (§ pairing). 404 if the token doesn't exist or isn't owned by the caller."""
++    (§ pairing). 404 if the token doesn't exist or isn't owned by the caller.
++    Once claimed, the response carries the candidate's top-3 recommendations
++    (spec §7.2 — "Recommended for [name]", interviewer-side)."""
+     try:
+         session_id = pairing_repo.status(token=token, interviewer_id=user.id)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+-    return {"session_id": session_id}
++    counterpart_recs: list[dict] = []
++    if session_id is not None:
++        session = repo.get_practice_session(session_id)
++        if session is not None:
++            counterpart_recs = dashboard_repo.recommendations(
++                session["candidate_id"], limit=3)
++    return {"session_id": session_id,
++            "counterpart_recommendations": counterpart_recs}
+ 
+ 
+ @router.get("/api/practice/{session_id}/join-config")
+ async def join_config(session_id: int, request: Request,
+                       user: User = Depends(require_auth_api)):
+     """WS path + ICE servers for the call page. No HMAC token (DV-3): the
+     WebSocket handshake authenticates with the same session cookie."""
+     session, role = await run_in_threadpool(_session_or_404, session_id, user.id)
+     if session["state"] not in ("scheduled", "lobby", "live"):
+         raise HTTPException(status_code=409, detail="Session is not joinable")
+     settings = request.app.state.settings
+     ice_servers = list(settings.ice_servers)
+     if session["mode"] == "remote":
+         ice_servers += await mint_turn_credentials(settings)
+-    return {
++    config = {
+         "session_id": session_id,
+         "your_role": role,
+         "mode": session["mode"],
+         "ws_path": f"/ws/practice/{session_id}",
+         "ice_servers": ice_servers,
+     }
++    if role == "interviewer":
++        # Spec §7.2: the recommendation travels with the candidate — the
++        # interviewer sees "Recommended for [name]" (top 3). Interviewer-only.
++        config["counterpart_recommendations"] = await run_in_threadpool(
++            dashboard_repo.recommendations, session["candidate_id"], limit=3)
++    return config
+diff --git a/webapp/routes/recommendations.py b/webapp/routes/recommendations.py
+new file mode 100644
+index 0000000..79f1e1d
+--- /dev/null
++++ b/webapp/routes/recommendations.py
+@@ -0,0 +1,46 @@
++"""
++Purpose: /api/v1/recommendations — the native "Next up for you" mouth of the
++         single §4.8 recommendation engine (spec §7); list + why + exclude.
++Inputs:  session cookie (require_auth_api); optional ?exclude=1,2,3 query.
++Outputs: {"recommendations": [{case_id, title, case_type, difficulty, why, rule}]}.
++Run:     GET /api/v1/recommendations?exclude=12,34  (Cookie: caseroom_session=…)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException, Query
++
++from webapp.auth.dependencies import require_auth_api
++from webapp.auth.users import User
++from webapp.repositories import dashboard as dashboard_repo
++
++router = APIRouter(prefix="/api/v1")
++
++
++def _parse_exclude(raw: str | None) -> list[int]:
++    """Comma-separated case ids → list[int]. Empty/absent → []. A non-integer
++    token is a client error (400), not a silent drop — server-side validation."""
++    if not raw:
++        return []
++    ids: list[int] = []
++    for part in raw.split(","):
++        part = part.strip()
++        if not part:
++            continue
++        try:
++            ids.append(int(part))
++        except ValueError:
++            raise HTTPException(
++                status_code=400,
++                detail="exclude must be comma-separated integers")
++    return ids
++
++
++@router.get("/recommendations")
++def list_recommendations(exclude: str | None = Query(default=None),
++                         user: User = Depends(require_auth_api)):
++    """Spec §7 mouth 1. Identity from the session (T9.3) — never a param;
++    a user only ever sees their own recommendations. `exclude` powers the
++    "Swap recommendation" affordance (client re-calls with the swapped id)."""
++    exclude_ids = _parse_exclude(exclude)
++    return {"recommendations": dashboard_repo.recommendations(user.id, exclude_ids)}
+diff --git a/webapp/templates/room.html b/webapp/templates/room.html
+index a5ec2b7..13d8f7f 100644
+--- a/webapp/templates/room.html
++++ b/webapp/templates/room.html
+@@ -105,21 +105,21 @@
+     {# ── Dashboard (spec §4.8, T9.1/T9.2) ─────────────────────────────── #}
+     <div class="grid gap-4 sm:grid-cols-2 mt-4">
+         <div class="surface p-6">
+             <h2 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Recommended next</h2>
+             <p class="text-[13px] text-slate-500 dark:text-slate-400 mb-3">From your history — coverage gaps, the next rung, weak spots.</p>
+             {% if recommended %}
+             <ul class="space-y-2.5">
+                 {% for rec in recommended %}
+                 <li class="text-sm flex items-center justify-between gap-2">
+                     <span class="truncate">
+-                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.case_title }}</a>
++                        <a href="/cases/{{ rec.case_id }}" class="hover:underline text-slate-800 dark:text-slate-200">{{ rec.title }}</a>
+                         <span class="text-[12px] text-slate-500 dark:text-slate-500">· {{ rec.difficulty }}</span>
+                     </span>
+                     <span class="badge badge-easy shrink-0">{{ rec.rule }}</span>
+                 </li>
+                 {% endfor %}
+             </ul>
+             {% else %}
+             <p class="text-sm text-slate-500 dark:text-slate-400">Nothing yet — finish a few sessions and this fills in.</p>
+             {% endif %}
+         </div>

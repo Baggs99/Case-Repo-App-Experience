@@ -10,5 +10,9 @@ Branch: bgap/b4-recs · DB: caserepo_bgap_b4 · Baseline: 360 passed (green)
 - Task 3: complete (commit 0922bf6, review clean). /api/v1/dashboard additively gains dimension_averages + recommendations; 11 tests in test_recommendations.py + 8 in test_api_v1_sessions.py green.
 - Task 4: complete (commit 3e5ce60, review clean — no IDOR). counterpart_recommendations on join-config (interviewer-only) + pair/status (owner-only); 3 IDOR/role tests pass; 5 new tests. NOTE: implementer fixed a plan-fixture bug (joinable-session INSERT needed NOT NULL rubric_template_id) via get_default_rubric_template_id — sound, security-reviewer confirmed.
 
-## Minor findings (triage at final review)
-- M1 (Task 2): _parse_exclude accepts negative/underscore/unicode int forms as harmless read-only no-ops (int() semantics). Not a spec violation; optional hardening only.
+- Full suite after Task 4: 376 passed (360 baseline + 16 new).
+- Final whole-branch review (16cea76..d923dc8): APPROVED FOR MERGE; 1 IMPORTANT (privacy: difficulty-ladder why leaked candidate mean grade to interviewer via counterpart_recommendations — T9.3). Fixed: commit 33a982b (softened why, gate untouched). Re-review CLEAN. Full suite 376 green.
+
+## Minor findings (dispositioned)
+- M1 (Task 2): _parse_exclude accepts negative/underscore/unicode int forms as harmless read-only no-ops (int() semantics). SHIP as-is (reviewer decision) — not a spec violation.
+- MINOR (final): weak-dimension/weakest why is second-person ("Your weakest dimension is quant") — client-label concern for the iOS/web team framing counterpart recs as the candidate's; no engine change (same-output contract). weakest.replace('_',' ') only humanizes underscores — harmless for current dimension names.
