@@ -36,8 +36,8 @@ _MUTATING = [Depends(require_same_origin)]
 
 
 class ProposalBody(BaseModel):
-    to_user_id: int
-    case_id: int
+    to_user_id: Optional[int] = None
+    case_id: Optional[int] = None
     from_role: str = Field(pattern="^(interviewer|candidate)$")
     message: Optional[str] = Field(default=None, max_length=500)
     proposed_times: list[datetime] = Field(default_factory=list,
@@ -51,7 +51,7 @@ class RespondBody(BaseModel):
 @router.post("/api/proposals", dependencies=_MUTATING)
 def create_proposal(body: ProposalBody, background: BackgroundTasks,
                     user: User = Depends(require_auth_api)):
-    if get_case_by_id(body.case_id) is None:
+    if body.case_id is not None and get_case_by_id(body.case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
     try:
         proposal = repo.create_proposal(
@@ -62,13 +62,16 @@ def create_proposal(body: ProposalBody, background: BackgroundTasks,
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
-    sender_name = user.email.split("@")[0]
-    background.add_task(
-        push_to_user, body.to_user_id,
-        title="New session proposal",
-        body=f"{sender_name} proposed a case session",
-        data={"kind": "proposal", "proposal_id": proposal["id"]},
-    )
+    # Named-recipient proposals notify the recipient; open links have no
+    # recipient yet (notified when someone claims, Task 4).
+    if body.to_user_id is not None:
+        sender_name = user.email.split("@")[0]
+        background.add_task(
+            push_to_user, body.to_user_id,
+            title="New session proposal",
+            body=f"{sender_name} proposed a case session",
+            data={"kind": "proposal", "proposal_id": proposal["id"]},
+        )
     return proposal
 
 

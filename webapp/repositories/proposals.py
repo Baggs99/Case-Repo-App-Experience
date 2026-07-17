@@ -12,6 +12,8 @@ both are idempotent reads/creates).
 
 from __future__ import annotations
 
+import secrets
+
 from datetime import datetime
 from typing import Optional
 
@@ -29,7 +31,8 @@ EXPIRY_DAYS = 7
 
 _COLS = """
     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
-    p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at
+    p.proposed_times_json, p.state, p.session_id, p.created_at, p.responded_at,
+    p.claim_token, p.counter_times_json, p.counter_by, p.countered_at
 """
 
 
@@ -38,27 +41,31 @@ def candidate_of(from_user_id: int, to_user_id: int, from_role: str) -> int:
     return to_user_id if from_role == "interviewer" else from_user_id
 
 
-def create_proposal(*, from_user_id: int, to_user_id: int, case_id: int,
-                    from_role: str, message: Optional[str],
+def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
+                    case_id: Optional[int], from_role: str,
+                    message: Optional[str],
                     proposed_times: list[datetime]) -> dict:
-    if from_user_id == to_user_id:
+    if to_user_id is not None and from_user_id == to_user_id:
         raise TransitionError(400, "You can't propose to yourself")
     if len(proposed_times) > MAX_PROPOSED_TIMES:
         raise TransitionError(400, f"At most {MAX_PROPOSED_TIMES} proposed times")
-    if is_burned(candidate_of(from_user_id, to_user_id, from_role), case_id):
-        # A6 — checked again at accept; this just fails fast.
-        raise TransitionError(409, "This case is burned for the would-be candidate")
+    # Burned only checkable when both case and candidate are known up front;
+    # open-link / case-less proposals defer the check to claim/accept.
+    if case_id is not None and to_user_id is not None:
+        if is_burned(candidate_of(from_user_id, to_user_id, from_role), case_id):
+            raise TransitionError(409, "This case is burned for the would-be candidate")
 
     times = [t.isoformat() for t in proposed_times]
+    claim_token = secrets.token_urlsafe(24) if to_user_id is None else None
     with get_pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 "INSERT INTO proposals (from_user_id, to_user_id, case_id,"
-                " from_role, message, proposed_times_json)"
-                " VALUES (%s, %s, %s, %s, %s, %s)"
+                " from_role, message, proposed_times_json, claim_token)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s)"
                 f" RETURNING {_COLS.replace('p.', '')};",
                 (from_user_id, to_user_id, case_id, from_role, message,
-                 Jsonb(times)),
+                 Jsonb(times), claim_token),
             )
             return cur.fetchone()
 
