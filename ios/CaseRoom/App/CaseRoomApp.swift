@@ -3,8 +3,8 @@
  *          shell) and wires the UIKit app delegate needed for APNs device-token
  *          registration.
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
- *         -F2TimelinePromptNoOffer, -DevLogin, -startTab <tab>, -avatarOpen —
- *         see the #if DEBUG blocks).
+ *         -F2TimelinePromptNoOffer, -F2Home, -DevLogin, -startTab <tab>,
+ *         -avatarOpen — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -55,6 +55,14 @@ struct CaseRoomApp: App {
                     TimelineDetailView(viewModel: .init(fixtureDetail: PreviewTimelineFixture.detail,
                                                           fixtureCatalog: PreviewTimelineFixture.catalog,
                                                           promptStage: .result(PreviewTimelineFixture.noOfferResult)))
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("-F2Home") {
+                // Home (canvas 3a) fixture hatch: the July-16 persona, fixture-backed.
+                NavigationStack {
+                    HomeView(viewModel: .init(
+                        fixtureDashboard: PreviewHomeFixture.dashboard, fixtureGauntlet: PreviewHomeFixture.gauntlet,
+                        fixtureBoard: PreviewHomeFixture.board, fixtureProfile: PreviewHomeFixture.profile,
+                        fixtureTimeline: PreviewHomeFixture.timelineDetail))
                 }
             } else {
                 rootView

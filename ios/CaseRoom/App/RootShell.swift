@@ -125,7 +125,14 @@ struct RootShell: View {
     private var selectedTab: some View {
         switch router.selection {
         case .home:
-            TodayView(selectedTab: $router.selection)
+            NavigationStack(path: $router.homePath) {
+                HomeView()
+                    .navigationDestination(for: AppRoute.self) { route in
+                        if case .timelineDetail = route {
+                            TimelineDetailView()
+                        }
+                    }
+            }
         case .library:
             CasesListView()
         case .caseTab:

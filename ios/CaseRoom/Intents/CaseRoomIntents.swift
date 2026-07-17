@@ -85,7 +85,8 @@ final class AppRouter {
             selection = .library
             libraryPath.append(.caseDetail(id))
         case .timelineDetail:
-            selection = .home    // F2 wires the detail push onto homePath
+            selection = .home
+            homePath.append(.timelineDetail)
         case .recap:
             selection = .caseTab // F5 wires the recap presentation
         case .groupPage:

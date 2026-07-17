@@ -201,17 +201,8 @@ final class TimelineDetailViewModel {
     // MARK: - Pure helpers (static so tests can call them directly)
 
     /// 0–99 spelled out, first letter capitalized ("Fifty-eight"); >=100 falls
-    /// back to digits.
-    static func spellOut(_ n: Int) -> String {
-        guard n >= 0, n < 100 else { return "\(n)" }
-        let ones = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
-                    "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
-                    "Eighteen", "Nineteen"]
-        if n < 20 { return ones[n] }
-        let tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
-        let ten = n / 10, rem = n % 10
-        return rem == 0 ? tens[ten] : "\(tens[ten])-\(ones[rem].lowercased())"
-    }
+    /// back to digits. Delegates to the shared helper (Home's hero reuses it).
+    static func spellOut(_ n: Int) -> String { NumberWords.spellOut(n) }
 
     /// Timeline 3-col summary label (canvas 7b line 372: focus → "PUSH QUANT").
     static func tagLabel(_ tag: String) -> String {
