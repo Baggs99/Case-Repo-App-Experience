@@ -17,6 +17,14 @@ enum APIError: Error {
     case transport(Error)
 }
 
+// Thrown by submitGauntlet when the server returns 409 {"error":
+// "already_submitted", ...} — B8 allows one gauntlet submission per user per
+// day. The VM recovers by re-fetching gauntlet() and showing its embedded
+// (already-scored) `result`.
+enum GauntletError: Error, Equatable {
+    case alreadySubmitted
+}
+
 // Thrown by uploadRecordingChunk when the server rejects a chunk with
 // 409 {"detail": "expected seq N"} — the client is out of sync and must
 // resend starting at N (RecordingUploader does this resync).
@@ -72,15 +80,22 @@ protocol RecommendationService {
     func recommendations(exclude: [Int]) async throws -> [Recommendation]
 }
 
-// Today's global gauntlet set + percentile-first results (B8, Task 2).
+// Today's global gauntlet set + percentile-first results (B8, Task 2); the
+// scored submission + trends (B8, F7 Task 1).
 protocol GauntletService {
     func gauntlet() async throws -> Gauntlet
+    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult
+    func trends() async throws -> GauntletTrends
 }
 
 // Scoped leaderboards; Home's cohort footer only ever asks for scope=group,
-// the one scope with literal rank/points (B8, Task 2).
+// the one scope with literal rank/points (B8, Task 2). F7 Task 1 adds the
+// remaining three scopes for the Drills hub's board switcher.
 protocol BoardService {
     func groupBoard() async throws -> GroupBoard
+    func schoolBoard() async throws -> SchoolBoard
+    func globalBoard() async throws -> GlobalBoard
+    func schoolsBoard() async throws -> SchoolsBoard
 }
 
 struct CaseQuery {
@@ -366,6 +381,47 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
             path: "/api/v1/drills/boards", method: "GET",
             queryItems: [URLQueryItem(name: "scope", value: "group")]
         )
+    }
+
+    func schoolBoard() async throws -> SchoolBoard {
+        try await send(
+            path: "/api/v1/drills/boards", method: "GET",
+            queryItems: [URLQueryItem(name: "scope", value: "school")]
+        )
+    }
+
+    func globalBoard() async throws -> GlobalBoard {
+        try await send(
+            path: "/api/v1/drills/boards", method: "GET",
+            queryItems: [URLQueryItem(name: "scope", value: "global")]
+        )
+    }
+
+    func schoolsBoard() async throws -> SchoolsBoard {
+        try await send(
+            path: "/api/v1/drills/boards", method: "GET",
+            queryItems: [URLQueryItem(name: "scope", value: "schools")]
+        )
+    }
+
+    // POST .../gauntlet/attempts — server re-scores against the regenerated
+    // set (client `value`/`choiceIndex` never trusted for grading). One
+    // submission/user/day: a repeat -> 409, rethrown as the typed
+    // GauntletError.alreadySubmitted so the VM can recover via gauntlet().result.
+    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
+        struct SubmitBody: Encodable { let answers: [GauntletAttempt] }
+        do {
+            return try await send(
+                path: "/api/v1/drills/gauntlet/attempts", method: "POST",
+                body: SubmitBody(answers: answers)
+            )
+        } catch APIError.server(409) {
+            throw GauntletError.alreadySubmitted
+        }
+    }
+
+    func trends() async throws -> GauntletTrends {
+        try await send(path: "/api/v1/drills/trends", method: "GET")
     }
 
     // MARK: - Devices

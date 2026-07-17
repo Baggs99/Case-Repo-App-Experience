@@ -19,6 +19,11 @@ enum AppRoute: Hashable {
     case sessionTakeover(Int)
     case groupPage(Int)
     case drillRun
+    // F7 Task 1: the server-scored gauntlet run, launched from Home's hero and
+    // the Drills hub Begin button. Presented as a shell fullScreenCover (Task
+    // 4 wires the cover); orchestrator-blessed per contract §6 — nothing
+    // external (deep link / intent) targets it.
+    case gauntletRun
 
     /// The tab that owns this route's surface, or nil for routes presented
     /// modally / over the whole shell (avatar sheet, session takeover). Detail
@@ -29,7 +34,7 @@ enum AppRoute: Hashable {
         case .library, .caseDetail: return .library
         case .caseTab, .recap: return .caseTab
         case .community, .groupPage: return .community
-        case .drills: return .drills
+        case .drills, .gauntletRun: return .drills
         case .avatarSheet, .sessionTakeover: return nil
         }
     }

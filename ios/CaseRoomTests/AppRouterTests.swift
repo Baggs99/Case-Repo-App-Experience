@@ -18,6 +18,7 @@ final class AppRouterTests: XCTestCase {
         r.proposeToUserID = nil
         r.sessionTakeoverID = nil
         r.drillRun = false
+        r.gauntletRun = false
         r.pending = nil
         return r
     }
@@ -29,6 +30,7 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(AppRoute.caseTab.owningTab, .caseTab)
         XCTAssertEqual(AppRoute.community.owningTab, .community)
         XCTAssertEqual(AppRoute.drills.owningTab, .drills)
+        XCTAssertEqual(AppRoute.gauntletRun.owningTab, .drills)
     }
     func testOwningTabForDetailRoutes() {
         XCTAssertEqual(AppRoute.caseDetail(1).owningTab, .library)
@@ -58,6 +60,11 @@ final class AppRouterTests: XCTestCase {
         r.go(to: .drillRun)
         XCTAssertEqual(r.selection, .home)
         XCTAssertTrue(r.drillRun)
+    }
+    func testGoToGauntletRunFlagsGauntlet() {
+        let r = freshRouter()
+        r.go(to: .gauntletRun)
+        XCTAssertTrue(r.gauntletRun)
     }
     func testGoToSessionTakeoverSetsCover() {
         let r = freshRouter()

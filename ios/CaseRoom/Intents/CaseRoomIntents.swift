@@ -56,6 +56,7 @@ final class AppRouter {
     var proposeToUserID: Int?
     var sessionTakeoverID: Int?
     var drillRun = false          // the shell owns the drill sheet, keyed off this
+    var gauntletRun = false       // shell owns the gauntlet fullScreenCover, keyed off this (F7 Task 4)
     var homePath: [AppRoute] = []
     var libraryPath: [AppRoute] = []
     var casePath: [AppRoute] = []
@@ -81,6 +82,8 @@ final class AppRouter {
         case .drillRun:
             selection = .home
             drillRun = true       // RootShell observes this and presents DrillView
+        case .gauntletRun:
+            gauntletRun = true    // RootShell observes this and presents GauntletRunView (Task 4)
         case .caseDetail(let id):
             selection = .library
             libraryPath.append(.caseDetail(id))
