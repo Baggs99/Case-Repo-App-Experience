@@ -10,3 +10,9 @@ DB: caserepo_bgap_b5 · PY: /Users/thomaskgould/dev/Case-Repo-App-Experience/.ve
 
 ## Tasks
 (pending plan)
+
+## Plan
+- Plan written + committed (5040c4e), reviewed by fresh Opus reviewer (round 1: REQUEST_CHANGES — 1 CRITICAL email_verified gate, 2 IMPORTANT), fixed (1e94ae9), re-reviewed round 2: APPROVE.
+
+## Execution ledger
+- BASE for Task 1 = 1e94ae9
