@@ -28,3 +28,5 @@ DB: `caserepo_bgap_b7` · Interpreter: `/Users/thomaskgould/dev/Case-Repo-App-Ex
   - Minor for final triage: strengths/weaknesses overlap when <4 dims (acceptable snapshot; fixture seeds 5 so untriggered).
 - Task 5: complete (commits bbbe7c6..9bd3e37, review clean SPEC+CODE PASS). timeline_service + router + main.py registration (additive +2). IDOR exhaustively verified: no hole. Suite 437→448.
   - Minors for final triage: no explicit cross-origin 403 test on mutating routes; GET /timeline/firms 401 not directly asserted (mechanism proven elsewhere).
+- Task 6: complete (commits 40d9597..53f5e82, review clean SPEC+CODE PASS). /api/v1/dashboard additive +diagnostic +timeline (+6/-0 in api_v1.py). Suite 448→449.
+  - Minor for final triage: TestDashboardTimelineKeys asserts next_deadline.slug=='mckinsey' via real clock — time-bomb after 2026-09-12 (seed dates are is_estimate stand-ins). Consider guarding next_deadline-None at final review; flag to Thomas.
