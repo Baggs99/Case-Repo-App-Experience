@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from pipeline.storage import get_storage, to_storage_key, validate_key
-from webapp.auth.dependencies import require_auth
+from webapp.auth.guest import require_auth_no_guest, require_case_access
 from webapp.auth.users import User
 from webapp.previews import existing_preview_file, preview_media_type
 from webapp.preview_urls import preview_page_urls
@@ -119,7 +119,7 @@ def _resolve_case_pdf(case_id: int) -> tuple[dict[str, Any], str, str]:
 @router.get("/api/cases/{case_id}/download")
 def api_download_case_pdf(
     case_id: int,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     """Record exactly one **download** audit row, then stream the PDF as an attachment."""
     _case, key, filename = _resolve_case_pdf(case_id)
@@ -135,7 +135,7 @@ def api_download_case_pdf(
 @router.get("/api/cases/{case_id}/open-pdf")
 def api_open_case_pdf_tab(
     case_id: int,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_case_access),
 ):
     """Record **open_tab** once, then redirect to the inline PDF route.
 
@@ -159,7 +159,7 @@ def api_open_case_pdf_tab(
 def api_case_previews_manifest(
     request: Request,
     case_id: int,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     """JSON list of preview image URLs (same-origin paths or public CDN URLs).
 
@@ -191,7 +191,7 @@ def api_case_previews_manifest(
 def serve_case_preview_image(
     case_id: int,
     page_num: int,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     """Serve a pre-generated preview file only (JPEG or legacy PNG). No PDF work."""
     _case, cp = _resolve_case_page_count(case_id)
@@ -230,7 +230,7 @@ def serve_case_preview_image(
 def serve_case_pdf(
     case_id: int,
     download: bool = Query(False),
-    user: User = Depends(require_auth),
+    user: User = Depends(require_case_access),
 ):
     """Serve the case PDF inline. Audit rows for opens use ``/api/cases/.../open-pdf``."""
     _case, key, filename = _resolve_case_pdf(case_id)
@@ -245,7 +245,7 @@ def serve_case_pdf(
 
 
 @router.get("/files/{key:path}")
-def serve_pdf(key: str, user: User = Depends(require_auth)):
+def serve_pdf(key: str, user: User = Depends(require_auth_no_guest)):
     """Serve the PDF identified by `key` (a Storage layer key).
 
     URL paths are URL-encoded by browsers; Starlette decodes them but if

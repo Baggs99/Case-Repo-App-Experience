@@ -1,0 +1,254 @@
+=== git log a982f786a14333611c8d15f0e084cb079e3748c0..18361a3059464655a73419a9ad1e3bc91d891da4 ===
+18361a3 Add guest identity: migration 025 + User.is_guest
+
+=== diff --stat ===
+ db/migrations/025_guest_users.sql | 33 +++++++++++++++
+ tests/test_b2_guest_users.py      | 85 +++++++++++++++++++++++++++++++++++++++
+ webapp/auth/users.py              | 10 +++--
+ 3 files changed, 124 insertions(+), 4 deletions(-)
+
+=== diff -U10 ===
+diff --git a/db/migrations/025_guest_users.sql b/db/migrations/025_guest_users.sql
+new file mode 100644
+index 0000000..e4eeda8
+--- /dev/null
++++ b/db/migrations/025_guest_users.sql
+@@ -0,0 +1,33 @@
++-- ============================================================================
++-- 025 — Guest interviewer identity (roadmap §B2, spec §6.2)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/025_guest_users.sql
++-- Idempotent:  ADD COLUMN IF NOT EXISTS; DROP NOT NULL is a no-op when already
++--              nullable; DROP CONSTRAINT IF EXISTS + re-ADD.
++--
++-- A guest is a real users row (is_guest=TRUE) with NULL email/password so every
++-- FK (practice_sessions.interviewer_id/candidate_id, feedback, recordings)
++-- keeps working. The email-domain CHECK is relaxed for guests only; non-guest
++-- rows still require a school-domain email (NOT NULL + suffix). Upgrade
++-- (B2 §upgrade) flips is_guest→FALSE and stamps a real email/password.
++-- ============================================================================
++
++ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
++
++ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
++ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
++
++-- Guest rows bypass the school-domain gate; non-guests must still carry a
++-- non-null school-domain email. (email ILIKE NULL is unknown, which a CHECK
++-- would treat as "not violated" — hence the explicit email IS NOT NULL arm.)
++ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_allowed;
++ALTER TABLE users ADD CONSTRAINT users_email_allowed CHECK (
++    is_guest
++    OR (
++        email IS NOT NULL AND (
++            email ILIKE '%@yale.edu'
++            OR email ILIKE '%@umich.edu'
++            OR lower(email::text) = 'acannata@chicagobooth.edu'
++        )
++    )
++);
+diff --git a/tests/test_b2_guest_users.py b/tests/test_b2_guest_users.py
+new file mode 100644
+index 0000000..2fc14f7
+--- /dev/null
++++ b/tests/test_b2_guest_users.py
+@@ -0,0 +1,85 @@
++"""
++B2 Task 1: migration 025 (is_guest, nullable email/password, guest-aware
++domain CHECK) + User.is_guest plumbing. Needs the seeded dev Postgres with
++migration 025 applied — skips cleanly otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestGuestUsersSchema(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Enter the app context so the DB pool is initialized (get_user_by_id
++        # uses the pool). Raw psycopg inserts open their own connections.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def setUp(self):
++        self._created: list[int] = []
++
++    def tearDown(self):
++        import psycopg
++        if self._created:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (self._created,))
++
++    def test_guest_row_with_null_email_and_password_is_allowed(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO users (email, password_hash, is_guest, display_name)"
++                    " VALUES (NULL, NULL, TRUE, 'Guest') RETURNING id, is_guest;")
++                row = cur.fetchone()
++        self._created.append(row[0])
++        self.assertTrue(row[1])
++
++    def test_non_guest_with_null_email_is_rejected(self):
++        import psycopg
++        with self.assertRaises(psycopg.errors.CheckViolation):
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO users (email, password_hash, is_guest)"
++                        " VALUES (NULL, 'x', FALSE) RETURNING id;")
++
++    def test_non_guest_with_bad_domain_still_rejected(self):
++        import psycopg
++        with self.assertRaises(psycopg.errors.CheckViolation):
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO users (email, password_hash, is_guest)"
++                        " VALUES ('nope@gmail.com', 'x', FALSE) RETURNING id;")
++
++    def test_user_dataclass_exposes_is_guest(self):
++        import psycopg
++        from webapp.auth.users import get_user_by_id
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO users (email, password_hash, is_guest, display_name)"
++                    " VALUES (NULL, NULL, TRUE, 'Guest') RETURNING id;")
++                gid = cur.fetchone()[0]
++                cur.execute("SELECT id FROM users WHERE email = 'a@yale.edu';")
++                aid = cur.fetchone()[0]
++        self._created.append(gid)
++        self.assertTrue(get_user_by_id(gid).is_guest)
++        self.assertFalse(get_user_by_id(aid).is_guest)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/auth/users.py b/webapp/auth/users.py
+index 7700f38..121a905 100644
+--- a/webapp/auth/users.py
++++ b/webapp/auth/users.py
+@@ -27,24 +27,25 @@ logger = logging.getLogger(__name__)
+ # School domains: any address on these suffixes. Chicago Booth: one guest only.
+ # Enforced here and via CHECK constraint on users.email (see db/schema.sql).
+ ALLOWED_DOMAIN_SUFFIXES = ("@yale.edu", "@umich.edu")
+ ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
+ BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
+ 
+ 
+ @dataclass(frozen=True)
+ class User:
+     id: int
+-    email: str
++    email: Optional[str]
+     email_verified_at: Optional[datetime]
+     created_at: datetime
+     last_login_at: Optional[datetime]
++    is_guest: bool = False
+ 
+     @property
+     def is_verified(self) -> bool:
+         return self.email_verified_at is not None
+ 
+ 
+ # ── Domain errors ──────────────────────────────────────────────────────────────
+ 
+ class InvalidEmailDomain(ValueError):
+     """Email isn't on an allowed school domain, isn't the lone Booth guest, or is malformed."""
+@@ -103,20 +104,21 @@ def validate_email(email: str) -> str:
+ 
+ # ── CRUD ───────────────────────────────────────────────────────────────────────
+ 
+ def _row_to_user(row: dict) -> User:
+     return User(
+         id=row["id"],
+         email=row["email"],
+         email_verified_at=row["email_verified_at"],
+         created_at=row["created_at"],
+         last_login_at=row["last_login_at"],
++        is_guest=row.get("is_guest", False),
+     )
+ 
+ 
+ def create_user(email: str, password: str) -> User:
+     """Create a new user with a hashed password. Email must be allowed.
+ 
+     Raises:
+       InvalidEmailDomain — domain / guest rules violated
+       WeakPasswordError  — password too short / long
+       EmailAlreadyRegistered — email taken
+@@ -145,35 +147,35 @@ def create_user(email: str, password: str) -> User:
+     logger.info("Created user id=%d email=%s", row["id"], row["email"])
+     return _row_to_user(row)
+ 
+ 
+ def get_user_by_email(email: str) -> Optional[User]:
+     e = normalize_email(email)
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 """
+-                SELECT id, email, email_verified_at, created_at, last_login_at
++                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
+                 FROM users WHERE email = %s;
+                 """,
+                 (e,),
+             )
+             row = cur.fetchone()
+     return _row_to_user(row) if row else None
+ 
+ 
+ def get_user_by_id(user_id: int) -> Optional[User]:
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 """
+-                SELECT id, email, email_verified_at, created_at, last_login_at
++                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
+                 FROM users WHERE id = %s;
+                 """,
+                 (user_id,),
+             )
+             row = cur.fetchone()
+     return _row_to_user(row) if row else None
+ 
+ 
+ def authenticate(email: str, password: str) -> Optional[User]:
+     """Return the user iff (email, password) match. Returns None on any
+@@ -181,21 +183,21 @@ def authenticate(email: str, password: str) -> Optional[User]:
+ 
+     Side effect: re-hashes the password if `needs_rehash` is true (i.e. we
+     tuned up the argon2 cost factor since this user signed up).
+     """
+     e = normalize_email(email)
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 """
+                 SELECT id, email, email_verified_at, created_at,
+-                       last_login_at, password_hash
++                       last_login_at, is_guest, password_hash
+                 FROM users WHERE email = %s;
+                 """,
+                 (e,),
+             )
+             row = cur.fetchone()
+             if row is None:
+                 # Run a dummy verify so the timing matches a real check;
+                 # prevents an attacker from learning which emails exist
+                 # by observing response time.
+                 _ = verify_password(password, "$argon2id$v=19$m=65536,t=3,p=4$"

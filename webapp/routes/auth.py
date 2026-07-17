@@ -41,7 +41,8 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from webapp.auth.dependencies import get_current_user, require_auth
+from webapp.auth.dependencies import get_current_user
+from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.email_sender import (
     build_password_reset_email,
     build_verification_email,
@@ -264,7 +265,7 @@ def logout(request: Request):
 # ── Change password ────────────────────────────────────────────────────────────
 
 @router.get("/change-password", response_class=HTMLResponse)
-def change_password_form(request: Request, user: User = Depends(require_auth)):
+def change_password_form(request: Request, user: User = Depends(require_auth_no_guest)):
     return render(request, "change_password.html", {"error": None})
 
 
@@ -274,7 +275,7 @@ def change_password_submit(
     current_password: str = Form(""),
     new_password: str = Form(""),
     new_password_confirm: str = Form(""),
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     if new_password != new_password_confirm:
         return render(request, "change_password.html",

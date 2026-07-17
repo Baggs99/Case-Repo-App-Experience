@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from webapp.auth.dependencies import require_auth
+from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.repositories.cases import (
     SearchFilters,
@@ -37,7 +37,7 @@ def search(
     case_type:  str | None = None,
     school:     str | None = None,
     include_duplicates: str | None = None,
-    user: User = Depends(require_auth),
+    user: User = Depends(require_auth_no_guest),
 ):
     filters = SearchFilters.from_query(
         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,

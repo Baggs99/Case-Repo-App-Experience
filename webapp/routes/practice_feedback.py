@@ -14,7 +14,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from webapp.auth.dependencies import require_auth_api
+from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
@@ -47,7 +47,7 @@ def _interviewer_or_403(session_id: int, user_id: int) -> dict:
 
 
 @router.get("/api/practice/{session_id}/rubric")
-def get_rubric(session_id: int, user: User = Depends(require_auth_api)):
+def get_rubric(session_id: int, user: User = Depends(require_session_participant)):
     """Template + current draft + computed grade preview (T7.1)."""
     session = _interviewer_or_403(session_id, user.id)
     template_items = repo.get_template_items(session["rubric_template_id"])
@@ -65,7 +65,7 @@ def get_rubric(session_id: int, user: User = Depends(require_auth_api)):
 
 @router.put("/api/practice/{session_id}/rubric", dependencies=_MUTATING)
 def put_rubric(session_id: int, body: RubricDraftBody,
-               user: User = Depends(require_auth_api)):
+               user: User = Depends(require_session_participant)):
     """Debounced autosave of the draft. Allowed any time before finalize —
     prepping the rubric pre-call is legitimate; 'aborted' keeps it too
     (nothing is ever released for aborted sessions)."""
@@ -87,7 +87,7 @@ def put_rubric(session_id: int, body: RubricDraftBody,
 
 @router.post("/api/practice/{session_id}/finalize", dependencies=_MUTATING)
 def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
-                  user: User = Depends(require_auth_api)):
+                  user: User = Depends(require_session_participant)):
     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
     one transaction. Optional body.grade overrides the computed score."""
     session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
@@ -112,7 +112,7 @@ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTas
 
 
 @router.get("/api/practice/{session_id}/feedback")
-def get_feedback(session_id: int, user: User = Depends(require_auth_api)):
+def get_feedback(session_id: int, user: User = Depends(require_session_participant)):
     """T7.3: released feedback — both participants, post-finalize only."""
     session, _ = _session_or_404(session_id, user.id)
     if session["state"] != "finalized":

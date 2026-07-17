@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from pipeline.storage import get_storage, to_storage_key
-from webapp.auth.dependencies import require_auth, require_verified_user
+from webapp.auth.dependencies import require_verified_user
+from webapp.auth.guest import require_auth_no_guest
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.exhibits_render import page_count, render_exhibit_webp, render_page_thumb
@@ -52,7 +53,7 @@ def _case_pdf_bytes(case_id: int) -> tuple[dict, bytes]:
 
 @router.get("/cases/{case_id}/exhibits")
 def authoring_page(case_id: int, request: Request,
-                   user: User = Depends(require_auth)):
+                   user: User = Depends(require_auth_no_guest)):
     case, pdf = _case_pdf_bytes(case_id)
     return render(request, "exhibits.html", {
         "case": case,
@@ -63,7 +64,7 @@ def authoring_page(case_id: int, request: Request,
 
 @router.get("/api/cases/{case_id}/page-thumb/{page}")
 async def page_thumb(case_id: int, page: int,
-                     user: User = Depends(require_auth)):
+                     user: User = Depends(require_auth_no_guest)):
     _, pdf = _case_pdf_bytes(case_id)
     try:
         jpeg = await run_in_threadpool(render_page_thumb, pdf, page)
@@ -74,7 +75,7 @@ async def page_thumb(case_id: int, page: int,
 
 
 @router.get("/api/cases/{case_id}/exhibits")
-def list_exhibits(case_id: int, user: User = Depends(require_auth)):
+def list_exhibits(case_id: int, user: User = Depends(require_auth_no_guest)):
     if get_case_by_id(case_id) is None:
         raise HTTPException(status_code=404, detail="Case not found")
     return {"exhibits": repo.list_for_case(case_id)}

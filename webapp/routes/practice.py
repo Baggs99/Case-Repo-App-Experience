@@ -17,6 +17,11 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from webapp.auth.dependencies import require_auth, require_auth_api
+from webapp.auth.guest import (
+    discard_minted_guest,
+    require_auth_or_mint_guest,
+    require_session_participant,
+)
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
@@ -99,7 +104,7 @@ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_
 
 
 @router.get("/api/practice/{session_id}")
-def get_practice(session_id: int, user: User = Depends(require_auth_api)):
+def get_practice(session_id: int, user: User = Depends(require_session_participant)):
     session, role = _session_or_404(session_id, user.id)
     return {**_public(session), "your_role": role}
 
@@ -130,7 +135,7 @@ def session_page(session_id: int, request: Request,
 
 @router.post("/api/practice/{session_id}/consent", dependencies=_MUTATING)
 def post_consent(session_id: int, body: ConsentBody, background: BackgroundTasks,
-                 user: User = Depends(require_auth_api)):
+                 user: User = Depends(require_session_participant)):
     _, role = _session_or_404(session_id, user.id)
     try:
         result = repo.set_consent(session_id, role, body.consent)
@@ -142,7 +147,7 @@ def post_consent(session_id: int, body: ConsentBody, background: BackgroundTasks
 
 @router.post("/api/practice/{session_id}/state", dependencies=_MUTATING)
 def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
-               user: User = Depends(require_auth_api)):
+               user: User = Depends(require_session_participant)):
     try:
         result = repo.transition(session_id, user.id, body.target)
     except TransitionError as exc:
@@ -165,14 +170,17 @@ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_ap
 
 
 @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
-def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
+def claim_pair_token(body: PairClaimBody, request: Request,
+                     user: User = Depends(require_auth_or_mint_guest)):
     """Claim a pairing token by token OR short_code (spec §8)."""
     if not body.token and not body.short_code:
+        discard_minted_guest(request)
         raise HTTPException(status_code=422, detail="Provide a token or short_code")
     try:
         return pairing_repo.claim(candidate_id=user.id, token=body.token,
                                   short_code=body.short_code)
     except TransitionError as exc:
+        discard_minted_guest(request)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
@@ -198,7 +206,7 @@ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
 
 @router.get("/api/practice/{session_id}/join-config")
 async def join_config(session_id: int, request: Request,
-                      user: User = Depends(require_auth_api)):
+                      user: User = Depends(require_session_participant)):
     """WS path + ICE servers for the call page. No HMAC token (DV-3): the
     WebSocket handshake authenticates with the same session cookie."""
     session, role = await run_in_threadpool(_session_or_404, session_id, user.id)

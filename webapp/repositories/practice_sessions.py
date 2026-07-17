@@ -104,6 +104,8 @@ def get_practice_session(session_id: int) -> Optional[dict]:
         SELECT {_SESSION_COLS},
                COALESCE(ui.display_name, split_part(ui.email::text, '@', 1)) AS interviewer_name,
                COALESCE(uc.display_name, split_part(uc.email::text, '@', 1)) AS candidate_name,
+               ui.is_guest AS interviewer_is_guest,
+               uc.is_guest AS candidate_is_guest,
                c.case_title, r.slug AS room_slug
         FROM practice_sessions ps
         JOIN users ui ON ui.id = ps.interviewer_id

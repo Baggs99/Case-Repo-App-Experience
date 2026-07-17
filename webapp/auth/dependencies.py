@@ -41,10 +41,16 @@ def require_auth_api(request: Request) -> User:
 
     Use for ``/api/...`` routes consumed by ``fetch`` so clients get a machine-readable
     error instead of an HTML redirect.
+
+    Guests (is_guest) are rejected with **403** here: this is the guard on
+    every non-session /api route, so guests are automatically confined to the
+    session-scoped endpoints (which use require_session_participant instead).
     """
     user = get_current_user(request)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
+    if user.is_guest:
+        raise HTTPException(status_code=403, detail="Guests must create an account to do this")
     return user
 
 

@@ -18,6 +18,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from webapp.auth.dependencies import require_auth_api
+from webapp.auth.guest import (
+    discard_minted_guest,
+    require_auth_or_mint_guest,
+    require_session_participant,
+)
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.ics import build_session_ics
@@ -125,12 +130,13 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
 
 @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
 def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
-                   user: User = Depends(require_auth_api)):
+                   user: User = Depends(require_auth_or_mint_guest)):
     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
     the creator; guests arrive in B2 by overriding require_auth_api."""
     try:
-        result = repo.claim_proposal(claim_token, user.id)
+        result = repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
     except TransitionError as exc:
+        discard_minted_guest(request)
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
     if result["session_id"] is not None:
@@ -175,7 +181,7 @@ def counter_proposal(proposal_id: int, body: CounterBody, background: Background
 
 @router.get("/ics/session-{session_id}.ics")
 def session_ics(session_id: int, request: Request,
-                user: User = Depends(require_auth_api)):
+                user: User = Depends(require_session_participant)):
     """Download link for the invite (spec §4.7) — participants only."""
     session, _ = _session_or_404(session_id, user.id)
     ics = _build_ics_for(request, session)
@@ -195,9 +201,9 @@ def _build_ics_for(request: Request, session: dict) -> str:
         case_title=session["case_title"],
         starts_at=session["scheduled_at"],
         organizer_name=session["interviewer_name"],
-        organizer_email=emails["interviewer"],
+        organizer_email=emails["interviewer"] or "guest@caseroom.invalid",
         attendee_name=session["candidate_name"],
-        attendee_email=emails["candidate"],
+        attendee_email=emails["candidate"] or "guest@caseroom.invalid",
         session_url=f"{base_url}/session/{session['id']}",
         host=host,
     )
@@ -210,8 +216,8 @@ def _participant_emails(session: dict) -> dict:
             cur.execute("SELECT id, email FROM users WHERE id = ANY(%s);",
                         ([session["interviewer_id"], session["candidate_id"]],))
             by_id = {row[0]: row[1] for row in cur.fetchall()}
-    return {"interviewer": by_id[session["interviewer_id"]],
-            "candidate": by_id[session["candidate_id"]]}
+    return {"interviewer": by_id.get(session["interviewer_id"]),
+            "candidate": by_id.get(session["candidate_id"])}
 
 
 def _send_invites(request: Request, session_id: int) -> None:
@@ -227,6 +233,8 @@ def _send_invites(request: Request, session_id: int) -> None:
                 if session["scheduled_at"] else "now — join when ready")
         sender = get_email_sender()
         for role, addr in emails.items():
+            if not addr:
+                continue  # guest participant: no inbox to invite
             counterpart = (session["candidate_name"] if role == "interviewer"
                            else session["interviewer_name"])
             sender.send(

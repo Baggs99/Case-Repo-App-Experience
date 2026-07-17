@@ -145,13 +145,14 @@ class TestClaim(unittest.TestCase):
     def test_unknown_token_404(self):
         self.assertEqual(self.bob.post("/api/proposals/claim/nope-nope").status_code, 404)
 
-    def test_requires_auth(self):
+    def test_unauthenticated_claim_mints_guest(self):
+        # B2: an unauthenticated claim mints a scoped guest instead of 401.
         tok = self._mk_open(self.alice)
-        anon = self.__class__._ctx.__class__  # unused; explicit anon client below
         from fastapi.testclient import TestClient
         from webapp.main import app
-        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
-        self.assertEqual(r.status_code, 401)
+        anon = TestClient(app)
+        r = anon.post(f"/api/proposals/claim/{tok}")
+        self.assertEqual(r.status_code, 200, r.text)
 
     def test_claim_now_with_case_auto_accepts_and_creates_session(self):
         tok = self._mk_open(self.alice)  # no proposed_times -> "now"
@@ -188,10 +189,13 @@ class TestClaim(unittest.TestCase):
         self.assertIsNone(r.json()["session_id"])
         self.assertTrue(r.json()["needs_negotiation"])
 
-    def test_double_claim_409(self):
+    def test_double_claim_404_dead_token(self):
+        # B2 N-1: claiming nulls the now-dead claim_token, so a second claim of
+        # the same token no longer finds the row → 404 "No such claim link"
+        # (was 409 in B1, before the token was nulled on claim).
         tok = self._mk_open(self.alice)
         self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
-        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
+        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 404)
 
 
 @unittest.skipUnless(_READY, "requires seeded dev Postgres")

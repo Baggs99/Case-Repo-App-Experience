@@ -17,7 +17,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from webapp.auth.dependencies import require_auth_api
+from webapp.auth.guest import require_session_participant
 from webapp.auth.users import User
 from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
@@ -45,7 +45,7 @@ def _exhibit_or_404(session: dict, exhibit_id: int) -> dict:
 
 
 @router.get("/api/practice/{session_id}/exhibits")
-def exhibit_manifest(session_id: int, user: User = Depends(require_auth_api)):
+def exhibit_manifest(session_id: int, user: User = Depends(require_session_participant)):
     """Manifest for preload — no keys (spec §4.4 step 1)."""
     session, _ = _session_or_404(session_id, user.id)
     return {"exhibits": [
@@ -64,7 +64,7 @@ def exhibit_manifest(session_id: int, user: User = Depends(require_auth_api)):
 
 @router.get("/api/practice/{session_id}/exhibit-blob/{exhibit_id}")
 async def exhibit_blob(session_id: int, exhibit_id: int,
-                       user: User = Depends(require_auth_api)):
+                       user: User = Depends(require_session_participant)):
     """Encrypted blob for preload. Ciphertext only — safe to serve to either
     participant in any state (INV-6 holds at the key layer)."""
     session, _ = _session_or_404(session_id, user.id)
@@ -75,7 +75,7 @@ async def exhibit_blob(session_id: int, exhibit_id: int,
 
 
 @router.get("/api/practice/{session_id}/exhibit-keys")
-def exhibit_keys(session_id: int, user: User = Depends(require_auth_api)):
+def exhibit_keys(session_id: int, user: User = Depends(require_session_participant)):
     """All keys at call start — interviewer only (spec §4.4 step 2)."""
     session, role = _session_or_404(session_id, user.id)
     if role != "interviewer":
@@ -89,7 +89,7 @@ def exhibit_keys(session_id: int, user: User = Depends(require_auth_api)):
 @router.post("/api/practice/{session_id}/reveals",
              dependencies=[Depends(require_same_origin)])
 def post_reveal(session_id: int, body: RevealBody, background: BackgroundTasks,
-                user: User = Depends(require_auth_api)):
+                user: User = Depends(require_session_participant)):
     """Log a reveal (system of record; the DataChannel key message is only
     the fast path). Idempotent per (session, exhibit). Also broadcasts the
     key over the signaling WS so exhibits work with no WebRTC peer
@@ -109,7 +109,7 @@ def post_reveal(session_id: int, body: RevealBody, background: BackgroundTasks,
 
 
 @router.get("/api/practice/{session_id}/reveals")
-def list_reveals(session_id: int, user: User = Depends(require_auth_api)):
+def list_reveals(session_id: int, user: User = Depends(require_session_participant)):
     """Reveal timeline — reconcile path (DV-4) and debrief view (T6.4)."""
     _session_or_404(session_id, user.id)
     return {"reveals": reveals_repo.list_reveals(session_id)}
@@ -117,7 +117,7 @@ def list_reveals(session_id: int, user: User = Depends(require_auth_api)):
 
 @router.get("/api/practice/{session_id}/exhibit-key/{exhibit_id}")
 def exhibit_key(session_id: int, exhibit_id: int,
-                user: User = Depends(require_auth_api)):
+                user: User = Depends(require_session_participant)):
     """Fallback key path (spec §4.4 step 5): key IFF a reveal row exists.
     Candidate only — the interviewer has /exhibit-keys."""
     session, role = _session_or_404(session_id, user.id)
