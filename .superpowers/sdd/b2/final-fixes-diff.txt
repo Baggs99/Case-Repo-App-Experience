@@ -1,0 +1,90 @@
+=== git log 61a8ffe029a70765669cbb817a9d6d89737d7dc2..43cfb7e518e20dbad4ef15fbc09e02a002e5b979 ===
+43cfb7e Final-review fixes: prune dead imports; guests claim only instant links (M-1..M-4)
+
+=== diff --stat ===
+ tests/test_b2_guest_claim.py         | 21 +++++++++++++++++++++
+ tests/test_b2_guest_crud.py          |  8 ++++----
+ tests/test_b2_guest_upgrade.py       |  1 +
+ webapp/repositories/proposals.py     |  8 +++++++-
+ webapp/routes/auth.py                |  2 +-
+ webapp/routes/exhibits.py            |  2 +-
+ webapp/routes/files.py               |  1 -
+ webapp/routes/pages.py               |  1 -
+ webapp/routes/practice_exhibits.py   |  1 -
+ webapp/routes/practice_feedback.py   |  1 -
+ webapp/routes/practice_recordings.py |  1 -
+ webapp/routes/proposals.py           |  2 +-
+ webapp/routes/rooms.py               |  2 +-
+ webapp/routes/search.py              |  1 -
+ 14 files changed, 37 insertions(+), 15 deletions(-)
+
+=== diff -U8 (M-4 claim path + fixes) ===
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index 20950ff..f2dc365 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -63,17 +63,17 @@ def _create_session_within(cur, prop: dict, scheduled_at) -> int:
+         " case_id, rubric_template_id, scheduled_at)"
+         " VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;",
+         (room["id"], interviewer_id, candidate_id, prop["case_id"],
+          template_id, scheduled_at),
+     )
+     return cur.fetchone()["id"]
+ 
+ 
+-def claim_proposal(token: str, user_id: int) -> dict:
++def claim_proposal(token: str, user_id: int, is_guest: bool = False) -> dict:
+     """Claim an open ('send a link') proposal. The claimer becomes to_user_id.
+     Scheduled proposals stay 'pending' (claimer now responds); "now" proposals
+     (no proposed_times) auto-accept — creating a session when a case is set, or
+     marking accepted with needs_negotiation when the case is "interviewer
+     decides" (B3 wires the negotiating session). Any authed non-creator may
+     claim; B2 overrides the route's auth dependency for guests.
+     """
+     with get_pool().connection() as conn:
+@@ -84,16 +84,22 @@ def claim_proposal(token: str, user_id: int) -> dict:
+             if prop is None:
+                 raise TransitionError(404, "No such claim link")
+             if prop["state"] != "pending":
+                 raise TransitionError(409, f"Proposal is already {prop['state']}")
+             if prop["to_user_id"] is not None:
+                 raise TransitionError(409, "This link has already been claimed")
+             if user_id == prop["from_user_id"]:
+                 raise TransitionError(409, "You can't claim your own link")
++            if is_guest and (prop["proposed_times_json"] or prop["case_id"] is None):
++                raise TransitionError(
++                    409,
++                    "Guests can only claim an instant, ready-to-run session link. "
++                    "Create an account to schedule or negotiate a case.",
++                )
+ 
+             cur.execute(
+                 "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",
+                 (user_id, prop["id"]))
+             prop["to_user_id"] = user_id
+ 
+             result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
+             if prop["proposed_times_json"]:
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index c87b997..0da49e8 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -129,17 +129,17 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+ 
+ 
+ @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+ def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+                    user: User = Depends(require_auth_or_mint_guest)):
+     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+     the creator; guests arrive in B2 by overriding require_auth_api."""
+     try:
+-        result = repo.claim_proposal(claim_token, user.id)
++        result = repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
+     except TransitionError as exc:
+         discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+     if result["session_id"] is not None:
+         _send_invites(request, result["session_id"])
+         background.add_task(
+             push_to_user, result["from_user_id"],

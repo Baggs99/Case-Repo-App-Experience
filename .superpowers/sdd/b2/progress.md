@@ -3,6 +3,8 @@
 Branch: `bgap/b2-guest` · Worktree: `/Users/thomaskgould/dev/bgap-b2` · DB: `caserepo_bgap_b2`
 Interpreter (`$PY`): `/Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/bin/python`
 
+**PHASE COMPLETE — DONE.** Head `43cfb7e`. Suite 418 → **451 passed**. Report: `docs/superpowers/sdd/bgap-b2-report.md`. Final whole-branch review = MINOR ONLY (0 Critical / 0 Important); actioned minors M-1..M-4 fixed & re-verified. Two Criticals caught+fixed mid-phase (library leak, orphan-guest). Awaiting orchestrator merge.
+
 ## Baseline
 - 2026-07-17 · commit `edce22c` · DB created, schema + migrations 0*.sql applied (idempotent), `.env` → `caserepo_bgap_b2`, seeded a/b/c@yale.edu via `scripts/seed_caseroom_dev.py`.
 - Baseline suite: **418 passed, 0 failed** (175 skipped before seeding → 0 skips of seed-gated tests after). Finish line = 418 + N.

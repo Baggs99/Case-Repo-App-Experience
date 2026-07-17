@@ -1,0 +1,3996 @@
+=== git log edce22cc7c3fb7688bb9a4b258e9b7d4dfeedb63..61a8ffe029a70765669cbb817a9d6d89737d7dc2 (code commits) ===
+61a8ffe Ledger: Task 5 complete (review MINOR-ONLY); all 5 tasks done
+9c74542 Add POST /api/v1/auth/upgrade (guest → real account in place)
+d377048 Ledger: Task 4 complete (Critical library-leak fixed + re-reviewed, MINORs deferred)
+80ce68a Close guest library-browsing hole: case-scoped access, 403 on library
+e7ba874 Ledger: Task 4 complete (session scoping, 442 passed)
+3d480c7 Scope guest cookie to its session; 403 elsewhere; expose is_guest
+cddd471 Ledger: Task 3 complete (review MINOR-ONLY, orphan-guest vector fixed)
+cda02a2 Reap guest minted on a failed claim (close unauth orphan-row vector)
+b9294d0 Mint scoped guests on unauthenticated claim endpoints; null dead claim_token (N-1)
+169fa5d Ledger: Task 2 complete (review CLEAN)
+7b53795 Ledger: Task 2 report (guest CRUD)
+bc4ffff Add guest CRUD + require_guest dependency
+f66dee5 Ledger: Task 1 complete (review CLEAN)
+18361a3 Add guest identity: migration 025 + User.is_guest
+a982f78 Address plan-review C-1/M-1/M-2; log review outcome
+8e5f11e B2 plan: guest interviewer (5 tasks, TDD) + progress ledger
+
+=== diff --stat (code only, excluding .superpowers ledger) ===
+ db/migrations/025_guest_users.sql                 |   33 +
+ docs/superpowers/plans/2026-07-17-bgap-b2-plan.md | 1560 +++++++++++++++++++++
+ tests/test_b1_pairing_shortcode.py                |    2 +-
+ tests/test_b1_proposals_open.py                   |   16 +-
+ tests/test_b2_guest_claim.py                      |  226 +++
+ tests/test_b2_guest_crud.py                       |  112 ++
+ tests/test_b2_guest_scoping.py                    |  200 +++
+ tests/test_b2_guest_upgrade.py                    |  149 ++
+ tests/test_b2_guest_users.py                      |   85 ++
+ tests/test_pairing.py                             |    5 +-
+ webapp/auth/dependencies.py                       |    6 +
+ webapp/auth/guest.py                              |  208 +++
+ webapp/auth/users.py                              |   10 +-
+ webapp/main.py                                    |    2 +
+ webapp/repositories/practice_sessions.py          |    2 +
+ webapp/repositories/proposals.py                  |    5 +-
+ webapp/routes/auth.py                             |    5 +-
+ webapp/routes/exhibits.py                         |    7 +-
+ webapp/routes/files.py                            |   13 +-
+ webapp/routes/guest.py                            |   44 +
+ webapp/routes/pages.py                            |    5 +-
+ webapp/routes/practice.py                         |   18 +-
+ webapp/routes/practice_exhibits.py                |   13 +-
+ webapp/routes/practice_feedback.py                |    9 +-
+ webapp/routes/practice_recordings.py              |    9 +-
+ webapp/routes/proposals.py                        |   20 +-
+ webapp/routes/rooms.py                            |    5 +-
+ webapp/routes/search.py                           |    3 +-
+ 28 files changed, 2716 insertions(+), 56 deletions(-)
+
+=== full diff -U8 (code only) ===
+diff --git a/db/migrations/025_guest_users.sql b/db/migrations/025_guest_users.sql
+new file mode 100644
+index 0000000..e4eeda8
+--- /dev/null
++++ b/db/migrations/025_guest_users.sql
+@@ -0,0 +1,33 @@
++-- ============================================================================
++-- 025 — Guest interviewer identity (roadmap §B2, spec §6.2)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/025_guest_users.sql
++-- Idempotent:  ADD COLUMN IF NOT EXISTS; DROP NOT NULL is a no-op when already
++--              nullable; DROP CONSTRAINT IF EXISTS + re-ADD.
++--
++-- A guest is a real users row (is_guest=TRUE) with NULL email/password so every
++-- FK (practice_sessions.interviewer_id/candidate_id, feedback, recordings)
++-- keeps working. The email-domain CHECK is relaxed for guests only; non-guest
++-- rows still require a school-domain email (NOT NULL + suffix). Upgrade
++-- (B2 §upgrade) flips is_guest→FALSE and stamps a real email/password.
++-- ============================================================================
++
++ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
++
++ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
++ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
++
++-- Guest rows bypass the school-domain gate; non-guests must still carry a
++-- non-null school-domain email. (email ILIKE NULL is unknown, which a CHECK
++-- would treat as "not violated" — hence the explicit email IS NOT NULL arm.)
++ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_allowed;
++ALTER TABLE users ADD CONSTRAINT users_email_allowed CHECK (
++    is_guest
++    OR (
++        email IS NOT NULL AND (
++            email ILIKE '%@yale.edu'
++            OR email ILIKE '%@umich.edu'
++            OR lower(email::text) = 'acannata@chicagobooth.edu'
++        )
++    )
++);
+diff --git a/docs/superpowers/plans/2026-07-17-bgap-b2-plan.md b/docs/superpowers/plans/2026-07-17-bgap-b2-plan.md
+new file mode 100644
+index 0000000..bfe3aff
+--- /dev/null
++++ b/docs/superpowers/plans/2026-07-17-bgap-b2-plan.md
+@@ -0,0 +1,1560 @@
++# B2 — Guest Interviewer Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Let an unauthenticated visitor claim an open-link/QR session, drive that one session's console through finalize as a scoped guest, then convert the guest row into a real account in place — with the guest 403'd on everything outside their session.
++
++**Architecture:** A guest is a real `users` row flagged `is_guest=TRUE` with NULL email/password (so every FK — `practice_sessions.interviewer_id/candidate_id`, feedback, recordings — keeps working). The two claim endpoints (`POST /api/proposals/claim/{token}`, `POST /api/practice/pair/claim`) mint the guest + a normal server-side session cookie when the request is unauthenticated. Two choke-points do the security: `require_auth_api` gains a guest-reject (so guests 403 on every non-session `/api/...` endpoint automatically), and session-scoped endpoints swap to a new `require_session_participant` dependency that lets a guest through only for a session they participate in (403 otherwise = IDOR guard). Real users are unaffected by both. Upgrade is a single race-safe `UPDATE ... WHERE is_guest=TRUE`.
++
++**Tech Stack:** Python 3.13, FastAPI, psycopg 3 (parameterized SQL only), server-side sessions (cookie `case_repo_session`), unittest + `fastapi.testclient.TestClient`, PostgreSQL. No new dependencies.
++
++## Global Constraints
++
++**§2 of `docs/superpowers/plans/2026-07-17-backend-gap-execution.md` applies in full and is incorporated by reference** — every task inherits it. The load-bearing items for B2:
++
++- **Models:** every subagent dispatch pins `opus` (scout allowed for read-only lookups). NEVER `deep`/`fable`/omitted model.
++- **Git:** work only on `bgap/b2-guest` in this worktree. Never touch `main`/`feature/*`. Never push/force-push. Commit per completed task, imperative message.
++- **Security (enforced at review):** parameterized queries only (zero string-interpolated SQL); server-side validation on all input; state-changing routes carry `require_same_origin` (CSRF); **auth guard on every new endpoint + an IDOR test for every endpoint taking a foreign id**. The guest cookie scoping IS the security surface — a guest must 403 on everything except their own session's endpoints.
++- **Dependencies:** boring, dependency-free. No new packages.
++- **Watchdog:** max 2 attempts per failing action; no timeout-less calls; bound suite runs.
++- **Style:** match repo style; new modules start with the 4-line header docblock (Purpose/Inputs/Outputs/Run); comments explain why; new migrations idempotent.
++- **No placeholders:** no TODO stubs; genuine deferrals go in the report's DEFERRED.
++
++**Phase brief "B2 — Guest interviewer" (§6, verbatim):**
++> Consumes: B1 claim endpoints (injectable auth), merged into `feature/backend-gap` before you branch. Migration 025: `users.is_guest BOOL NOT NULL DEFAULT FALSE`; make email/password nullable for guest rows if the schema still forbids it. Deliver: guest claim on open-link and QR endpoints (`claim/{token}`, `pair/claim`) when unauthenticated → mints `is_guest` user + session cookie scoped by a `guest_session_id` claim; guests pass auth ONLY for their session's endpoints (WS, reveals, rubric, finalize, recordings, join-config) — a dependency `require_session_participant` enforces it; guests 403 everywhere else (proposals, library, dashboard, profile). `POST /api/v1/auth/upgrade {email, password}` (or OTP path) converts the guest row to a real account in place (history keeps FKs). Swap (B3) must never be offered to guests — expose `is_guest` in session participant payloads so B3 can gate. Feedback finalize by a guest works (spec: guests can interview); their name renders as "Guest" (display_name). Produces: `users.is_guest`, `require_session_participant` dependency, upgrade endpoint (B3 gates swap on `is_guest`).
++
++**B1 report overrides that bind B2 (`docs/superpowers/sdd/bgap-b1-report.md`):**
++- **DD-1:** no code path inserts a case-less `practice_session`. A guest reaches a live console only via a **case-set, now** open-link proposal (claim auto-creates the session) — this is the guest-interviewer happy path. A case-less proposal claim returns `needs_negotiation:true, session_id:null` (B3 territory); a case-less pairing claim 409s. Do NOT build negotiating sessions.
++- **N-1 (lands in B2 scope — fix it properly):** `claim_proposal` sets `to_user_id` but does not null `claim_token`, leaving a dead token on the claimed row that `list_for_api` still returns. Null the `claim_token` on claim.
++
++**Interpreter (`$PY`):** `/Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/bin/python`, cwd = this worktree. **DB:** `caserepo_bgap_b2` (already created, schema + migrations applied, seeded a/b/c@yale.edu). Baseline suite = **418 passed**; finish line = 418 + your new tests. Run the suite as:
++`DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q`
++
++**Test idiom (match existing B1 tests):** `unittest` + `@unittest.skipUnless(_READY, ...)` / `@unittest.skipUnless(_HTTPX, ...)` importing `_DB_URL, _HTTPX, _READY` from `tests.test_ws_integration`. Authenticate a `TestClient` by minting a server session: `from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session; client.cookies.set(SESSION_COOKIE_NAME, create_session(uid, user_agent="b2-test").id)`. Unauthenticated requests use a fresh `TestClient(app)` with no cookie set. Mutating routes carry `require_same_origin`, which **passes when no Origin header is sent** (TestClient default) — so no special headers are needed.
++
++---
++
++## File Structure
++
++- `db/migrations/025_guest_users.sql` — NEW. is_guest column, nullable email/password, guest-aware domain CHECK.
++- `webapp/auth/users.py` — MODIFY. Add `is_guest` to the `User` dataclass, `_row_to_user`, and the 3 SELECT column lists.
++- `webapp/auth/guest.py` — NEW. Guest CRUD (`mint_guest_user`, `upgrade_guest`) + FastAPI deps (`require_guest`, `require_session_participant`, `require_auth_or_mint_guest`).
++- `webapp/auth/dependencies.py` — MODIFY. `require_auth_api` gains a guest-reject (one branch).
++- `webapp/routes/proposals.py` — MODIFY. Claim endpoint uses `require_auth_or_mint_guest`; `_participant_emails`/`_send_invites` guard NULL guest email; ICS uses `require_session_participant`.
++- `webapp/routes/practice.py` — MODIFY. `pair/claim` uses `require_auth_or_mint_guest`; session-scoped endpoints (`GET {id}`, `consent`, `state`, `join-config`) swap to `require_session_participant`.
++- `webapp/routes/practice_exhibits.py`, `practice_feedback.py`, `practice_recordings.py` — MODIFY. Session-scoped endpoints swap to `require_session_participant`.
++- `webapp/repositories/practice_sessions.py` — MODIFY. `get_practice_session` SELECT gains `interviewer_is_guest`/`candidate_is_guest`.
++- `webapp/routes/guest.py` — NEW. `POST /api/v1/auth/upgrade`.
++- `webapp/main.py` — MODIFY. Register the new guest router (one include line).
++- Tests: `tests/test_b2_guest_users.py`, `test_b2_guest_crud.py`, `test_b2_guest_claim.py`, `test_b2_guest_scoping.py`, `test_b2_guest_upgrade.py`. Plus surgical updates to 3 existing B1 tests (Task 3).
++
++---
++
++## Task 1: Migration 025 + `User.is_guest` plumbing
++
++**Files:**
++- Create: `db/migrations/025_guest_users.sql`
++- Modify: `webapp/auth/users.py` (dataclass `User`, `_row_to_user`, SELECTs at `get_user_by_email`, `get_user_by_id`, `authenticate`)
++- Test: `tests/test_b2_guest_users.py`
++
++**Interfaces:**
++- Consumes: existing `users` table; `get_pool()` from `webapp.db`; `get_user_by_id` from `webapp.auth.users`.
++- Produces: `User.is_guest: bool` (default `False`); a `users` row may now have `email IS NULL AND password_hash IS NULL` **iff** `is_guest`; column `users.is_guest BOOL NOT NULL DEFAULT FALSE`.
++
++- [ ] **Step 1: Write the migration file**
++
++Create `db/migrations/025_guest_users.sql`:
++
++```sql
++-- ============================================================================
++-- 025 — Guest interviewer identity (roadmap §B2, spec §6.2)
++-- ----------------------------------------------------------------------------
++-- Apply with:  psql -d <db> -v ON_ERROR_STOP=1 -f db/migrations/025_guest_users.sql
++-- Idempotent:  ADD COLUMN IF NOT EXISTS; DROP NOT NULL is a no-op when already
++--              nullable; DROP CONSTRAINT IF EXISTS + re-ADD.
++--
++-- A guest is a real users row (is_guest=TRUE) with NULL email/password so every
++-- FK (practice_sessions.interviewer_id/candidate_id, feedback, recordings)
++-- keeps working. The email-domain CHECK is relaxed for guests only; non-guest
++-- rows still require a school-domain email (NOT NULL + suffix). Upgrade
++-- (B2 §upgrade) flips is_guest→FALSE and stamps a real email/password.
++-- ============================================================================
++
++ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
++
++ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
++ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
++
++-- Guest rows bypass the school-domain gate; non-guests must still carry a
++-- non-null school-domain email. (email ILIKE NULL is unknown, which a CHECK
++-- would treat as "not violated" — hence the explicit email IS NOT NULL arm.)
++ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_allowed;
++ALTER TABLE users ADD CONSTRAINT users_email_allowed CHECK (
++    is_guest
++    OR (
++        email IS NOT NULL AND (
++            email ILIKE '%@yale.edu'
++            OR email ILIKE '%@umich.edu'
++            OR lower(email::text) = 'acannata@chicagobooth.edu'
++        )
++    )
++);
++```
++
++- [ ] **Step 2: Apply the migration to the B2 DB and verify it re-runs cleanly**
++
++Run:
++```bash
++psql -d caserepo_bgap_b2 -v ON_ERROR_STOP=1 -f db/migrations/025_guest_users.sql
++psql -d caserepo_bgap_b2 -v ON_ERROR_STOP=1 -f db/migrations/025_guest_users.sql   # idempotent re-run
++```
++Expected: both runs succeed, no error (second run emits harmless NOTICEs at most).
++
++- [ ] **Step 3: Write the failing test**
++
++Create `tests/test_b2_guest_users.py`:
++
++```python
++"""
++B2 Task 1: migration 025 (is_guest, nullable email/password, guest-aware
++domain CHECK) + User.is_guest plumbing. Needs the seeded dev Postgres with
++migration 025 applied — skips cleanly otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestGuestUsersSchema(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Enter the app context so the DB pool is initialized (get_user_by_id
++        # uses the pool). Raw psycopg inserts open their own connections.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def setUp(self):
++        self._created: list[int] = []
++
++    def tearDown(self):
++        import psycopg
++        if self._created:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (self._created,))
++
++    def test_guest_row_with_null_email_and_password_is_allowed(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO users (email, password_hash, is_guest, display_name)"
++                    " VALUES (NULL, NULL, TRUE, 'Guest') RETURNING id, is_guest;")
++                row = cur.fetchone()
++        self._created.append(row[0])
++        self.assertTrue(row[1])
++
++    def test_non_guest_with_null_email_is_rejected(self):
++        import psycopg
++        with self.assertRaises(psycopg.errors.CheckViolation):
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO users (email, password_hash, is_guest)"
++                        " VALUES (NULL, 'x', FALSE) RETURNING id;")
++
++    def test_non_guest_with_bad_domain_still_rejected(self):
++        import psycopg
++        with self.assertRaises(psycopg.errors.CheckViolation):
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO users (email, password_hash, is_guest)"
++                        " VALUES ('nope@gmail.com', 'x', FALSE) RETURNING id;")
++
++    def test_user_dataclass_exposes_is_guest(self):
++        import psycopg
++        from webapp.auth.users import get_user_by_id
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO users (email, password_hash, is_guest, display_name)"
++                    " VALUES (NULL, NULL, TRUE, 'Guest') RETURNING id;")
++                gid = cur.fetchone()[0]
++                cur.execute("SELECT id FROM users WHERE email = 'a@yale.edu';")
++                aid = cur.fetchone()[0]
++        self._created.append(gid)
++        self.assertTrue(get_user_by_id(gid).is_guest)
++        self.assertFalse(get_user_by_id(aid).is_guest)
++
++
++if __name__ == "__main__":
++    unittest.main()
++```
++
++- [ ] **Step 4: Run the test to verify it fails**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_users.py -v`
++Expected: `test_user_dataclass_exposes_is_guest` FAILs (`User` has no `is_guest`); schema tests may already pass (migration applied in Step 2).
++
++- [ ] **Step 5: Add `is_guest` to the `User` dataclass, `_row_to_user`, and the 3 SELECTs**
++
++In `webapp/auth/users.py`, add the field to the dataclass (after `last_login_at`):
++
++```python
++@dataclass(frozen=True)
++class User:
++    id: int
++    email: Optional[str]
++    email_verified_at: Optional[datetime]
++    created_at: datetime
++    last_login_at: Optional[datetime]
++    is_guest: bool = False
++
++    @property
++    def is_verified(self) -> bool:
++        return self.email_verified_at is not None
++```
++
++Update `_row_to_user` to read the flag (default False if a caller's SELECT omits it):
++
++```python
++def _row_to_user(row: dict) -> User:
++    return User(
++        id=row["id"],
++        email=row["email"],
++        email_verified_at=row["email_verified_at"],
++        created_at=row["created_at"],
++        last_login_at=row["last_login_at"],
++        is_guest=row.get("is_guest", False),
++    )
++```
++
++Add `is_guest` to each of the three SELECT column lists — in `get_user_by_email`, `get_user_by_id`, and `authenticate`. For example in `get_user_by_id`:
++
++```python
++                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
++                FROM users WHERE id = %s;
++```
++
++Do the same edit in `get_user_by_email` (`... last_login_at, is_guest FROM users WHERE email = %s;`) and in `authenticate` (`... last_login_at, is_guest, password_hash FROM users WHERE email = %s;`).
++
++- [ ] **Step 6: Run the test to verify it passes**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_users.py -v`
++Expected: PASS (4 tests).
++
++- [ ] **Step 7: Run the full suite (guard against the users.py edit regressing auth)**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q`
++Expected: `422 passed` (418 baseline + 4 new). No failures.
++
++- [ ] **Step 8: Commit**
++
++```bash
++git add db/migrations/025_guest_users.sql webapp/auth/users.py tests/test_b2_guest_users.py
++git commit -m "Add guest identity: migration 025 + User.is_guest"
++```
++
++---
++
++## Task 2: Guest CRUD + guest dependency (`webapp/auth/guest.py`)
++
++**Files:**
++- Create: `webapp/auth/guest.py`
++- Test: `tests/test_b2_guest_crud.py`
++
++**Interfaces:**
++- Consumes: `User`, `_row_to_user`, `validate_email`, `InvalidEmailDomain`, `EmailAlreadyRegistered` from `webapp.auth.users`; `hash_password`, `validate_password`, `WeakPasswordError` from `webapp.auth.passwords`; `get_pool` from `webapp.db`; `get_current_user` from `webapp.auth.dependencies`.
++- Produces:
++  - `mint_guest_user(display_name: str = "Guest") -> User` — inserts an `is_guest=TRUE` row (NULL email/password), returns the `User`.
++  - `upgrade_guest(user_id: int, email: str, password: str) -> User` — race-safe in-place conversion (`UPDATE ... WHERE id=%s AND is_guest=TRUE`). Raises `InvalidEmailDomain` (bad domain), `WeakPasswordError` (weak pw), `EmailAlreadyRegistered` (email taken), `GuestUpgradeConflict` (row is not a guest / already upgraded).
++  - `GuestUpgradeConflict(Exception)` — sentinel for the race-lost / not-a-guest case.
++  - `require_guest(request: Request) -> User` — 401 if no user, 403 if `not user.is_guest`.
++
++- [ ] **Step 1: Write the failing test**
++
++Create `tests/test_b2_guest_crud.py`:
++
++```python
++"""
++B2 Task 2: guest CRUD (mint_guest_user, upgrade_guest) + require_guest dep.
++Needs the seeded dev Postgres with migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestGuestCrud(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Enter the app context so the DB pool is initialized (init_pool runs in
++        # the lifespan). These tests call repo functions directly, not via HTTP.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def setUp(self):
++        self._created: list[int] = []
++
++    def tearDown(self):
++        import psycopg
++        if self._created:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (self._created,))
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (self._created,))
++
++    def _fresh_email(self) -> str:
++        import uuid
++        return f"upgrade-{uuid.uuid4().hex[:10]}@yale.edu"
++
++    def test_mint_guest_user_creates_flagged_row(self):
++        from webapp.auth.guest import mint_guest_user
++        g = mint_guest_user()
++        self._created.append(g.id)
++        self.assertTrue(g.is_guest)
++        self.assertIsNone(g.email)
++        self.assertFalse(g.is_verified)
++
++    def test_upgrade_guest_converts_in_place(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        g = mint_guest_user()
++        self._created.append(g.id)
++        email = self._fresh_email()
++        upgraded = upgrade_guest(g.id, email, "correct horse battery staple")
++        self.assertEqual(upgraded.id, g.id)          # same row → FKs intact
++        self.assertFalse(upgraded.is_guest)
++        self.assertEqual(upgraded.email, email)
++
++    def test_upgrade_rejects_bad_domain(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        from webapp.auth.users import InvalidEmailDomain
++        g = mint_guest_user()
++        self._created.append(g.id)
++        with self.assertRaises(InvalidEmailDomain):
++            upgrade_guest(g.id, "someone@gmail.com", "correct horse battery staple")
++
++    def test_double_upgrade_second_call_conflicts(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest, GuestUpgradeConflict
++        g = mint_guest_user()
++        self._created.append(g.id)
++        upgrade_guest(g.id, self._fresh_email(), "correct horse battery staple")
++        with self.assertRaises(GuestUpgradeConflict):
++            upgrade_guest(g.id, self._fresh_email(), "correct horse battery staple")
++
++    def test_upgrade_rejects_taken_email(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        from webapp.auth.users import EmailAlreadyRegistered
++        g = mint_guest_user()
++        self._created.append(g.id)
++        with self.assertRaises(EmailAlreadyRegistered):
++            upgrade_guest(g.id, "a@yale.edu", "correct horse battery staple")
++
++    def test_require_guest_dependency(self):
++        from fastapi import HTTPException, Request
++        from webapp.auth.guest import require_guest
++        from webapp.auth.users import User
++        from datetime import datetime
++
++        def _req(user):
++            scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
++            r = Request(scope)
++            r.state.user = user
++            return r
++
++        guest = User(id=1, email=None, email_verified_at=None,
++                     created_at=datetime.utcnow(), last_login_at=None, is_guest=True)
++        real = User(id=2, email="a@yale.edu", email_verified_at=datetime.utcnow(),
++                    created_at=datetime.utcnow(), last_login_at=None, is_guest=False)
++
++        self.assertIs(require_guest(_req(guest)), guest)
++        with self.assertRaises(HTTPException) as ctx_real:
++            require_guest(_req(real))
++        self.assertEqual(ctx_real.exception.status_code, 403)
++        with self.assertRaises(HTTPException) as ctx_none:
++            require_guest(_req(None))
++        self.assertEqual(ctx_none.exception.status_code, 401)
++
++
++if __name__ == "__main__":
++    unittest.main()
++```
++
++- [ ] **Step 2: Run the test to verify it fails**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_crud.py -v`
++Expected: FAIL (`webapp.auth.guest` does not exist).
++
++- [ ] **Step 3: Write `webapp/auth/guest.py`**
++
++Create `webapp/auth/guest.py`:
++
++```python
++"""
++Purpose: Guest-interviewer identity — mint scoped guest users, convert them
++         to real accounts in place, and the FastAPI dependency guests use.
++Inputs:  users table (via get_pool); the current request's request.state.user.
++Outputs: guest users rows (is_guest=TRUE, NULL email/password); in-place
++         upgrades (is_guest→FALSE + real email/password). No files written.
++Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest
++"""
++
++from __future__ import annotations
++
++import logging
++
++import psycopg
++from fastapi import HTTPException, Request
++from psycopg.rows import dict_row
++
++from webapp.auth.dependencies import get_current_user
++from webapp.auth.passwords import hash_password, validate_password
++from webapp.auth.users import (
++    EmailAlreadyRegistered,
++    User,
++    _row_to_user,
++    validate_email,
++)
++from webapp.db import get_pool
++
++logger = logging.getLogger(__name__)
++
++_USER_COLS = "id, email, email_verified_at, created_at, last_login_at, is_guest"
++
++
++class GuestUpgradeConflict(Exception):
++    """The row targeted for upgrade is not a guest (already upgraded / not guest)."""
++
++
++def mint_guest_user(display_name: str = "Guest") -> User:
++    """Insert a guest users row (is_guest=TRUE, NULL email/password) and return it.
++    display_name renders wherever the session UI shows a participant name — the
++    session name query COALESCEs to it since guest email is NULL."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"""
++                INSERT INTO users (email, password_hash, is_guest, display_name)
++                VALUES (NULL, NULL, TRUE, %s)
++                RETURNING {_USER_COLS};
++                """,
++                (display_name,),
++            )
++            row = cur.fetchone()
++    logger.info("Minted guest user id=%d", row["id"])
++    return _row_to_user(row)
++
++
++def upgrade_guest(user_id: int, email: str, password: str) -> User:
++    """Convert a guest row to a real account in place — same id, so every FK
++    (session history, feedback, recordings) stays attached.
++
++    Race-safe: the UPDATE is guarded by `is_guest = TRUE`, so a concurrent
++    second upgrade updates zero rows and raises GuestUpgradeConflict. Left
++    unverified (email_verified_at stays NULL) to match a fresh password
++    signup — inbox control is proven later by the normal verification flow.
++
++    Raises: InvalidEmailDomain, WeakPasswordError, EmailAlreadyRegistered,
++    GuestUpgradeConflict.
++    """
++    e = validate_email(email)          # school-domain gate (raises InvalidEmailDomain)
++    validate_password(password)        # raises WeakPasswordError
++    pwd_hash = hash_password(password)
++
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            try:
++                cur.execute(
++                    f"""
++                    UPDATE users
++                    SET email = %s, password_hash = %s, is_guest = FALSE
++                    WHERE id = %s AND is_guest = TRUE
++                    RETURNING {_USER_COLS};
++                    """,
++                    (e, pwd_hash, user_id),
++                )
++            except psycopg.errors.UniqueViolation as exc:
++                raise EmailAlreadyRegistered(
++                    "An account with that email already exists."
++                ) from exc
++            row = cur.fetchone()
++            if row is None:
++                raise GuestUpgradeConflict(
++                    "This account is not an unclaimed guest (already upgraded)."
++                )
++    logger.info("Upgraded guest user id=%d to real account", user_id)
++    return _row_to_user(row)
++
++
++def require_guest(request: Request) -> User:
++    """Dependency for the upgrade endpoint: the caller must be a guest.
++    401 when unauthenticated, 403 when a real (non-guest) user."""
++    user = get_current_user(request)
++    if user is None:
++        raise HTTPException(status_code=401, detail="Authentication required")
++    if not user.is_guest:
++        raise HTTPException(status_code=403, detail="Only guests can upgrade")
++    return user
++```
++
++- [ ] **Step 4: Run the test to verify it passes**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_crud.py -v`
++Expected: PASS (6 tests).
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add webapp/auth/guest.py tests/test_b2_guest_crud.py
++git commit -m "Add guest CRUD + require_guest dependency"
++```
++
++---
++
++## Task 3: Mint guests on claim endpoints (`require_auth_or_mint_guest`)
++
++**Files:**
++- Modify: `webapp/auth/guest.py` (add `require_auth_or_mint_guest`)
++- Modify: `webapp/routes/proposals.py` (claim endpoint auth; `_participant_emails`/`_build_ics_for`/`_send_invites` NULL-email guard)
++- Modify: `webapp/routes/practice.py` (`pair/claim` auth)
++- Modify (existing B1 tests that encoded the pre-B2 401 behavior): `tests/test_b1_proposals_open.py`, `tests/test_pairing.py`, `tests/test_b1_pairing_shortcode.py`
++- Test: `tests/test_b2_guest_claim.py`
++
++**Interfaces:**
++- Consumes: `mint_guest_user` (Task 2); `create_session`, `attach_session_cookie`, `SESSION_COOKIE_NAME` from `webapp.auth.sessions`; `get_current_user` from `webapp.auth.dependencies`; existing `repo.claim_proposal` / `pairing_repo.claim`.
++- Produces: `require_auth_or_mint_guest(request: Request, response: Response) -> User` — returns the current real user; **mints a guest + session + sets the cookie** when unauthenticated; **403** when the current user is already a guest (a guest is scoped to one session — re-claiming would accrue cross-session history).
++
++- [ ] **Step 1: Write the failing test**
++
++Create `tests/test_b2_guest_claim.py`:
++
++```python
++"""
++B2 Task 3: unauthenticated claim endpoints mint a scoped guest + session
++cookie. Needs the seeded dev Postgres with migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestClaim(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='b@yale.edu';")
++                cls.bid = cur.fetchone()[0]
++                # Dedicated case so guest sessions here never collide with the
++                # seeded dummy or other B2 files (re-runnable teardown below).
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Claim Case', 'b2 guest claim case', 'DevSchool',"
++                    " 2098, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++
++        # Bob (candidate) logs in to create open-link proposals.
++        cls.bob = TestClient(app)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++    @classmethod
++    def tearDownClass(cls):
++        _cleanup_case(cls.case_id)
++        cls._ctx.__exit__(None, None, None)
++
++    def _mk_open_now_case(self) -> str:
++        """Bob (candidate) opens a case-set 'now' link — the claimer becomes
++        the interviewer and the session is auto-created (B1 DD-1)."""
++        r = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id})
++        self.assertEqual(r.status_code, 200, r.text)
++        return r.json()["claim_token"]
++
++    def test_unauth_proposal_claim_mints_guest_interviewer(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok = self._mk_open_now_case()
++
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertTrue(body["accepted"])
++        sid = body["session_id"]
++        self.assertIsNotNone(sid)
++        # A guest session cookie was minted.
++        self.assertIn(self.SESSION_COOKIE_NAME, anon.cookies)
++
++        # The guest is the interviewer and can read its own session.
++        gr = anon.get(f"/api/practice/{sid}")
++        self.assertEqual(gr.status_code, 200, gr.text)
++        self.assertEqual(gr.json()["your_role"], "interviewer")
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT interviewer_id FROM practice_sessions WHERE id=%s;", (sid,))
++                iv_id = cur.fetchone()[0]
++                cur.execute("SELECT is_guest, email FROM users WHERE id=%s;", (iv_id,))
++                is_guest, email = cur.fetchone()
++        self.assertTrue(is_guest)
++        self.assertIsNone(email)
++
++    def test_authenticated_claim_still_works_for_real_user(self):
++        # Regression: a real logged-in user claiming is unchanged.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='c@yale.edu';")
++                cid = cur.fetchone()[0]
++        cara = TestClient(app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(cid, user_agent="b2-test").id)
++        tok = self._mk_open_now_case()
++        r = cara.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++
++    def test_guest_cannot_reclaim_a_second_link(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok1 = self._mk_open_now_case()
++        anon = TestClient(app)
++        self.assertEqual(anon.post(f"/api/proposals/claim/{tok1}").status_code, 200)
++        # Same guest cookie, a different open link → 403 (scoped to one session).
++        tok2 = self._mk_open_now_case()
++        r = anon.post(f"/api/proposals/claim/{tok2}")
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_unauth_pair_claim_mints_guest(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        mint = self.bob.post("/api/practice/pair/create", json={"case_id": self.case_id})
++        self.assertEqual(mint.status_code, 200, mint.text)
++        token = mint.json()["token"]
++        anon = TestClient(app)
++        r = anon.post("/api/practice/pair/claim", json={"token": token})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIn(self.SESSION_COOKIE_NAME, anon.cookies)
++
++    def test_guest_interviewer_claim_sends_no_invite_to_null_email(self):
++        # NULL-email guard: the guest-interviewer claim must not blow up on
++        # the invite path, and the guest can still fetch its own .ics.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok = self._mk_open_now_case()
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        sid = r.json()["session_id"]
++        ics = anon.get(f"/ics/session-{sid}.ics")
++        self.assertEqual(ics.status_code, 200, ics.text)
++
++    def test_claim_nulls_dead_claim_token(self):
++        # B1 report N-1 (lands in B2 scope): claiming nulls the now-dead
++        # claim_token so it never surfaces on the claimed row / in the inbox.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        from datetime import datetime, timedelta, timezone
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='c@yale.edu';")
++                cid = cur.fetchone()[0]
++        cara = TestClient(app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(cid, user_agent="b2-test").id)
++        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id,
++            "proposed_times": [future]}).json()["claim_token"]
++        res = cara.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(res.status_code, 200, res.text)
++        pid = res.json()["proposal_id"]
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT claim_token FROM proposals WHERE id=%s;", (pid,))
++                self.assertIsNone(cur.fetchone()[0])
++
++
++if __name__ == "__main__":
++    unittest.main()
++```
++
++- [ ] **Step 2: Run the test to verify it fails**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_claim.py -v`
++Expected: FAIL (unauth claim currently returns 401; `require_auth_or_mint_guest` does not exist).
++
++- [ ] **Step 3: Add `require_auth_or_mint_guest` to `webapp/auth/guest.py`**
++
++Append to `webapp/auth/guest.py` (and extend the top-of-file imports as shown):
++
++```python
++from fastapi import HTTPException, Request, Response  # extend the existing fastapi import
++
++from webapp.auth.sessions import attach_session_cookie, create_session  # add near the other imports
++```
++
++```python
++def require_auth_or_mint_guest(request: Request, response: Response) -> User:
++    """Auth dependency for the claim endpoints. Returns the current real user
++    unchanged; when the request is unauthenticated, mints a guest user + server
++    session and sets the session cookie on the response, returning the guest.
++
++    A user who is *already a guest* is rejected (403): a guest is scoped to the
++    single session it claimed — claiming again would accrue cross-session
++    history before upgrade, which the design forbids.
++    """
++    user = get_current_user(request)
++    if user is not None:
++        if user.is_guest:
++            raise HTTPException(
++                status_code=403,
++                detail="Guests are limited to one session. Create an account to continue.",
++            )
++        return user
++    guest = mint_guest_user()
++    session = create_session(guest.id, user_agent=request.headers.get("user-agent"))
++    attach_session_cookie(response, session)
++    return guest
++```
++
++- [ ] **Step 4: Wire the claim endpoints to the new dependency**
++
++In `webapp/routes/proposals.py`, update the import and the claim handler signature. Change the import line `from webapp.auth.dependencies import require_auth_api` to also pull the guest dep:
++
++```python
++from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import require_auth_or_mint_guest
++```
++
++Change the `claim_proposal` handler's auth parameter only (leave the body as-is):
++
++```python
++@router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
++def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
++                   user: User = Depends(require_auth_or_mint_guest)):
++```
++
++In `webapp/routes/practice.py`, add the import (next to the existing `from webapp.auth.dependencies import require_auth, require_auth_api`):
++
++```python
++from webapp.auth.guest import require_auth_or_mint_guest
++```
++
++Change the `claim_pair_token` handler's auth parameter only:
++
++```python
++@router.post("/api/practice/pair/claim", dependencies=_MUTATING)
++def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_or_mint_guest)):
++```
++
++- [ ] **Step 5: Guard the invite path against NULL guest email**
++
++In `webapp/routes/proposals.py`, make `_participant_emails` tolerate NULL emails and `_build_ics_for`/`_send_invites` skip them. Replace the three helpers' relevant lines:
++
++`_participant_emails` — return `None` for a missing email instead of KeyError:
++
++```python
++def _participant_emails(session: dict) -> dict:
++    from webapp.db import get_pool
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("SELECT id, email FROM users WHERE id = ANY(%s);",
++                        ([session["interviewer_id"], session["candidate_id"]],))
++            by_id = {row[0]: row[1] for row in cur.fetchall()}
++    return {"interviewer": by_id.get(session["interviewer_id"]),
++            "candidate": by_id.get(session["candidate_id"])}
++```
++
++`_build_ics_for` — a guest participant has no email; use a non-routable placeholder so the RFC 5545 ORGANIZER/ATTENDEE fields stay well-formed:
++
++```python
++def _build_ics_for(request: Request, session: dict) -> str:
++    base_url = str(request.base_url).rstrip("/")
++    host = request.base_url.hostname or "caseroom.local"
++    emails = _participant_emails(session)
++    return build_session_ics(
++        session_id=session["id"],
++        case_title=session["case_title"],
++        starts_at=session["scheduled_at"],
++        organizer_name=session["interviewer_name"],
++        organizer_email=emails["interviewer"] or "guest@caseroom.invalid",
++        attendee_name=session["candidate_name"],
++        attendee_email=emails["candidate"] or "guest@caseroom.invalid",
++        session_url=f"{base_url}/session/{session['id']}",
++        host=host,
++    )
++```
++
++`_send_invites` — skip participants with no real address (the real participant still gets theirs). Change the send loop:
++
++```python
++        sender = get_email_sender()
++        for role, addr in emails.items():
++            if not addr:
++                continue  # guest participant: no inbox to invite
++            counterpart = (session["candidate_name"] if role == "interviewer"
++                           else session["interviewer_name"])
++            sender.send(
++```
++
++- [ ] **Step 6: Null the dead claim_token on claim (B1 report N-1)**
++
++In `webapp/repositories/proposals.py`, inside `claim_proposal`, the UPDATE that stamps `to_user_id` must also null the now-dead `claim_token` (it is removed from the partial unique index automatically). Change:
++
++```python
++            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
++                        (user_id, prop["id"]))
++```
++
++to:
++
++```python
++            cur.execute(
++                "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",
++                (user_id, prop["id"]))
++```
++
++- [ ] **Step 7: Update the three existing B1 tests that encoded the pre-B2 401**
++
++These asserted "unauthenticated claim → 401 (guests come in B2)". B2 changes that to guest-minting. Update each in place.
++
++In `tests/test_b1_proposals_open.py`, replace `test_requires_auth` (the method starting near the `tok = self._mk_open(self.alice)` / `TestClient(app).post(f"/api/proposals/claim/{tok}")` / `assertEqual(r.status_code, 401)` block):
++
++```python
++    def test_unauthenticated_claim_mints_guest(self):
++        # B2: an unauthenticated claim mints a scoped guest instead of 401.
++        tok = self._mk_open(self.alice)
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++```
++
++In `tests/test_pairing.py`, replace the pair/claim `test_unauthenticated_returns_401` — the one in class **`TestPairingTokenClaim`** at ~line 212 (its body posts to `/api/practice/pair/claim`). Three methods share this name; leave the `TestPairingTokenMint` (pair/create) and `TestPairingTokenStatus` (pair/status) copies untouched — those endpoints stay 401 for guests:
++
++```python
++    def test_unauthenticated_claim_mints_guest(self):
++        # B2: pair/claim mints a scoped guest when unauthenticated.
++        token = self._mint()
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        r = TestClient(app).post("/api/practice/pair/claim", json={"token": token})
++        self.assertEqual(r.status_code, 200, r.text)
++```
++
++In `tests/test_b1_pairing_shortcode.py`, replace the block that does `TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})` / `assertEqual(r.status_code, 401)`:
++
++```python
++        r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
++        self.assertEqual(r.status_code, 200, r.text)
++```
++
++(Leave `test_pairing.py`'s pair/create and pair/status `test_unauthenticated_returns_401` methods untouched — those endpoints are not claim endpoints and must stay 401 for guests.)
++
++- [ ] **Step 8: Run the new + updated tests**
++
++Run:
++```bash
++DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest \
++  tests/test_b2_guest_claim.py tests/test_b1_proposals_open.py \
++  tests/test_pairing.py tests/test_b1_pairing_shortcode.py -v
++```
++Expected: PASS. `test_b2_guest_claim.py` = 6 passed; the three edited files still green (the pair/create + pair/status 401 tests remain).
++
++- [ ] **Step 9: Run the full suite**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q`
++Expected: `434 passed` (422 after T1 + 6 from T2 + 6 from T3; the 3 edited tests are modified-in-place, not added). No failures.
++
++- [ ] **Step 10: Commit**
++
++```bash
++git add webapp/auth/guest.py webapp/routes/proposals.py webapp/routes/practice.py \
++        webapp/repositories/proposals.py \
++        tests/test_b2_guest_claim.py tests/test_b1_proposals_open.py \
++        tests/test_pairing.py tests/test_b1_pairing_shortcode.py
++git commit -m "Mint scoped guests on unauthenticated claim endpoints; null dead claim_token (N-1)"
++```
++
++---
++
++## Task 4: Session scoping — `require_session_participant`, guest-reject, is_guest payload
++
++**Files:**
++- Modify: `webapp/auth/guest.py` (add `require_session_participant`)
++- Modify: `webapp/auth/dependencies.py` (guest-reject in `require_auth_api`)
++- Modify: `webapp/routes/practice.py`, `practice_exhibits.py`, `practice_feedback.py`, `practice_recordings.py`, `proposals.py` (swap session-scoped auth deps)
++- Modify: `webapp/repositories/practice_sessions.py` (`get_practice_session` exposes `interviewer_is_guest`/`candidate_is_guest`)
++- Test: `tests/test_b2_guest_scoping.py`
++
++**Interfaces:**
++- Consumes: `role_of`, `get_practice_session` from `webapp.repositories.practice_sessions`; `get_current_user`.
++- Produces:
++  - `require_session_participant(session_id: int, request: Request) -> User` — 401 if no user; for a **guest**, 403 unless `role_of(get_practice_session(session_id), user.id)` is a participant role; **real users pass through untouched** (their participant enforcement stays in each handler's `_session_or_404`, preserving existing 404-for-non-participant semantics).
++  - `require_auth_api` now raises **403** for `user.is_guest`.
++  - `get_practice_session(...)` dict gains `interviewer_is_guest: bool`, `candidate_is_guest: bool` (B3 gates swap on these).
++
++- [ ] **Step 1: Write the failing test**
++
++Create `tests/test_b2_guest_scoping.py`:
++
++```python
++"""
++B2 Task 4: guest cookie scoping — a guest drives its own session's endpoints
++(incl. finalize, name renders 'Guest') and is 403'd on every other session
++and every non-session /api endpoint (IDOR surface). Needs seeded dev Postgres
+++ migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestScoping(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++        cls.app = app
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                for e in ("a@yale.edu", "b@yale.edu", "c@yale.edu"):
++                    cur.execute("SELECT id FROM users WHERE email=%s;", (e,))
++                    setattr(cls, {"a@yale.edu": "aid", "b@yale.edu": "bid",
++                                  "c@yale.edu": "cid"}[e], cur.fetchone()[0])
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Scoping Case', 'b2 guest scoping case', 'DevSchool',"
++                    " 2099, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++
++        cls.bob = TestClient(app)  # candidate who opens links
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++        # Guest interviewer session, via a case-set 'now' open link.
++        tok = cls.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": cls.case_id}).json()["claim_token"]
++        cls.guest = TestClient(app)
++        claim = cls.guest.post(f"/api/proposals/claim/{tok}")
++        cls.guest_session_id = claim.json()["session_id"]
++
++        # A foreign session between two real users (guest is NOT a participant).
++        cls.foreign_session_id = cls._create_real_session(cls.aid, cls.cid)
++
++    @classmethod
++    def tearDownClass(cls):
++        _cleanup_case(cls.case_id)
++        cls._ctx.__exit__(None, None, None)
++
++    @classmethod
++    def _create_real_session(cls, interviewer_id, candidate_id):
++        from webapp.repositories.practice_sessions import create_practice_session
++        s = create_practice_session(interviewer_id=interviewer_id,
++                                     candidate_id=candidate_id, case_id=cls.case_id)
++        return s["id"]
++
++    def _fresh_guest_session(self):
++        """A brand-new guest-interviewer session (Bob = candidate), isolated so
++        state mutation doesn't leak into the shared read-only fixtures."""
++        from fastapi.testclient import TestClient
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id}).json()["claim_token"]
++        guest = TestClient(self.app)
++        sid = guest.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        return guest, sid
++
++    # ---- guest drives its OWN session ---------------------------------------
++
++    def test_guest_reads_own_session_and_sees_is_guest_flag(self):
++        r = self.guest.get(f"/api/practice/{self.guest_session_id}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertEqual(body["your_role"], "interviewer")
++        self.assertTrue(body["interviewer_is_guest"])
++        self.assertFalse(body["candidate_is_guest"])
++        self.assertEqual(body["interviewer_name"], "Guest")
++
++    def test_guest_can_run_session_through_finalize(self):
++        # Fresh isolated session (Bob = candidate). join-config, draft rubric,
++        # both consents (INV-10: no going live without both), drive states,
++        # finalize as the guest interviewer.
++        guest, sid = self._fresh_guest_session()
++        self.assertEqual(guest.get(f"/api/practice/{sid}/join-config").status_code, 200)
++        # Interviewer-only rubric read is reachable by the guest interviewer.
++        self.assertEqual(guest.get(f"/api/practice/{sid}/rubric").status_code, 200)
++        self.assertEqual(guest.post(f"/api/practice/{sid}/state",
++                                    json={"target": "lobby"}).status_code, 200)
++        # Interviewer (guest) + candidate (Bob) both consent while in lobby.
++        self.assertEqual(guest.post(f"/api/practice/{sid}/consent",
++                                    json={"consent": True}).status_code, 200)
++        self.assertEqual(self.bob.post(f"/api/practice/{sid}/consent",
++                                       json={"consent": True}).status_code, 200)
++        for target in ("live", "debrief"):
++            r = guest.post(f"/api/practice/{sid}/state", json={"target": target})
++            self.assertEqual(r.status_code, 200, r.text)
++        fin = guest.post(f"/api/practice/{sid}/finalize", json={})
++        self.assertEqual(fin.status_code, 200, fin.text)
++        self.assertTrue(fin.json()["finalized"])
++
++    # ---- guest is 403'd on OTHER sessions (IDOR) ----------------------------
++
++    def test_guest_403_on_foreign_session_endpoints(self):
++        fid = self.foreign_session_id
++        for method, path in [
++            ("get", f"/api/practice/{fid}"),
++            ("get", f"/api/practice/{fid}/join-config"),
++            ("get", f"/api/practice/{fid}/reveals"),
++            ("get", f"/api/practice/{fid}/recordings"),
++            ("get", f"/api/practice/{fid}/feedback"),
++        ]:
++            r = getattr(self.guest, method)(path)
++            self.assertEqual(r.status_code, 403, f"{method} {path} -> {r.status_code}")
++
++    # ---- guest is 403'd on NON-session endpoints ----------------------------
++
++    def test_guest_403_on_non_session_endpoints(self):
++        for path in ["/api/v1/me", "/api/v1/dashboard", "/api/v1/cases",
++                     "/api/v1/proposals", "/api/v1/availability", "/api/v1/drills/daily"]:
++            r = self.guest.get(path)
++            self.assertEqual(r.status_code, 403, f"{path} -> {r.status_code}")
++
++    # ---- real users unaffected ---------------------------------------------
++
++    def test_real_nonparticipant_still_404_not_403(self):
++        # Regression: require_session_participant must not change real-user 404.
++        from fastapi.testclient import TestClient
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        cara = TestClient(self.app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(self.cid, user_agent="b2-test").id)
++        # Cara is not in the guest's session.
++        r = cara.get(f"/api/practice/{self.guest_session_id}")
++        self.assertEqual(r.status_code, 404, r.text)
++
++    def test_guest_ws_scoping(self):
++        from starlette.websockets import WebSocketDisconnect
++        # Own session: handshake accepted.
++        with self.guest.websocket_connect(f"/ws/practice/{self.guest_session_id}") as ws:
++            ws.close()
++        # Foreign session: rejected.
++        with self.assertRaises(WebSocketDisconnect):
++            with self.guest.websocket_connect(f"/ws/practice/{self.foreign_session_id}"):
++                pass
++
++
++if __name__ == "__main__":
++    unittest.main()
++```
++
++- [ ] **Step 2: Run the test to verify it fails**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_scoping.py -v`
++Expected: FAIL (guest currently reaches non-session endpoints; no `interviewer_is_guest`; foreign endpoints 404 not 403).
++
++- [ ] **Step 3: Add `require_session_participant` to `webapp/auth/guest.py`**
++
++Append to `webapp/auth/guest.py`:
++
++```python
++def require_session_participant(session_id: int, request: Request) -> User:
++    """Auth guard for session-scoped endpoints that a guest may drive.
++
++    Real users: identical to require_auth_api (401 when unauthenticated);
++    per-session participant enforcement stays in each handler's _session_or_404,
++    so a real non-participant still gets 404 (unchanged, DV-11).
++
++    Guests: additionally scoped to their own session — 403 on any session they
++    do not participate in (the guest-cookie IDOR guard). Import the repo lazily
++    to avoid an import cycle (routes → repos → auth).
++    """
++    from webapp.repositories.practice_sessions import get_practice_session, role_of
++
++    user = get_current_user(request)
++    if user is None:
++        raise HTTPException(status_code=401, detail="Authentication required")
++    if user.is_guest:
++        session = get_practice_session(session_id)
++        if session is None or role_of(session, user.id) is None:
++            raise HTTPException(status_code=403, detail="Forbidden")
++    return user
++```
++
++- [ ] **Step 4: Add the guest-reject to `require_auth_api`**
++
++In `webapp/auth/dependencies.py`, edit `require_auth_api`:
++
++```python
++def require_auth_api(request: Request) -> User:
++    """Like ``require_auth`` but returns **401 JSON** when unauthenticated.
++
++    Guests (is_guest) are rejected with **403** here: this is the guard on
++    every non-session /api route, so guests are automatically confined to the
++    session-scoped endpoints (which use require_session_participant instead).
++    """
++    user = get_current_user(request)
++    if user is None:
++        raise HTTPException(status_code=401, detail="Authentication required")
++    if user.is_guest:
++        raise HTTPException(status_code=403, detail="Guests must create an account to do this")
++    return user
++```
++
++- [ ] **Step 5: Swap the session-scoped endpoints to `require_session_participant`**
++
++For each file below, add the import `from webapp.auth.guest import require_session_participant` (place it next to the existing `from webapp.auth.dependencies import ...` line) and change **only** the auth dependency on the listed endpoints from `Depends(require_auth_api)` to `Depends(require_session_participant)`. Do not change anything else in the handlers.
++
++`webapp/routes/practice.py` — endpoints:
++- `GET /api/practice/{session_id}` (`get_practice`)
++- `POST /api/practice/{session_id}/consent` (`post_consent`)
++- `POST /api/practice/{session_id}/state` (`post_state`)
++- `GET /api/practice/{session_id}/join-config` (`join_config`)
++
++(Leave `create_practice`, `create_pair_token`, `pair_token_status`, and the `require_auth` HTML `session_page` as they are. `claim_pair_token` already uses `require_auth_or_mint_guest` from Task 3.)
++
++`webapp/routes/practice_exhibits.py` — all six: `exhibit_manifest`, `get_exhibit_blob`, `exhibit_keys`, `post_reveal`, `list_reveals`, `get_exhibit_key`.
++
++`webapp/routes/practice_feedback.py` — all four: `get_rubric`, `put_rubric`, `post_finalize`, `get_feedback`.
++
++`webapp/routes/practice_recordings.py` — all four: `upload_chunk`, `complete_recording`, `list_recordings`, `download_recording`.
++
++`webapp/routes/proposals.py` — the ICS endpoint `session_ics` (`GET /ics/session-{session_id}.ics`). It already imports from `webapp.auth.guest` (Task 3) — add `require_session_participant` to that import.
++
++**WebSocket needs no change.** `webapp/routes/signal_ws.py`'s handshake already authenticates via the `case_repo_session` cookie and closes `CLOSE_FORBIDDEN` for any non-participant (`role_of` check) on a non-joinable/foreign session. A guest is an ordinary `users` row, so this already scopes guests correctly — the WS test in Step 1 just confirms it (own session accepted, foreign rejected). Do not modify `signal_ws.py`.
++
++Example (practice_feedback.py `get_rubric`):
++
++```python
++@router.get("/api/practice/{session_id}/rubric")
++def get_rubric(session_id: int, user: User = Depends(require_session_participant)):
++```
++
++- [ ] **Step 6: Expose `is_guest` in the session payload**
++
++In `webapp/repositories/practice_sessions.py`, extend the `get_practice_session` SELECT to surface both participants' guest flags (additive columns):
++
++```python
++def get_practice_session(session_id: int) -> Optional[dict]:
++    """Session row + display names and case metadata for the session UI."""
++    sql = f"""
++        SELECT {_SESSION_COLS},
++               COALESCE(ui.display_name, split_part(ui.email::text, '@', 1)) AS interviewer_name,
++               COALESCE(uc.display_name, split_part(uc.email::text, '@', 1)) AS candidate_name,
++               ui.is_guest AS interviewer_is_guest,
++               uc.is_guest AS candidate_is_guest,
++               c.case_title, r.slug AS room_slug
++        FROM practice_sessions ps
++        JOIN users ui ON ui.id = ps.interviewer_id
++        JOIN users uc ON uc.id = ps.candidate_id
++        JOIN cases c  ON c.id = ps.case_id
++        JOIN rooms r  ON r.id = ps.room_id
++        WHERE ps.id = %s;
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, (session_id,))
++            return cur.fetchone()
++```
++
++(`GET /api/practice/{session_id}` returns the whole dict via `_public`, so the two flags appear automatically.)
++
++- [ ] **Step 7: Run the new test**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_scoping.py -v`
++Expected: PASS (6 tests).
++
++- [ ] **Step 8: Run the full suite (this task touches shared session files — verify zero regression)**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q`
++Expected: `440 passed` (434 + 6 new). No failures — the auth swaps are behavior-neutral for real users.
++
++- [ ] **Step 9: Commit**
++
++```bash
++git add webapp/auth/guest.py webapp/auth/dependencies.py webapp/routes/practice.py \
++        webapp/routes/practice_exhibits.py webapp/routes/practice_feedback.py \
++        webapp/routes/practice_recordings.py webapp/routes/proposals.py \
++        webapp/repositories/practice_sessions.py tests/test_b2_guest_scoping.py
++git commit -m "Scope guest cookie to its session; 403 elsewhere; expose is_guest"
++```
++
++---
++
++## Task 5: Upgrade endpoint (`POST /api/v1/auth/upgrade`)
++
++**Files:**
++- Create: `webapp/routes/guest.py`
++- Modify: `webapp/main.py` (register the router)
++- Test: `tests/test_b2_guest_upgrade.py`
++
++**Interfaces:**
++- Consumes: `upgrade_guest`, `require_guest`, `GuestUpgradeConflict` from `webapp.auth.guest`; `InvalidEmailDomain`, `EmailAlreadyRegistered` from `webapp.auth.users`; `WeakPasswordError` from `webapp.auth.passwords`; `require_same_origin`.
++- Produces: `POST /api/v1/auth/upgrade` body `{email, password}` → `200 {upgraded: true, user_id, email}`; the session cookie is unchanged and now authenticates the (real) user.
++
++- [ ] **Step 1: Write the failing test**
++
++Create `tests/test_b2_guest_upgrade.py`:
++
++```python
++"""
++B2 Task 5: POST /api/v1/auth/upgrade converts a guest to a real account in
++place — history FKs intact, cookie now authenticates a real user, previously
++403'd endpoints open. Needs seeded dev Postgres + migration 025 — skips
++otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++import uuid
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestUpgrade(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.app = app
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='b@yale.edu';")
++                cls.bid = cur.fetchone()[0]
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Upgrade Case', 'b2 guest upgrade case', 'DevSchool',"
++                    " 2100, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.bob = TestClient(app)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _cleanup_case(cls.case_id)  # removes case sessions first (frees FKs)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email LIKE %s;",
++                            ("grad-%@yale.edu",))
++                ids = [r[0] for r in cur.fetchall()]
++                if ids:
++                    cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (ids,))
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _fresh_email(self):
++        return f"grad-{uuid.uuid4().hex[:10]}@yale.edu"
++
++    def _new_guest_with_session(self):
++        from fastapi.testclient import TestClient
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id}).json()["claim_token"]
++        guest = TestClient(self.app)
++        sid = guest.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        return guest, sid
++
++    def test_upgrade_happy_path_keeps_history_and_opens_endpoints(self):
++        guest, sid = self._new_guest_with_session()
++        # Before upgrade: guest is 403 on /me.
++        self.assertEqual(guest.get("/api/v1/me").status_code, 403)
++        email = self._fresh_email()
++        r = guest.post("/api/v1/auth/upgrade", json={"email": email, "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["upgraded"])
++        # After upgrade: same cookie now authenticates a real user.
++        me = guest.get("/api/v1/me")
++        self.assertEqual(me.status_code, 200, me.text)
++        # History FK intact: the guest's finalized-or-not session still lists them.
++        s = guest.get(f"/api/practice/{sid}")
++        self.assertEqual(s.status_code, 200, s.text)
++        self.assertEqual(s.json()["your_role"], "interviewer")
++        self.assertFalse(s.json()["interviewer_is_guest"])
++
++    def test_second_upgrade_rejected_as_real_user(self):
++        # After the first upgrade, the SAME cookie now resolves to a real
++        # (is_guest=FALSE) user, so require_guest rejects the second call with
++        # 403 before the handler runs. (The genuine concurrent-race path — two
++        # requests both seeing is_guest=TRUE — returns 409 via GuestUpgradeConflict
++        # and is proven at the repo level in test_b2_guest_crud.)
++        guest, _ = self._new_guest_with_session()
++        self.assertEqual(guest.post("/api/v1/auth/upgrade",
++                         json={"email": self._fresh_email(), "password": "correct horse battery staple"}).status_code, 200)
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_upgrade_bad_domain_rejected(self):
++        guest, _ = self._new_guest_with_session()
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": "someone@gmail.com", "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 400, r.text)
++
++    def test_upgrade_taken_email_conflicts(self):
++        guest, _ = self._new_guest_with_session()
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": "a@yale.edu", "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 409, r.text)
++
++    def test_non_guest_cannot_upgrade(self):
++        r = self.bob.post("/api/v1/auth/upgrade",
++                          json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_unauthenticated_upgrade_401(self):
++        from fastapi.testclient import TestClient
++        r = TestClient(self.app).post("/api/v1/auth/upgrade",
++                                      json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 401, r.text)
++
++
++if __name__ == "__main__":
++    unittest.main()
++```
++
++- [ ] **Step 2: Run the test to verify it fails**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_upgrade.py -v`
++Expected: FAIL (route does not exist — 404).
++
++- [ ] **Step 3: Write `webapp/routes/guest.py`**
++
++Create `webapp/routes/guest.py`:
++
++```python
++"""
++Purpose: Guest account upgrade — POST /api/v1/auth/upgrade converts the current
++         guest row into a real account in place (spec §6.2, "keep it on a
++         record?"), preserving every FK to session history.
++Inputs:  JSON body {email, password}; the guest session cookie (require_guest).
++Outputs: Mutates the guest's users row (is_guest→FALSE, real email/password).
++Run:     included from webapp.main via app.include_router(guest_routes.router)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException
++from pydantic import BaseModel, Field
++
++from webapp.auth.guest import GuestUpgradeConflict, require_guest, upgrade_guest
++from webapp.auth.passwords import WeakPasswordError
++from webapp.auth.users import InvalidEmailDomain, EmailAlreadyRegistered, User
++from webapp.csrf import require_same_origin
++
++router = APIRouter(tags=["guest"])
++
++_MUTATING = [Depends(require_same_origin)]
++
++
++class UpgradeBody(BaseModel):
++    email: str = Field(min_length=3, max_length=320)
++    password: str = Field(min_length=1, max_length=1024)
++
++
++@router.post("/api/v1/auth/upgrade", dependencies=_MUTATING)
++def upgrade(body: UpgradeBody, user: User = Depends(require_guest)):
++    """Convert the current guest to a real account in place (history FKs stay
++    attached). require_guest guarantees the caller is a guest (403 otherwise)."""
++    try:
++        upgraded = upgrade_guest(user.id, body.email, body.password)
++    except InvalidEmailDomain as exc:
++        raise HTTPException(status_code=400, detail=str(exc))
++    except WeakPasswordError as exc:
++        raise HTTPException(status_code=400, detail=str(exc))
++    except EmailAlreadyRegistered as exc:
++        raise HTTPException(status_code=409, detail=str(exc))
++    except GuestUpgradeConflict as exc:
++        raise HTTPException(status_code=409, detail=str(exc))
++    return {"upgraded": True, "user_id": upgraded.id, "email": upgraded.email}
++```
++
++- [ ] **Step 4: Register the router in `webapp/main.py`**
++
++Add the import next to the other `from webapp.routes import ...` lines:
++
++```python
++from webapp.routes import guest as guest_routes
++```
++
++Add the include line next to the other `app.include_router(...)` calls (e.g. after `proposals_routes`):
++
++```python
++    app.include_router(guest_routes.router)
++```
++
++- [ ] **Step 5: Run the new test**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/test_b2_guest_upgrade.py -v`
++Expected: PASS (6 tests).
++
++- [ ] **Step 6: Run the full suite**
++
++Run: `DATABASE_URL=postgresql://localhost/caserepo_bgap_b2 $PY -m pytest tests/ -q`
++Expected: `446 passed` (440 + 6 new). No failures.
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add webapp/routes/guest.py webapp/main.py tests/test_b2_guest_upgrade.py
++git commit -m "Add POST /api/v1/auth/upgrade (guest → real account in place)"
++```
++
++---
++
++## Acceptance (roadmap §B2 "Done when")
++
++> an unauthenticated browser claims a link, runs a full session through finalize, then upgrades and owns the history row.
++
++Covered end-to-end by: Task 3 (unauth claim mints guest interviewer + session) → Task 4 (`test_guest_can_run_session_through_finalize`) → Task 5 (`test_upgrade_happy_path_keeps_history_and_opens_endpoints`, which re-reads the session as the now-real user). Security surface (guest 403 on foreign sessions + all non-session endpoints + WS scoping) covered by Task 4's IDOR tests.
++
++## Expected suite math
++
++418 baseline → +4 (T1) → +6 (T2) → +6 (T3) → +6 (T4) → +6 (T5) = **446 passed**. (The three edited B1 tests are modified in place, not added.) The final reviewer confirms the real count.
++
++## Notes / deferrals (record in the report, not the code)
++
++- **Upgrade leaves the account unverified** (`email_verified_at` NULL), matching a fresh password signup — inbox control is proven by the existing verification flow / B5, not by upgrade. No verification email is sent from B2 (B5 owns email infra); the OTP upgrade path named in the brief is B5 territory.
++- **Guest role direction:** a guest becomes *interviewer* via a proposal claim where the creator's `from_role='candidate'` (the spec §6.2 console path), or *candidate* via `pair/claim` (B1 makes the claimer the candidate). B2 mints a guest on both per the brief; it does not re-plumb pairing role direction.
++- **Orphan guest rows** on a failed claim (mint happens before the claim repo call): harmless — such a guest participates in no session and 403s everywhere. Not worth a pre-flight validation.
+diff --git a/tests/test_b1_pairing_shortcode.py b/tests/test_b1_pairing_shortcode.py
+index 976ad3f..8895e41 100644
+--- a/tests/test_b1_pairing_shortcode.py
++++ b/tests/test_b1_pairing_shortcode.py
+@@ -101,13 +101,13 @@ class TestPairingShortCode(unittest.TestCase):
+         self.assertEqual(r.status_code, 409)
+ 
+     def test_claim_requires_auth(self):
+         code = self.alice.post("/api/practice/pair/create",
+                                json={"case_id": self.case_id}).json()["short_code"]
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).post("/api/practice/pair/claim", json={"short_code": code})
+-        self.assertEqual(r.status_code, 401)
++        self.assertEqual(r.status_code, 200, r.text)
+ 
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_b1_proposals_open.py b/tests/test_b1_proposals_open.py
+index 4952d2b..70508d8 100644
+--- a/tests/test_b1_proposals_open.py
++++ b/tests/test_b1_proposals_open.py
+@@ -140,23 +140,24 @@ class TestClaim(unittest.TestCase):
+ 
+     def test_creator_cannot_claim(self):
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.alice.post(f"/api/proposals/claim/{tok}").status_code, 409)
+ 
+     def test_unknown_token_404(self):
+         self.assertEqual(self.bob.post("/api/proposals/claim/nope-nope").status_code, 404)
+ 
+-    def test_requires_auth(self):
++    def test_unauthenticated_claim_mints_guest(self):
++        # B2: an unauthenticated claim mints a scoped guest instead of 401.
+         tok = self._mk_open(self.alice)
+-        anon = self.__class__._ctx.__class__  # unused; explicit anon client below
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+-        r = TestClient(app).post(f"/api/proposals/claim/{tok}")
+-        self.assertEqual(r.status_code, 401)
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
+ 
+     def test_claim_now_with_case_auto_accepts_and_creates_session(self):
+         tok = self._mk_open(self.alice)  # no proposed_times -> "now"
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         body = r.json()
+         self.assertTrue(body["accepted"])
+         self.assertIsNotNone(body["session_id"])
+@@ -183,20 +184,23 @@ class TestClaim(unittest.TestCase):
+     def test_claim_case_less_now_needs_negotiation(self):
+         tok = self._mk_open(self.alice, case_id=None)
+         r = self.bob.post(f"/api/proposals/claim/{tok}")
+         self.assertEqual(r.status_code, 200, r.text)
+         self.assertTrue(r.json()["accepted"])
+         self.assertIsNone(r.json()["session_id"])
+         self.assertTrue(r.json()["needs_negotiation"])
+ 
+-    def test_double_claim_409(self):
++    def test_double_claim_404_dead_token(self):
++        # B2 N-1: claiming nulls the now-dead claim_token, so a second claim of
++        # the same token no longer finds the row → 404 "No such claim link"
++        # (was 409 in B1, before the token was nulled on claim).
+         tok = self._mk_open(self.alice)
+         self.assertEqual(self.bob.post(f"/api/proposals/claim/{tok}").status_code, 200)
+-        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 409)
++        self.assertEqual(self.cara.post(f"/api/proposals/claim/{tok}").status_code, 404)
+ 
+ 
+ @unittest.skipUnless(_READY, "requires seeded dev Postgres")
+ @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+ class TestCounter(unittest.TestCase):
+     @classmethod
+     def setUpClass(cls):
+         from fastapi.testclient import TestClient
+diff --git a/tests/test_b2_guest_claim.py b/tests/test_b2_guest_claim.py
+new file mode 100644
+index 0000000..bc1f093
+--- /dev/null
++++ b/tests/test_b2_guest_claim.py
+@@ -0,0 +1,226 @@
++"""
++B2 Task 3: unauthenticated claim endpoints mint a scoped guest + session
++cookie. Needs the seeded dev Postgres with migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestClaim(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='b@yale.edu';")
++                cls.bid = cur.fetchone()[0]
++                # Dedicated case so guest sessions here never collide with the
++                # seeded dummy or other B2 files (re-runnable teardown below).
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Claim Case', 'b2 guest claim case', 'DevSchool',"
++                    " 2098, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++
++        # Bob (candidate) logs in to create open-link proposals.
++        cls.bob = TestClient(app)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++    @classmethod
++    def tearDownClass(cls):
++        _cleanup_case(cls.case_id)
++        cls._ctx.__exit__(None, None, None)
++
++    def _mk_open_now_case(self) -> str:
++        """Bob (candidate) opens a case-set 'now' link — the claimer becomes
++        the interviewer and the session is auto-created (B1 DD-1)."""
++        r = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id})
++        self.assertEqual(r.status_code, 200, r.text)
++        return r.json()["claim_token"]
++
++    def test_unauth_proposal_claim_mints_guest_interviewer(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok = self._mk_open_now_case()
++
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertTrue(body["accepted"])
++        sid = body["session_id"]
++        self.assertIsNotNone(sid)
++        # A guest session cookie was minted.
++        self.assertIn(self.SESSION_COOKIE_NAME, anon.cookies)
++
++        # The guest is the interviewer and can read its own session.
++        gr = anon.get(f"/api/practice/{sid}")
++        self.assertEqual(gr.status_code, 200, gr.text)
++        self.assertEqual(gr.json()["your_role"], "interviewer")
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT interviewer_id FROM practice_sessions WHERE id=%s;", (sid,))
++                iv_id = cur.fetchone()[0]
++                cur.execute("SELECT is_guest, email FROM users WHERE id=%s;", (iv_id,))
++                is_guest, email = cur.fetchone()
++        self.assertTrue(is_guest)
++        self.assertIsNone(email)
++
++    def test_authenticated_claim_still_works_for_real_user(self):
++        # Regression: a real logged-in user claiming is unchanged.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='c@yale.edu';")
++                cid = cur.fetchone()[0]
++        cara = TestClient(app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(cid, user_agent="b2-test").id)
++        tok = self._mk_open_now_case()
++        r = cara.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++
++    def test_guest_cannot_reclaim_a_second_link(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok1 = self._mk_open_now_case()
++        anon = TestClient(app)
++        self.assertEqual(anon.post(f"/api/proposals/claim/{tok1}").status_code, 200)
++        # Same guest cookie, a different open link → 403 (scoped to one session).
++        tok2 = self._mk_open_now_case()
++        r = anon.post(f"/api/proposals/claim/{tok2}")
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_unauth_pair_claim_mints_guest(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        mint = self.bob.post("/api/practice/pair/create", json={"case_id": self.case_id})
++        self.assertEqual(mint.status_code, 200, mint.text)
++        token = mint.json()["token"]
++        anon = TestClient(app)
++        r = anon.post("/api/practice/pair/claim", json={"token": token})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIn(self.SESSION_COOKIE_NAME, anon.cookies)
++
++    def test_guest_interviewer_claim_sends_no_invite_to_null_email(self):
++        # NULL-email guard: the guest-interviewer claim must not blow up on
++        # the invite path, and the guest can still fetch its own .ics.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        tok = self._mk_open_now_case()
++        anon = TestClient(app)
++        r = anon.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        sid = r.json()["session_id"]
++        ics = anon.get(f"/ics/session-{sid}.ics")
++        self.assertEqual(ics.status_code, 200, ics.text)
++
++    def test_claim_nulls_dead_claim_token(self):
++        # B1 report N-1 (lands in B2 scope): claiming nulls the now-dead
++        # claim_token so it never surfaces on the claimed row / in the inbox.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        from datetime import datetime, timedelta, timezone
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='c@yale.edu';")
++                cid = cur.fetchone()[0]
++        cara = TestClient(app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(cid, user_agent="b2-test").id)
++        future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id,
++            "proposed_times": [future]}).json()["claim_token"]
++        res = cara.post(f"/api/proposals/claim/{tok}")
++        self.assertEqual(res.status_code, 200, res.text)
++        pid = res.json()["proposal_id"]
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT claim_token FROM proposals WHERE id=%s;", (pid,))
++                self.assertIsNone(cur.fetchone()[0])
++
++    def test_failed_proposal_claim_leaves_no_orphan_guest(self):
++        # Unauthenticated bad-token claim must not persist a guest user/session.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        import psycopg
++        def _counts():
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
++                    g = cur.fetchone()[0]
++                    cur.execute("SELECT count(*) FROM sessions;")
++                    s = cur.fetchone()[0]
++            return g, s
++        before = _counts()
++        r = TestClient(app).post("/api/proposals/claim/nope-nope-nope")
++        self.assertEqual(r.status_code, 404, r.text)
++        self.assertEqual(_counts(), before)
++
++    def test_failed_pair_claim_leaves_no_orphan_guest(self):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        import psycopg
++        def _gcount():
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("SELECT count(*) FROM users WHERE is_guest;")
++                    return cur.fetchone()[0]
++        before = _gcount()
++        r = TestClient(app).post("/api/practice/pair/claim", json={})
++        self.assertEqual(r.status_code, 422, r.text)
++        self.assertEqual(_gcount(), before)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b2_guest_crud.py b/tests/test_b2_guest_crud.py
+new file mode 100644
+index 0000000..437d5e7
+--- /dev/null
++++ b/tests/test_b2_guest_crud.py
+@@ -0,0 +1,112 @@
++"""
++B2 Task 2: guest CRUD (mint_guest_user, upgrade_guest) + require_guest dep.
++Needs the seeded dev Postgres with migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestGuestCrud(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Enter the app context so the DB pool is initialized (init_pool runs in
++        # the lifespan). These tests call repo functions directly, not via HTTP.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def setUp(self):
++        self._created: list[int] = []
++
++    def tearDown(self):
++        import psycopg
++        if self._created:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (self._created,))
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (self._created,))
++
++    def _fresh_email(self) -> str:
++        import uuid
++        return f"upgrade-{uuid.uuid4().hex[:10]}@yale.edu"
++
++    def test_mint_guest_user_creates_flagged_row(self):
++        from webapp.auth.guest import mint_guest_user
++        g = mint_guest_user()
++        self._created.append(g.id)
++        self.assertTrue(g.is_guest)
++        self.assertIsNone(g.email)
++        self.assertFalse(g.is_verified)
++
++    def test_upgrade_guest_converts_in_place(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        g = mint_guest_user()
++        self._created.append(g.id)
++        email = self._fresh_email()
++        upgraded = upgrade_guest(g.id, email, "correct horse battery staple")
++        self.assertEqual(upgraded.id, g.id)          # same row → FKs intact
++        self.assertFalse(upgraded.is_guest)
++        self.assertEqual(upgraded.email, email)
++
++    def test_upgrade_rejects_bad_domain(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        from webapp.auth.users import InvalidEmailDomain
++        g = mint_guest_user()
++        self._created.append(g.id)
++        with self.assertRaises(InvalidEmailDomain):
++            upgrade_guest(g.id, "someone@gmail.com", "correct horse battery staple")
++
++    def test_double_upgrade_second_call_conflicts(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest, GuestUpgradeConflict
++        g = mint_guest_user()
++        self._created.append(g.id)
++        upgrade_guest(g.id, self._fresh_email(), "correct horse battery staple")
++        with self.assertRaises(GuestUpgradeConflict):
++            upgrade_guest(g.id, self._fresh_email(), "correct horse battery staple")
++
++    def test_upgrade_rejects_taken_email(self):
++        from webapp.auth.guest import mint_guest_user, upgrade_guest
++        from webapp.auth.users import EmailAlreadyRegistered
++        g = mint_guest_user()
++        self._created.append(g.id)
++        with self.assertRaises(EmailAlreadyRegistered):
++            upgrade_guest(g.id, "a@yale.edu", "correct horse battery staple")
++
++    def test_require_guest_dependency(self):
++        from fastapi import HTTPException, Request
++        from webapp.auth.guest import require_guest
++        from webapp.auth.users import User
++        from datetime import datetime
++
++        def _req(user):
++            scope = {"type": "http", "headers": [], "method": "GET", "path": "/"}
++            r = Request(scope)
++            r.state.user = user
++            return r
++
++        guest = User(id=1, email=None, email_verified_at=None,
++                     created_at=datetime.utcnow(), last_login_at=None, is_guest=True)
++        real = User(id=2, email="a@yale.edu", email_verified_at=datetime.utcnow(),
++                    created_at=datetime.utcnow(), last_login_at=None, is_guest=False)
++
++        self.assertIs(require_guest(_req(guest)), guest)
++        with self.assertRaises(HTTPException) as ctx_real:
++            require_guest(_req(real))
++        self.assertEqual(ctx_real.exception.status_code, 403)
++        with self.assertRaises(HTTPException) as ctx_none:
++            require_guest(_req(None))
++        self.assertEqual(ctx_none.exception.status_code, 401)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b2_guest_scoping.py b/tests/test_b2_guest_scoping.py
+new file mode 100644
+index 0000000..56af2df
+--- /dev/null
++++ b/tests/test_b2_guest_scoping.py
+@@ -0,0 +1,200 @@
++"""
++B2 Task 4: guest cookie scoping — a guest drives its own session's endpoints
++(incl. finalize, name renders 'Guest') and is 403'd on every other session
++and every non-session /api endpoint (IDOR surface). Needs seeded dev Postgres
+++ migration 025 — skips otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestScoping(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++        cls.app = app
++
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                for e in ("a@yale.edu", "b@yale.edu", "c@yale.edu"):
++                    cur.execute("SELECT id FROM users WHERE email=%s;", (e,))
++                    setattr(cls, {"a@yale.edu": "aid", "b@yale.edu": "bid",
++                                  "c@yale.edu": "cid"}[e], cur.fetchone()[0])
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Scoping Case', 'b2 guest scoping case', 'DevSchool',"
++                    " 2099, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++
++        cls.bob = TestClient(app)  # candidate who opens links
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++        # Guest interviewer session, via a case-set 'now' open link.
++        tok = cls.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": cls.case_id}).json()["claim_token"]
++        cls.guest = TestClient(app)
++        claim = cls.guest.post(f"/api/proposals/claim/{tok}")
++        cls.guest_session_id = claim.json()["session_id"]
++
++        # A foreign session between two real users (guest is NOT a participant).
++        cls.foreign_session_id = cls._create_real_session(cls.aid, cls.cid)
++
++    @classmethod
++    def tearDownClass(cls):
++        _cleanup_case(cls.case_id)
++        cls._ctx.__exit__(None, None, None)
++
++    @classmethod
++    def _create_real_session(cls, interviewer_id, candidate_id):
++        from webapp.repositories.practice_sessions import create_practice_session
++        s = create_practice_session(interviewer_id=interviewer_id,
++                                     candidate_id=candidate_id, case_id=cls.case_id)
++        return s["id"]
++
++    def _fresh_guest_session(self):
++        """A brand-new guest-interviewer session (Bob = candidate), isolated so
++        state mutation doesn't leak into the shared read-only fixtures."""
++        from fastapi.testclient import TestClient
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id}).json()["claim_token"]
++        guest = TestClient(self.app)
++        sid = guest.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        return guest, sid
++
++    # ---- guest drives its OWN session ---------------------------------------
++
++    def test_guest_reads_own_session_and_sees_is_guest_flag(self):
++        r = self.guest.get(f"/api/practice/{self.guest_session_id}")
++        self.assertEqual(r.status_code, 200, r.text)
++        body = r.json()
++        self.assertEqual(body["your_role"], "interviewer")
++        self.assertTrue(body["interviewer_is_guest"])
++        self.assertFalse(body["candidate_is_guest"])
++        self.assertEqual(body["interviewer_name"], "Guest")
++
++    def test_guest_can_run_session_through_finalize(self):
++        # Fresh isolated session (Bob = candidate). join-config, draft rubric,
++        # both consents (INV-10: no going live without both), drive states,
++        # finalize as the guest interviewer.
++        guest, sid = self._fresh_guest_session()
++        self.assertEqual(guest.get(f"/api/practice/{sid}/join-config").status_code, 200)
++        # Interviewer-only rubric read is reachable by the guest interviewer.
++        self.assertEqual(guest.get(f"/api/practice/{sid}/rubric").status_code, 200)
++        self.assertEqual(guest.post(f"/api/practice/{sid}/state",
++                                    json={"target": "lobby"}).status_code, 200)
++        # Interviewer (guest) + candidate (Bob) both consent while in lobby.
++        self.assertEqual(guest.post(f"/api/practice/{sid}/consent",
++                                    json={"consent": True}).status_code, 200)
++        self.assertEqual(self.bob.post(f"/api/practice/{sid}/consent",
++                                       json={"consent": True}).status_code, 200)
++        for target in ("live", "debrief"):
++            r = guest.post(f"/api/practice/{sid}/state", json={"target": target})
++            self.assertEqual(r.status_code, 200, r.text)
++        fin = guest.post(f"/api/practice/{sid}/finalize", json={})
++        self.assertEqual(fin.status_code, 200, fin.text)
++        self.assertTrue(fin.json()["finalized"])
++
++    # ---- guest is 403'd on OTHER sessions (IDOR) ----------------------------
++
++    def test_guest_403_on_foreign_session_endpoints(self):
++        fid = self.foreign_session_id
++        for method, path in [
++            ("get", f"/api/practice/{fid}"),
++            ("get", f"/api/practice/{fid}/join-config"),
++            ("get", f"/api/practice/{fid}/reveals"),
++            ("get", f"/api/practice/{fid}/recordings"),
++            ("get", f"/api/practice/{fid}/feedback"),
++        ]:
++            r = getattr(self.guest, method)(path)
++            self.assertEqual(r.status_code, 403, f"{method} {path} -> {r.status_code}")
++
++    # ---- guest is 403'd on NON-session endpoints ----------------------------
++
++    def test_guest_403_on_non_session_endpoints(self):
++        for path in ["/api/v1/me", "/api/v1/dashboard", "/api/v1/cases",
++                     "/api/v1/proposals", "/api/v1/availability", "/api/v1/drills/daily"]:
++            r = self.guest.get(path)
++            self.assertEqual(r.status_code, 403, f"{path} -> {r.status_code}")
++
++    # ---- real users unaffected ---------------------------------------------
++
++    def test_real_nonparticipant_still_404_not_403(self):
++        # Regression: require_session_participant must not change real-user 404.
++        from fastapi.testclient import TestClient
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        cara = TestClient(self.app)
++        cara.cookies.set(SESSION_COOKIE_NAME, create_session(self.cid, user_agent="b2-test").id)
++        # Cara is not in the guest's session.
++        r = cara.get(f"/api/practice/{self.guest_session_id}")
++        self.assertEqual(r.status_code, 404, r.text)
++
++    def test_guest_ws_scoping(self):
++        from starlette.websockets import WebSocketDisconnect
++        # Own session: handshake accepted.
++        with self.guest.websocket_connect(f"/ws/practice/{self.guest_session_id}") as ws:
++            ws.close()
++        # Foreign session: rejected.
++        with self.assertRaises(WebSocketDisconnect):
++            with self.guest.websocket_connect(f"/ws/practice/{self.foreign_session_id}"):
++                pass
++
++    def test_guest_403_on_library_and_foreign_case_content(self):
++        # Guest must not browse the library or fetch another case's content.
++        # Case 1 is the seeded dummy — the guest has NO session on it.
++        for path in ["/search", "/cases/1", "/api/cases/1/download",
++                     "/api/cases/1/exhibits", "/api/cases/1/previews",
++                     "/files/cases/1", "/room"]:
++            r = self.guest.get(path)
++            self.assertEqual(r.status_code, 403, f"{path} -> {r.status_code}")
++
++    def test_guest_can_reach_own_session_case_pdf(self):
++        # The console's own-case PDF chain must stay reachable (not 403).
++        own = self.guest.get(f"/files/cases/{self.case_id}")
++        self.assertNotEqual(own.status_code, 403, own.text)
++        opentab = self.guest.get(f"/api/cases/{self.case_id}/open-pdf")
++        self.assertNotEqual(opentab.status_code, 403, opentab.text)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b2_guest_upgrade.py b/tests/test_b2_guest_upgrade.py
+new file mode 100644
+index 0000000..43a00d3
+--- /dev/null
++++ b/tests/test_b2_guest_upgrade.py
+@@ -0,0 +1,149 @@
++"""
++B2 Task 5: POST /api/v1/auth/upgrade converts a guest to a real account in
++place — history FKs intact, cookie now authenticates a real user, previously
++403'd endpoints open. Needs seeded dev Postgres + migration 025 — skips
++otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++import uuid
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++def _cleanup_case(case_id: int) -> None:
++    """Remove everything a B2 test attached to its dedicated case, in FK order,
++    so the suite is re-runnable (finalize writes a `burned` row that would else
++    409 later claims of the same case)."""
++    import psycopg
++    with psycopg.connect(_DB_URL) as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT id FROM users WHERE is_guest AND (id IN"
++                " (SELECT interviewer_id FROM practice_sessions WHERE case_id=%s)"
++                " OR id IN (SELECT candidate_id FROM practice_sessions WHERE case_id=%s));",
++                (case_id, case_id))
++            guest_ids = [r[0] for r in cur.fetchall()]
++            cur.execute("DELETE FROM burned WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM queue_want WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM proposals WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM pairing_tokens WHERE case_id=%s;", (case_id,))
++            cur.execute("DELETE FROM practice_sessions WHERE case_id=%s;", (case_id,))
++            if guest_ids:
++                cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (guest_ids,))
++                cur.execute("DELETE FROM users WHERE id = ANY(%s);", (guest_ids,))
++            cur.execute("DELETE FROM cases WHERE id=%s;", (case_id,))
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestUpgrade(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++        import psycopg
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++        cls.app = app
++        cls.SESSION_COOKIE_NAME = SESSION_COOKIE_NAME
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email='b@yale.edu';")
++                cls.bid = cur.fetchone()[0]
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path)"
++                    " VALUES ('B2 Guest Upgrade Case', 'b2 guest upgrade case', 'DevSchool',"
++                    " 2100, 'Technology', 'Profitability', 'Easy', 2.0, 2,"
++                    " 'output/cases/devschool/dev-dummy-case.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.bob = TestClient(app)
++        cls.bob.cookies.set(SESSION_COOKIE_NAME,
++                            create_session(cls.bid, user_agent="b2-test").id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        _cleanup_case(cls.case_id)  # removes case sessions first (frees FKs)
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT id FROM users WHERE email LIKE %s;",
++                            ("grad-%@yale.edu",))
++                ids = [r[0] for r in cur.fetchall()]
++                if ids:
++                    cur.execute("DELETE FROM sessions WHERE user_id = ANY(%s);", (ids,))
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (ids,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _fresh_email(self):
++        return f"grad-{uuid.uuid4().hex[:10]}@yale.edu"
++
++    def _new_guest_with_session(self):
++        from fastapi.testclient import TestClient
++        tok = self.bob.post("/api/proposals", json={
++            "from_role": "candidate", "case_id": self.case_id}).json()["claim_token"]
++        guest = TestClient(self.app)
++        sid = guest.post(f"/api/proposals/claim/{tok}").json()["session_id"]
++        return guest, sid
++
++    def test_upgrade_happy_path_keeps_history_and_opens_endpoints(self):
++        guest, sid = self._new_guest_with_session()
++        # Before upgrade: guest is 403 on /me.
++        self.assertEqual(guest.get("/api/v1/me").status_code, 403)
++        email = self._fresh_email()
++        r = guest.post("/api/v1/auth/upgrade", json={"email": email, "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertTrue(r.json()["upgraded"])
++        # After upgrade: same cookie now authenticates a real user.
++        me = guest.get("/api/v1/me")
++        self.assertEqual(me.status_code, 200, me.text)
++        # History FK intact: the guest's finalized-or-not session still lists them.
++        s = guest.get(f"/api/practice/{sid}")
++        self.assertEqual(s.status_code, 200, s.text)
++        self.assertEqual(s.json()["your_role"], "interviewer")
++        self.assertFalse(s.json()["interviewer_is_guest"])
++
++    def test_second_upgrade_rejected_as_real_user(self):
++        # After the first upgrade, the SAME cookie now resolves to a real
++        # (is_guest=FALSE) user, so require_guest rejects the second call with
++        # 403 before the handler runs. (The genuine concurrent-race path — two
++        # requests both seeing is_guest=TRUE — returns 409 via GuestUpgradeConflict
++        # and is proven at the repo level in test_b2_guest_crud.)
++        guest, _ = self._new_guest_with_session()
++        self.assertEqual(guest.post("/api/v1/auth/upgrade",
++                         json={"email": self._fresh_email(), "password": "correct horse battery staple"}).status_code, 200)
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_upgrade_bad_domain_rejected(self):
++        guest, _ = self._new_guest_with_session()
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": "someone@gmail.com", "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 400, r.text)
++
++    def test_upgrade_taken_email_conflicts(self):
++        guest, _ = self._new_guest_with_session()
++        r = guest.post("/api/v1/auth/upgrade",
++                       json={"email": "a@yale.edu", "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 409, r.text)
++
++    def test_non_guest_cannot_upgrade(self):
++        r = self.bob.post("/api/v1/auth/upgrade",
++                          json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 403, r.text)
++
++    def test_unauthenticated_upgrade_401(self):
++        from fastapi.testclient import TestClient
++        r = TestClient(self.app).post("/api/v1/auth/upgrade",
++                                      json={"email": self._fresh_email(), "password": "correct horse battery staple"})
++        self.assertEqual(r.status_code, 401, r.text)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_b2_guest_users.py b/tests/test_b2_guest_users.py
+new file mode 100644
+index 0000000..2fc14f7
+--- /dev/null
++++ b/tests/test_b2_guest_users.py
+@@ -0,0 +1,85 @@
++"""
++B2 Task 1: migration 025 (is_guest, nullable email/password, guest-aware
++domain CHECK) + User.is_guest plumbing. Needs the seeded dev Postgres with
++migration 025 applied — skips cleanly otherwise.
++"""
++
++from __future__ import annotations
++
++import unittest
++
++from tests.test_ws_integration import _DB_URL, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++class TestGuestUsersSchema(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        # Enter the app context so the DB pool is initialized (get_user_by_id
++        # uses the pool). Raw psycopg inserts open their own connections.
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        cls._ctx = TestClient(app)
++        cls._ctx.__enter__()
++
++    @classmethod
++    def tearDownClass(cls):
++        cls._ctx.__exit__(None, None, None)
++
++    def setUp(self):
++        self._created: list[int] = []
++
++    def tearDown(self):
++        import psycopg
++        if self._created:
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute("DELETE FROM users WHERE id = ANY(%s);", (self._created,))
++
++    def test_guest_row_with_null_email_and_password_is_allowed(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO users (email, password_hash, is_guest, display_name)"
++                    " VALUES (NULL, NULL, TRUE, 'Guest') RETURNING id, is_guest;")
++                row = cur.fetchone()
++        self._created.append(row[0])
++        self.assertTrue(row[1])
++
++    def test_non_guest_with_null_email_is_rejected(self):
++        import psycopg
++        with self.assertRaises(psycopg.errors.CheckViolation):
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO users (email, password_hash, is_guest)"
++                        " VALUES (NULL, 'x', FALSE) RETURNING id;")
++
++    def test_non_guest_with_bad_domain_still_rejected(self):
++        import psycopg
++        with self.assertRaises(psycopg.errors.CheckViolation):
++            with psycopg.connect(_DB_URL) as conn:
++                with conn.cursor() as cur:
++                    cur.execute(
++                        "INSERT INTO users (email, password_hash, is_guest)"
++                        " VALUES ('nope@gmail.com', 'x', FALSE) RETURNING id;")
++
++    def test_user_dataclass_exposes_is_guest(self):
++        import psycopg
++        from webapp.auth.users import get_user_by_id
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute(
++                    "INSERT INTO users (email, password_hash, is_guest, display_name)"
++                    " VALUES (NULL, NULL, TRUE, 'Guest') RETURNING id;")
++                gid = cur.fetchone()[0]
++                cur.execute("SELECT id FROM users WHERE email = 'a@yale.edu';")
++                aid = cur.fetchone()[0]
++        self._created.append(gid)
++        self.assertTrue(get_user_by_id(gid).is_guest)
++        self.assertFalse(get_user_by_id(aid).is_guest)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_pairing.py b/tests/test_pairing.py
+index e183773..1c597a1 100644
+--- a/tests/test_pairing.py
++++ b/tests/test_pairing.py
+@@ -204,22 +204,23 @@ class TestPairingTokenClaim(unittest.TestCase):
+         token = self._mint()
+         r = self.alice.post("/api/practice/pair/claim", json={"token": token})
+         self.assertEqual(r.status_code, 409, r.text)
+ 
+     def test_unknown_token_returns_404(self):
+         r = self.bob.post("/api/practice/pair/claim", json={"token": "does-not-exist"})
+         self.assertEqual(r.status_code, 404, r.text)
+ 
+-    def test_unauthenticated_returns_401(self):
++    def test_unauthenticated_claim_mints_guest(self):
++        # B2: pair/claim mints a scoped guest when unauthenticated.
+         token = self._mint()
+         from fastapi.testclient import TestClient
+         from webapp.main import app
+         r = TestClient(app).post("/api/practice/pair/claim", json={"token": token})
+-        self.assertEqual(r.status_code, 401)
++        self.assertEqual(r.status_code, 200, r.text)
+ 
+ 
+ @unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
+ @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+ class TestPairingTokenStatus(unittest.TestCase):
+     """Task 14: status endpoint (interviewer discovers the claimed session)."""
+ 
+     @classmethod
+diff --git a/webapp/auth/dependencies.py b/webapp/auth/dependencies.py
+index bf5ee2f..5f87cda 100644
+--- a/webapp/auth/dependencies.py
++++ b/webapp/auth/dependencies.py
+@@ -36,20 +36,26 @@ class RedirectToLogin(Exception):
+         self.next_url = next_url
+ 
+ 
+ def require_auth_api(request: Request) -> User:
+     """Like ``require_auth`` but returns **401 JSON** when unauthenticated.
+ 
+     Use for ``/api/...`` routes consumed by ``fetch`` so clients get a machine-readable
+     error instead of an HTML redirect.
++
++    Guests (is_guest) are rejected with **403** here: this is the guard on
++    every non-session /api route, so guests are automatically confined to the
++    session-scoped endpoints (which use require_session_participant instead).
+     """
+     user = get_current_user(request)
+     if user is None:
+         raise HTTPException(status_code=401, detail="Authentication required")
++    if user.is_guest:
++        raise HTTPException(status_code=403, detail="Guests must create an account to do this")
+     return user
+ 
+ 
+ def require_auth(request: Request) -> User:
+     """Dependency for routes that need a logged-in user.
+ 
+     Raises RedirectToLogin (303) for HTML page requests, which the global
+     handler converts to a redirect. For HTMX / JSON requests it instead
+diff --git a/webapp/auth/guest.py b/webapp/auth/guest.py
+new file mode 100644
+index 0000000..c103479
+--- /dev/null
++++ b/webapp/auth/guest.py
+@@ -0,0 +1,208 @@
++"""
++Purpose: Guest-interviewer identity — mint scoped guest users, convert them
++         to real accounts in place, and the FastAPI dependency guests use.
++Inputs:  users table (via get_pool); the current request's request.state.user.
++Outputs: guest users rows (is_guest=TRUE, NULL email/password); in-place
++         upgrades (is_guest→FALSE + real email/password). No files written.
++Run:     from webapp.auth.guest import mint_guest_user, upgrade_guest, require_guest, require_auth_or_mint_guest
++"""
++
++from __future__ import annotations
++
++import logging
++
++import psycopg
++from fastapi import HTTPException, Request, Response
++from psycopg.rows import dict_row
++
++from webapp.auth.dependencies import get_current_user, require_auth
++from webapp.auth.passwords import hash_password, validate_password
++from webapp.auth.sessions import attach_session_cookie, create_session, destroy_session
++from webapp.auth.users import (
++    EmailAlreadyRegistered,
++    User,
++    _row_to_user,
++    validate_email,
++)
++from webapp.db import get_pool
++
++logger = logging.getLogger(__name__)
++
++_USER_COLS = "id, email, email_verified_at, created_at, last_login_at, is_guest"
++
++
++class GuestUpgradeConflict(Exception):
++    """The row targeted for upgrade is not a guest (already upgraded / not guest)."""
++
++
++def mint_guest_user(display_name: str = "Guest") -> User:
++    """Insert a guest users row (is_guest=TRUE, NULL email/password) and return it.
++    display_name renders wherever the session UI shows a participant name — the
++    session name query COALESCEs to it since guest email is NULL."""
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(
++                f"""
++                INSERT INTO users (email, password_hash, is_guest, display_name)
++                VALUES (NULL, NULL, TRUE, %s)
++                RETURNING {_USER_COLS};
++                """,
++                (display_name,),
++            )
++            row = cur.fetchone()
++    logger.info("Minted guest user id=%d", row["id"])
++    return _row_to_user(row)
++
++
++def upgrade_guest(user_id: int, email: str, password: str) -> User:
++    """Convert a guest row to a real account in place — same id, so every FK
++    (session history, feedback, recordings) stays attached.
++
++    Race-safe: the UPDATE is guarded by `is_guest = TRUE`, so a concurrent
++    second upgrade updates zero rows and raises GuestUpgradeConflict. Left
++    unverified (email_verified_at stays NULL) to match a fresh password
++    signup — inbox control is proven later by the normal verification flow.
++
++    Raises: InvalidEmailDomain, WeakPasswordError, EmailAlreadyRegistered,
++    GuestUpgradeConflict.
++    """
++    e = validate_email(email)          # school-domain gate (raises InvalidEmailDomain)
++    validate_password(password)        # raises WeakPasswordError
++    pwd_hash = hash_password(password)
++
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            try:
++                cur.execute(
++                    f"""
++                    UPDATE users
++                    SET email = %s, password_hash = %s, is_guest = FALSE
++                    WHERE id = %s AND is_guest = TRUE
++                    RETURNING {_USER_COLS};
++                    """,
++                    (e, pwd_hash, user_id),
++                )
++            except psycopg.errors.UniqueViolation as exc:
++                raise EmailAlreadyRegistered(
++                    "An account with that email already exists."
++                ) from exc
++            row = cur.fetchone()
++            if row is None:
++                raise GuestUpgradeConflict(
++                    "This account is not an unclaimed guest (already upgraded)."
++                )
++    logger.info("Upgraded guest user id=%d to real account", user_id)
++    return _row_to_user(row)
++
++
++def require_guest(request: Request) -> User:
++    """Dependency for the upgrade endpoint: the caller must be a guest.
++    401 when unauthenticated, 403 when a real (non-guest) user."""
++    user = get_current_user(request)
++    if user is None:
++        raise HTTPException(status_code=401, detail="Authentication required")
++    if not user.is_guest:
++        raise HTTPException(status_code=403, detail="Only guests can upgrade")
++    return user
++
++
++def require_auth_or_mint_guest(request: Request, response: Response) -> User:
++    """Auth dependency for the claim endpoints. Returns the current real user
++    unchanged; when the request is unauthenticated, mints a guest user + server
++    session and sets the session cookie on the response, returning the guest.
++
++    A user who is *already a guest* is rejected (403): a guest is scoped to the
++    single session it claimed — claiming again would accrue cross-session
++    history before upgrade, which the design forbids.
++    """
++    user = get_current_user(request)
++    if user is not None:
++        if user.is_guest:
++            raise HTTPException(
++                status_code=403,
++                detail="Guests are limited to one session. Create an account to continue.",
++            )
++        return user
++    guest = mint_guest_user()
++    session = create_session(guest.id, user_agent=request.headers.get("user-agent"))
++    attach_session_cookie(response, session)
++    # Stash so a failed claim can reap the just-minted guest (below): an
++    # unauthenticated bad-token POST must not leave an orphan users/sessions row.
++    request.state.b2_minted_guest = guest
++    request.state.b2_minted_guest_session = session
++    return guest
++
++
++def require_session_participant(session_id: int, request: Request) -> User:
++    """Auth guard for session-scoped endpoints that a guest may drive.
++
++    Real users: identical to require_auth_api (401 when unauthenticated);
++    per-session participant enforcement stays in each handler's _session_or_404,
++    so a real non-participant still gets 404 (unchanged, DV-11).
++
++    Guests: additionally scoped to their own session — 403 on any session they
++    do not participate in (the guest-cookie IDOR guard). Import the repo lazily
++    to avoid an import cycle (routes → repos → auth).
++    """
++    from webapp.repositories.practice_sessions import get_practice_session, role_of
++
++    user = get_current_user(request)
++    if user is None:
++        raise HTTPException(status_code=401, detail="Authentication required")
++    if user.is_guest:
++        session = get_practice_session(session_id)
++        if session is None or role_of(session, user.id) is None:
++            raise HTTPException(status_code=403, detail="Forbidden")
++    return user
++
++
++def discard_minted_guest(request: Request) -> None:
++    """Delete a guest + session minted for THIS request when the claim it was
++    minted for did not succeed. Closes the unauthenticated row-creation vector:
++    a bad / expired / already-claimed token leaves no orphan guest behind. A
++    real (pre-authenticated) user request has nothing stashed, so this is a
++    no-op for them."""
++    guest = getattr(request.state, "b2_minted_guest", None)
++    if guest is None:
++        return
++    session = getattr(request.state, "b2_minted_guest_session", None)
++    request.state.b2_minted_guest = None
++    request.state.b2_minted_guest_session = None
++    if session is not None:
++        destroy_session(session.id)
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute("DELETE FROM users WHERE id = %s AND is_guest = TRUE;", (guest.id,))
++
++
++def _guest_has_session_for_case(user_id: int, case_id: int) -> bool:
++    """True iff the guest participates in a practice session on this case — the
++    only case content a guest may fetch (its console's PDF)."""
++    with get_pool().connection() as conn:
++        with conn.cursor() as cur:
++            cur.execute(
++                "SELECT 1 FROM practice_sessions"
++                " WHERE case_id = %s AND %s IN (interviewer_id, candidate_id) LIMIT 1;",
++                (case_id, user_id))
++            return cur.fetchone() is not None
++
++
++def require_auth_no_guest(request: Request) -> User:
++    """require_auth for real users (redirect when anonymous — unchanged), but a
++    guest is 403'd. Use on library / browsing / account endpoints a guest must
++    never reach; real-user and anonymous behavior stay identical to require_auth."""
++    user = require_auth(request)
++    if user.is_guest:
++        raise HTTPException(status_code=403, detail="Guests must create an account to do this")
++    return user
++
++
++def require_case_access(case_id: int, request: Request) -> User:
++    """Case-content endpoints (the case PDF the session console displays). Real
++    users browse freely (unchanged); a guest may fetch ONLY the case of a session
++    it participates in, and is 403'd on any other case — no library browsing.
++    Anonymous behavior is require_auth's (unchanged)."""
++    user = require_auth(request)
++    if user.is_guest and not _guest_has_session_for_case(user.id, case_id):
++        raise HTTPException(status_code=403, detail="Forbidden")
++    return user
+diff --git a/webapp/auth/users.py b/webapp/auth/users.py
+index 7700f38..121a905 100644
+--- a/webapp/auth/users.py
++++ b/webapp/auth/users.py
+@@ -29,20 +29,21 @@ logger = logging.getLogger(__name__)
+ ALLOWED_DOMAIN_SUFFIXES = ("@yale.edu", "@umich.edu")
+ ALLOWED_BOOTH_EMAIL = "acannata@chicagobooth.edu"
+ BOOTH_DOMAIN_SUFFIX = "@chicagobooth.edu"
+ 
+ 
+ @dataclass(frozen=True)
+ class User:
+     id: int
+-    email: str
++    email: Optional[str]
+     email_verified_at: Optional[datetime]
+     created_at: datetime
+     last_login_at: Optional[datetime]
++    is_guest: bool = False
+ 
+     @property
+     def is_verified(self) -> bool:
+         return self.email_verified_at is not None
+ 
+ 
+ # ── Domain errors ──────────────────────────────────────────────────────────────
+ 
+@@ -105,16 +106,17 @@ def validate_email(email: str) -> str:
+ 
+ def _row_to_user(row: dict) -> User:
+     return User(
+         id=row["id"],
+         email=row["email"],
+         email_verified_at=row["email_verified_at"],
+         created_at=row["created_at"],
+         last_login_at=row["last_login_at"],
++        is_guest=row.get("is_guest", False),
+     )
+ 
+ 
+ def create_user(email: str, password: str) -> User:
+     """Create a new user with a hashed password. Email must be allowed.
+ 
+     Raises:
+       InvalidEmailDomain — domain / guest rules violated
+@@ -147,31 +149,31 @@ def create_user(email: str, password: str) -> User:
+ 
+ 
+ def get_user_by_email(email: str) -> Optional[User]:
+     e = normalize_email(email)
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 """
+-                SELECT id, email, email_verified_at, created_at, last_login_at
++                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
+                 FROM users WHERE email = %s;
+                 """,
+                 (e,),
+             )
+             row = cur.fetchone()
+     return _row_to_user(row) if row else None
+ 
+ 
+ def get_user_by_id(user_id: int) -> Optional[User]:
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 """
+-                SELECT id, email, email_verified_at, created_at, last_login_at
++                SELECT id, email, email_verified_at, created_at, last_login_at, is_guest
+                 FROM users WHERE id = %s;
+                 """,
+                 (user_id,),
+             )
+             row = cur.fetchone()
+     return _row_to_user(row) if row else None
+ 
+ 
+@@ -183,17 +185,17 @@ def authenticate(email: str, password: str) -> Optional[User]:
+     tuned up the argon2 cost factor since this user signed up).
+     """
+     e = normalize_email(email)
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(
+                 """
+                 SELECT id, email, email_verified_at, created_at,
+-                       last_login_at, password_hash
++                       last_login_at, is_guest, password_hash
+                 FROM users WHERE email = %s;
+                 """,
+                 (e,),
+             )
+             row = cur.fetchone()
+             if row is None:
+                 # Run a dummy verify so the timing matches a real check;
+                 # prevents an attacker from learning which emails exist
+diff --git a/webapp/main.py b/webapp/main.py
+index 33fbc9d..8b9c3e9 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -47,16 +47,17 @@ _load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+ from webapp.auth.dependencies import RedirectToLogin
+ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+ from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import files as files_routes
++from webapp.routes import guest as guest_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import proposals as proposals_routes
+ from webapp.routes import queues as queues_routes
+@@ -137,16 +138,17 @@ def create_app() -> FastAPI:
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
++    app.include_router(guest_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(api_v1_routes.router)
+ 
+     return app
+ 
+ 
+diff --git a/webapp/repositories/practice_sessions.py b/webapp/repositories/practice_sessions.py
+index 3d608b7..d436b45 100644
+--- a/webapp/repositories/practice_sessions.py
++++ b/webapp/repositories/practice_sessions.py
+@@ -99,16 +99,18 @@ def create_practice_session(
+ 
+ 
+ def get_practice_session(session_id: int) -> Optional[dict]:
+     """Session row + display names and case metadata for the session UI."""
+     sql = f"""
+         SELECT {_SESSION_COLS},
+                COALESCE(ui.display_name, split_part(ui.email::text, '@', 1)) AS interviewer_name,
+                COALESCE(uc.display_name, split_part(uc.email::text, '@', 1)) AS candidate_name,
++               ui.is_guest AS interviewer_is_guest,
++               uc.is_guest AS candidate_is_guest,
+                c.case_title, r.slug AS room_slug
+         FROM practice_sessions ps
+         JOIN users ui ON ui.id = ps.interviewer_id
+         JOIN users uc ON uc.id = ps.candidate_id
+         JOIN cases c  ON c.id = ps.case_id
+         JOIN rooms r  ON r.id = ps.room_id
+         WHERE ps.id = %s;
+     """
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index d679212..20950ff 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -85,18 +85,19 @@ def claim_proposal(token: str, user_id: int) -> dict:
+                 raise TransitionError(404, "No such claim link")
+             if prop["state"] != "pending":
+                 raise TransitionError(409, f"Proposal is already {prop['state']}")
+             if prop["to_user_id"] is not None:
+                 raise TransitionError(409, "This link has already been claimed")
+             if user_id == prop["from_user_id"]:
+                 raise TransitionError(409, "You can't claim your own link")
+ 
+-            cur.execute("UPDATE proposals SET to_user_id = %s WHERE id = %s;",
+-                        (user_id, prop["id"]))
++            cur.execute(
++                "UPDATE proposals SET to_user_id = %s, claim_token = NULL WHERE id = %s;",
++                (user_id, prop["id"]))
+             prop["to_user_id"] = user_id
+ 
+             result = {"proposal_id": prop["id"], "from_user_id": prop["from_user_id"]}
+             if prop["proposed_times_json"]:
+                 # Scheduled: claimer is now the recipient; awaits accept/counter.
+                 result.update(state="pending", session_id=None,
+                               accepted=False, needs_negotiation=False)
+                 return result
+diff --git a/webapp/routes/auth.py b/webapp/routes/auth.py
+index 3daa0c0..8d45e7f 100644
+--- a/webapp/routes/auth.py
++++ b/webapp/routes/auth.py
+@@ -37,16 +37,17 @@ from __future__ import annotations
+ import logging
+ from typing import Optional
+ from urllib.parse import urlparse
+ 
+ from fastapi import APIRouter, Depends, Form, Request
+ from fastapi.responses import HTMLResponse, RedirectResponse
+ 
+ from webapp.auth.dependencies import get_current_user, require_auth
++from webapp.auth.guest import require_auth_no_guest
+ from webapp.auth.email_sender import (
+     build_password_reset_email,
+     build_verification_email,
+     get_email_sender,
+ )
+ from webapp.auth.email_verification import (
+     VerificationResult,
+     consume_verification_token,
+@@ -259,27 +260,27 @@ def logout(request: Request):
+     response = RedirectResponse("/login", status_code=303)
+     clear_session_cookie(response)
+     return response
+ 
+ 
+ # ── Change password ────────────────────────────────────────────────────────────
+ 
+ @router.get("/change-password", response_class=HTMLResponse)
+-def change_password_form(request: Request, user: User = Depends(require_auth)):
++def change_password_form(request: Request, user: User = Depends(require_auth_no_guest)):
+     return render(request, "change_password.html", {"error": None})
+ 
+ 
+ @router.post("/change-password", response_class=HTMLResponse)
+ def change_password_submit(
+     request: Request,
+     current_password: str = Form(""),
+     new_password: str = Form(""),
+     new_password_confirm: str = Form(""),
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     if new_password != new_password_confirm:
+         return render(request, "change_password.html",
+                       {"error": "New passwords don't match."})
+ 
+     try:
+         change_password(user.id, current_password, new_password)
+     except InvalidCurrentPassword:
+diff --git a/webapp/routes/exhibits.py b/webapp/routes/exhibits.py
+index ebc53a4..b47034f 100644
+--- a/webapp/routes/exhibits.py
++++ b/webapp/routes/exhibits.py
+@@ -12,16 +12,17 @@ from __future__ import annotations
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Request
+ from fastapi.responses import Response
+ from pydantic import BaseModel, Field
+ from starlette.concurrency import run_in_threadpool
+ 
+ from pipeline.storage import get_storage, to_storage_key
+ from webapp.auth.dependencies import require_auth, require_verified_user
++from webapp.auth.guest import require_auth_no_guest
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.exhibits_render import page_count, render_exhibit_webp, render_page_thumb
+ from webapp.repositories import case_exhibits as repo
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.templating import render
+ 
+ router = APIRouter(tags=["exhibits"])
+@@ -47,39 +48,39 @@ def _case_pdf_bytes(case_id: int) -> tuple[dict, bytes]:
+     if not storage.exists(key):
+         raise HTTPException(status_code=409, detail="Case PDF unavailable in storage")
+     with storage.open(key) as fh:
+         return case, fh.read()
+ 
+ 
+ @router.get("/cases/{case_id}/exhibits")
+ def authoring_page(case_id: int, request: Request,
+-                   user: User = Depends(require_auth)):
++                   user: User = Depends(require_auth_no_guest)):
+     case, pdf = _case_pdf_bytes(case_id)
+     return render(request, "exhibits.html", {
+         "case": case,
+         "n_pages": page_count(pdf),
+         "existing": repo.list_for_case(case_id),
+     })
+ 
+ 
+ @router.get("/api/cases/{case_id}/page-thumb/{page}")
+ async def page_thumb(case_id: int, page: int,
+-                     user: User = Depends(require_auth)):
++                     user: User = Depends(require_auth_no_guest)):
+     _, pdf = _case_pdf_bytes(case_id)
+     try:
+         jpeg = await run_in_threadpool(render_page_thumb, pdf, page)
+     except ValueError as exc:
+         raise HTTPException(status_code=404, detail=str(exc))
+     return Response(jpeg, media_type="image/jpeg",
+                     headers={"Cache-Control": "private, max-age=3600"})
+ 
+ 
+ @router.get("/api/cases/{case_id}/exhibits")
+-def list_exhibits(case_id: int, user: User = Depends(require_auth)):
++def list_exhibits(case_id: int, user: User = Depends(require_auth_no_guest)):
+     if get_case_by_id(case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     return {"exhibits": repo.list_for_case(case_id)}
+ 
+ 
+ @router.post("/api/cases/{case_id}/exhibits",
+              dependencies=[Depends(require_same_origin)])
+ async def set_exhibits(case_id: int, body: ExhibitSetBody,
+diff --git a/webapp/routes/files.py b/webapp/routes/files.py
+index d60824a..3d20b5a 100644
+--- a/webapp/routes/files.py
++++ b/webapp/routes/files.py
+@@ -26,16 +26,17 @@ import time
+ from typing import Any, Optional
+ from urllib.parse import unquote
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Query, Request
+ from fastapi.responses import FileResponse, RedirectResponse, Response
+ 
+ from pipeline.storage import get_storage, to_storage_key, validate_key
+ from webapp.auth.dependencies import require_auth
++from webapp.auth.guest import require_auth_no_guest, require_case_access
+ from webapp.auth.users import User
+ from webapp.previews import existing_preview_file, preview_media_type
+ from webapp.preview_urls import preview_page_urls
+ from webapp.repositories.case_access import record_case_access
+ from webapp.repositories.cases import get_case_by_id
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -114,33 +115,33 @@ def _resolve_case_pdf(case_id: int) -> tuple[dict[str, Any], str, str]:
+ 
+     filename = key.split("/")[-1]
+     return case, key, filename
+ 
+ 
+ @router.get("/api/cases/{case_id}/download")
+ def api_download_case_pdf(
+     case_id: int,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     """Record exactly one **download** audit row, then stream the PDF as an attachment."""
+     _case, key, filename = _resolve_case_pdf(case_id)
+     if not record_case_access(user.id, case_id, "download"):
+         logger.error(
+             "download audit insert failed user_id=%s case_id=%s — check case_access_events.kind CHECK constraint",
+             user.id,
+             case_id,
+         )
+     return _storage_pdf_response(key, filename, attachment=True)
+ 
+ 
+ @router.get("/api/cases/{case_id}/open-pdf")
+ def api_open_case_pdf_tab(
+     case_id: int,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_case_access),
+ ):
+     """Record **open_tab** once, then redirect to the inline PDF route.
+ 
+     The case-detail button targets this URL — not ``/files/cases/...?open_tab=1`` —
+     because the browser’s first PDF fetch is often a chunked Range request that we
+     deliberately do not audit on ``/files/cases/...``.
+     """
+     _resolve_case_pdf(case_id)
+@@ -154,17 +155,17 @@ def api_open_case_pdf_tab(
+         )
+     return RedirectResponse(url=f"/files/cases/{case_id}", status_code=302)
+ 
+ 
+ @router.get("/api/cases/{case_id}/previews")
+ def api_case_previews_manifest(
+     request: Request,
+     case_id: int,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     """JSON list of preview image URLs (same-origin paths or public CDN URLs).
+ 
+     Does not write audit rows — previews are not PDF downloads.
+     """
+     case = get_case_by_id(case_id)
+     if case is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+@@ -186,17 +187,17 @@ def api_case_previews_manifest(
+         "format": "jpeg",
+     }
+ 
+ 
+ @router.get("/files/cases/{case_id}/preview/{page_num:int}")
+ def serve_case_preview_image(
+     case_id: int,
+     page_num: int,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     """Serve a pre-generated preview file only (JPEG or legacy PNG). No PDF work."""
+     _case, cp = _resolve_case_page_count(case_id)
+     if page_num < 1 or page_num > cp:
+         raise HTTPException(status_code=404, detail="Page not found")
+ 
+     t0 = time.perf_counter()
+     path = existing_preview_file(case_id, page_num)
+@@ -225,32 +226,32 @@ def serve_case_preview_image(
+         },
+     )
+ 
+ 
+ @router.get("/files/cases/{case_id}")
+ def serve_case_pdf(
+     case_id: int,
+     download: bool = Query(False),
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_case_access),
+ ):
+     """Serve the case PDF inline. Audit rows for opens use ``/api/cases/.../open-pdf``."""
+     _case, key, filename = _resolve_case_pdf(case_id)
+ 
+     if download:
+         return RedirectResponse(
+             url=f"/api/cases/{case_id}/download",
+             status_code=302,
+         )
+ 
+     return _storage_pdf_response(key, filename, attachment=False)
+ 
+ 
+ @router.get("/files/{key:path}")
+-def serve_pdf(key: str, user: User = Depends(require_auth)):
++def serve_pdf(key: str, user: User = Depends(require_auth_no_guest)):
+     """Serve the PDF identified by `key` (a Storage layer key).
+ 
+     URL paths are URL-encoded by browsers; Starlette decodes them but if
+     a key contains literal `%` we still need to be careful. We use
+     `validate_key` to defend against path traversal and other shenanigans.
+ 
+     No audit logging — prefer ``/files/cases/{case_id}`` for tracked access.
+     """
+diff --git a/webapp/routes/guest.py b/webapp/routes/guest.py
+new file mode 100644
+index 0000000..71a0ed9
+--- /dev/null
++++ b/webapp/routes/guest.py
+@@ -0,0 +1,44 @@
++"""
++Purpose: Guest account upgrade — POST /api/v1/auth/upgrade converts the current
++         guest row into a real account in place (spec §6.2, "keep it on a
++         record?"), preserving every FK to session history.
++Inputs:  JSON body {email, password}; the guest session cookie (require_guest).
++Outputs: Mutates the guest's users row (is_guest→FALSE, real email/password).
++Run:     included from webapp.main via app.include_router(guest_routes.router)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, HTTPException
++from pydantic import BaseModel, Field
++
++from webapp.auth.guest import GuestUpgradeConflict, require_guest, upgrade_guest
++from webapp.auth.passwords import WeakPasswordError
++from webapp.auth.users import InvalidEmailDomain, EmailAlreadyRegistered, User
++from webapp.csrf import require_same_origin
++
++router = APIRouter(tags=["guest"])
++
++_MUTATING = [Depends(require_same_origin)]
++
++
++class UpgradeBody(BaseModel):
++    email: str = Field(min_length=3, max_length=320)
++    password: str = Field(min_length=1, max_length=1024)
++
++
++@router.post("/api/v1/auth/upgrade", dependencies=_MUTATING)
++def upgrade(body: UpgradeBody, user: User = Depends(require_guest)):
++    """Convert the current guest to a real account in place (history FKs stay
++    attached). require_guest guarantees the caller is a guest (403 otherwise)."""
++    try:
++        upgraded = upgrade_guest(user.id, body.email, body.password)
++    except InvalidEmailDomain as exc:
++        raise HTTPException(status_code=400, detail=str(exc))
++    except WeakPasswordError as exc:
++        raise HTTPException(status_code=400, detail=str(exc))
++    except EmailAlreadyRegistered as exc:
++        raise HTTPException(status_code=409, detail=str(exc))
++    except GuestUpgradeConflict as exc:
++        raise HTTPException(status_code=409, detail=str(exc))
++    return {"upgraded": True, "user_id": upgraded.id, "email": upgraded.email}
+diff --git a/webapp/routes/pages.py b/webapp/routes/pages.py
+index 88011ab..b41f06e 100644
+--- a/webapp/routes/pages.py
++++ b/webapp/routes/pages.py
+@@ -8,16 +8,17 @@ live in routes/auth.py and are public.
+ 
+ from __future__ import annotations
+ 
+ from typing import Optional
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Request
+ 
+ from webapp.auth.dependencies import require_auth
++from webapp.auth.guest import require_auth_no_guest
+ from webapp.auth.users import User
+ from webapp.preview_urls import preview_knit_url
+ from webapp.repositories.case_votes import (
+     get_vote_state_safe,
+     get_vote_stats_for_cases_safe,
+ )
+ from webapp.repositories.cases import (
+     SearchFilters,
+@@ -39,17 +40,17 @@ DEFAULT_BACK_URL = "/search"
+ def index(
+     request: Request,
+     q:          str | None = None,
+     difficulty: str | None = None,
+     industry:   str | None = None,
+     case_type:  str | None = None,
+     school:     str | None = None,
+     include_duplicates: str | None = None,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     filters = SearchFilters.from_query(
+         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
+         include_duplicates=include_duplicates,
+     )
+     settings = request.app.state.settings
+     cases, total = search_cases(filters, limit=settings.search_result_limit)
+     _attach_vote_stats(cases)
+@@ -69,17 +70,17 @@ def index(
+     })
+ 
+ 
+ @router.get("/cases/{case_id}")
+ def case_detail(
+     request: Request,
+     case_id: int,
+     return_to: Optional[str] = None,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     case = get_case_by_id(case_id)
+     if case is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+ 
+     vote_state = get_vote_state_safe(case_id, user.id)
+ 
+     knit_u = preview_knit_url(case_row=dict(case), settings=request.app.state.settings)
+diff --git a/webapp/routes/practice.py b/webapp/routes/practice.py
+index 746f4b7..a8482e5 100644
+--- a/webapp/routes/practice.py
++++ b/webapp/routes/practice.py
+@@ -12,16 +12,21 @@ from __future__ import annotations
+ from datetime import datetime
+ from typing import Literal, Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+ from pydantic import BaseModel, Field
+ from starlette.concurrency import run_in_threadpool
+ 
+ from webapp.auth.dependencies import require_auth, require_auth_api
++from webapp.auth.guest import (
++    discard_minted_guest,
++    require_auth_or_mint_guest,
++    require_session_participant,
++)
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.live_activity import push_live_activity_update
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import feedback as feedback_repo
+ from webapp.repositories import pairing_tokens as pairing_repo
+@@ -94,17 +99,17 @@ def create_practice(body: PracticeCreateBody, user: User = Depends(require_auth_
+         case_id=body.case_id,
+         rubric_template_id=body.rubric_template_id,
+         scheduled_at=body.scheduled_at,
+     )
+     return _public(session)
+ 
+ 
+ @router.get("/api/practice/{session_id}")
+-def get_practice(session_id: int, user: User = Depends(require_auth_api)):
++def get_practice(session_id: int, user: User = Depends(require_session_participant)):
+     session, role = _session_or_404(session_id, user.id)
+     return {**_public(session), "your_role": role}
+ 
+ 
+ @router.get("/session/{session_id}")
+ def session_page(session_id: int, request: Request,
+                  user: User = Depends(require_auth)):
+     """The call page (lobby → live → ended). Participants only (DV-11)."""
+@@ -125,29 +130,29 @@ def session_page(session_id: int, request: Request,
+         "your_role": role,
+         "peer_label": f"You and {peer}",
+         "boot": boot,
+     })
+ 
+ 
+ @router.post("/api/practice/{session_id}/consent", dependencies=_MUTATING)
+ def post_consent(session_id: int, body: ConsentBody, background: BackgroundTasks,
+-                 user: User = Depends(require_auth_api)):
++                 user: User = Depends(require_session_participant)):
+     _, role = _session_or_404(session_id, user.id)
+     try:
+         result = repo.set_consent(session_id, role, body.consent)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     background.add_task(hub.broadcast_session_update, session_id)
+     return _public(result)
+ 
+ 
+ @router.post("/api/practice/{session_id}/state", dependencies=_MUTATING)
+ def post_state(session_id: int, body: StateBody, background: BackgroundTasks,
+-               user: User = Depends(require_auth_api)):
++               user: User = Depends(require_session_participant)):
+     try:
+         result = repo.transition(session_id, user.id, body.target)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     background.add_task(hub.broadcast_session_update, session_id)
+     # ActivityKit update push (P3 T9): state changes (lobby→live→debrief→
+     # finalized) refresh the Live Activity; "end" dismisses it on finalize.
+     event = "end" if body.target in ("finalized", "aborted") else "update"
+@@ -160,24 +165,27 @@ def create_pair_token(body: PairCreateBody, user: User = Depends(require_auth_ap
+     """Mint a short-TTL pairing token for in-person QR pairing (spec §8).
+     case_id optional — "interviewer decides" pairs case-less (negotiated in B3)."""
+     if body.case_id is not None and get_case_by_id(body.case_id) is None:
+         raise HTTPException(status_code=404, detail="Case not found")
+     return pairing_repo.mint_token(interviewer_id=user.id, case_id=body.case_id)
+ 
+ 
+ @router.post("/api/practice/pair/claim", dependencies=_MUTATING)
+-def claim_pair_token(body: PairClaimBody, user: User = Depends(require_auth_api)):
++def claim_pair_token(body: PairClaimBody, request: Request,
++                     user: User = Depends(require_auth_or_mint_guest)):
+     """Claim a pairing token by token OR short_code (spec §8)."""
+     if not body.token and not body.short_code:
++        discard_minted_guest(request)
+         raise HTTPException(status_code=422, detail="Provide a token or short_code")
+     try:
+         return pairing_repo.claim(candidate_id=user.id, token=body.token,
+                                   short_code=body.short_code)
+     except TransitionError as exc:
++        discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+ 
+ @router.get("/api/practice/pair/status/{token}")
+ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+     """Interviewer polls this to discover the session created by a claim
+     (§ pairing). 404 if the token doesn't exist or isn't owned by the caller.
+     Once claimed, the response carries the candidate's top-3 recommendations
+@@ -193,17 +201,17 @@ def pair_token_status(token: str, user: User = Depends(require_auth_api)):
+             counterpart_recs = dashboard_repo.recommendations(
+                 session["candidate_id"], limit=3)
+     return {"session_id": session_id,
+             "counterpart_recommendations": counterpart_recs}
+ 
+ 
+ @router.get("/api/practice/{session_id}/join-config")
+ async def join_config(session_id: int, request: Request,
+-                      user: User = Depends(require_auth_api)):
++                      user: User = Depends(require_session_participant)):
+     """WS path + ICE servers for the call page. No HMAC token (DV-3): the
+     WebSocket handshake authenticates with the same session cookie."""
+     session, role = await run_in_threadpool(_session_or_404, session_id, user.id)
+     if session["state"] not in ("scheduled", "lobby", "live"):
+         raise HTTPException(status_code=409, detail="Session is not joinable")
+     settings = request.app.state.settings
+     ice_servers = list(settings.ice_servers)
+     if session["mode"] == "remote":
+diff --git a/webapp/routes/practice_exhibits.py b/webapp/routes/practice_exhibits.py
+index 326ade8..06fb8f2 100644
+--- a/webapp/routes/practice_exhibits.py
++++ b/webapp/routes/practice_exhibits.py
+@@ -13,16 +13,17 @@ from __future__ import annotations
+ import base64
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+ from fastapi.responses import Response
+ from pydantic import BaseModel
+ from starlette.concurrency import run_in_threadpool
+ 
+ from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import require_session_participant
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.repositories import case_exhibits
+ from webapp.repositories import reveals as reveals_repo
+ from webapp.routes.practice import _session_or_404
+ from webapp.routes.signal_ws import hub
+ 
+@@ -40,17 +41,17 @@ def _b64(raw: bytes) -> str:
+ def _exhibit_or_404(session: dict, exhibit_id: int) -> dict:
+     exhibit = case_exhibits.get_exhibit(session["case_id"], exhibit_id)
+     if exhibit is None:
+         raise HTTPException(status_code=404, detail="No such exhibit")
+     return exhibit
+ 
+ 
+ @router.get("/api/practice/{session_id}/exhibits")
+-def exhibit_manifest(session_id: int, user: User = Depends(require_auth_api)):
++def exhibit_manifest(session_id: int, user: User = Depends(require_session_participant)):
+     """Manifest for preload — no keys (spec §4.4 step 1)."""
+     session, _ = _session_or_404(session_id, user.id)
+     return {"exhibits": [
+         {
+             "exhibit_id": e["id"],
+             "idx": e["idx"],
+             "source_pages": e["source_pages"],
+             "width": e["width"],
+@@ -59,42 +60,42 @@ def exhibit_manifest(session_id: int, user: User = Depends(require_auth_api)):
+             "iv_b64": _b64(e["enc_iv"]),
+         }
+         for e in case_exhibits.list_manifest(session["case_id"])
+     ]}
+ 
+ 
+ @router.get("/api/practice/{session_id}/exhibit-blob/{exhibit_id}")
+ async def exhibit_blob(session_id: int, exhibit_id: int,
+-                       user: User = Depends(require_auth_api)):
++                       user: User = Depends(require_session_participant)):
+     """Encrypted blob for preload. Ciphertext only — safe to serve to either
+     participant in any state (INV-6 holds at the key layer)."""
+     session, _ = _session_or_404(session_id, user.id)
+     exhibit = _exhibit_or_404(session, exhibit_id)
+     blob = await run_in_threadpool(case_exhibits.read_blob, exhibit["enc_blob_path"])
+     return Response(blob, media_type="application/octet-stream",
+                     headers={"Cache-Control": "private, max-age=3600"})
+ 
+ 
+ @router.get("/api/practice/{session_id}/exhibit-keys")
+-def exhibit_keys(session_id: int, user: User = Depends(require_auth_api)):
++def exhibit_keys(session_id: int, user: User = Depends(require_session_participant)):
+     """All keys at call start — interviewer only (spec §4.4 step 2)."""
+     session, role = _session_or_404(session_id, user.id)
+     if role != "interviewer":
+         raise HTTPException(status_code=403, detail="Interviewer only")
+     return {"keys": [
+         {"exhibit_id": k["id"], "key_b64": _b64(k["enc_key"]), "iv_b64": _b64(k["enc_iv"])}
+         for k in case_exhibits.list_keys(session["case_id"])
+     ]}
+ 
+ 
+ @router.post("/api/practice/{session_id}/reveals",
+              dependencies=[Depends(require_same_origin)])
+ def post_reveal(session_id: int, body: RevealBody, background: BackgroundTasks,
+-                user: User = Depends(require_auth_api)):
++                user: User = Depends(require_session_participant)):
+     """Log a reveal (system of record; the DataChannel key message is only
+     the fast path). Idempotent per (session, exhibit). Also broadcasts the
+     key over the signaling WS so exhibits work with no WebRTC peer
+     connection (in-person / video-off sessions)."""
+     session, role = _session_or_404(session_id, user.id)
+     if role != "interviewer":
+         raise HTTPException(status_code=403, detail="Interviewer only")
+     _exhibit_or_404(session, body.exhibit_id)
+@@ -104,25 +105,25 @@ def post_reveal(session_id: int, body: RevealBody, background: BackgroundTasks,
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     key = case_exhibits.key_for_exhibit(body.exhibit_id)
+     background.add_task(
+         hub.broadcast_reveal, session_id, body.exhibit_id, base64.b64encode(key).decode())
+     return result
+ 
+ 
+ @router.get("/api/practice/{session_id}/reveals")
+-def list_reveals(session_id: int, user: User = Depends(require_auth_api)):
++def list_reveals(session_id: int, user: User = Depends(require_session_participant)):
+     """Reveal timeline — reconcile path (DV-4) and debrief view (T6.4)."""
+     _session_or_404(session_id, user.id)
+     return {"reveals": reveals_repo.list_reveals(session_id)}
+ 
+ 
+ @router.get("/api/practice/{session_id}/exhibit-key/{exhibit_id}")
+ def exhibit_key(session_id: int, exhibit_id: int,
+-                user: User = Depends(require_auth_api)):
++                user: User = Depends(require_session_participant)):
+     """Fallback key path (spec §4.4 step 5): key IFF a reveal row exists.
+     Candidate only — the interviewer has /exhibit-keys."""
+     session, role = _session_or_404(session_id, user.id)
+     if role != "candidate":
+         raise HTTPException(status_code=403, detail="Candidate only")
+     exhibit = _exhibit_or_404(session, exhibit_id)
+     if reveals_repo.get_reveal(session_id, exhibit_id) is None:
+         raise HTTPException(status_code=404, detail="Not revealed")
+diff --git a/webapp/routes/practice_feedback.py b/webapp/routes/practice_feedback.py
+index 19c08dc..85fa654 100644
+--- a/webapp/routes/practice_feedback.py
++++ b/webapp/routes/practice_feedback.py
+@@ -10,16 +10,17 @@ after finalize the feedback endpoint serves both participants.
+ from __future__ import annotations
+ 
+ from typing import Any, Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import require_session_participant
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.push.live_activity import push_live_activity_update
+ from webapp.repositories import feedback as repo
+ from webapp.repositories import reveals as reveals_repo
+ from webapp.routes.practice import _session_or_404
+@@ -42,17 +43,17 @@ class FinalizeBody(BaseModel):
+ def _interviewer_or_403(session_id: int, user_id: int) -> dict:
+     session, role = _session_or_404(session_id, user_id)
+     if role != "interviewer":
+         raise HTTPException(status_code=403, detail="Interviewer only")
+     return session
+ 
+ 
+ @router.get("/api/practice/{session_id}/rubric")
+-def get_rubric(session_id: int, user: User = Depends(require_auth_api)):
++def get_rubric(session_id: int, user: User = Depends(require_session_participant)):
+     """Template + current draft + computed grade preview (T7.1)."""
+     session = _interviewer_or_403(session_id, user.id)
+     template_items = repo.get_template_items(session["rubric_template_id"])
+     feedback = repo.get_feedback(session_id)
+     draft = feedback["rubric_json"] if feedback else {"items": {}}
+     return {
+         "template_items": template_items,
+         "items": draft.get("items", {}),
+@@ -60,17 +61,17 @@ def get_rubric(session_id: int, user: User = Depends(require_auth_api)):
+         "grade_preview": repo.compute_grade(draft, template_items),
+         "grade": float(feedback["grade"]) if feedback and feedback["grade"] is not None else None,
+         "finalized_at": feedback["finalized_at"] if feedback else None,
+     }
+ 
+ 
+ @router.put("/api/practice/{session_id}/rubric", dependencies=_MUTATING)
+ def put_rubric(session_id: int, body: RubricDraftBody,
+-               user: User = Depends(require_auth_api)):
++               user: User = Depends(require_session_participant)):
+     """Debounced autosave of the draft. Allowed any time before finalize —
+     prepping the rubric pre-call is legitimate; 'aborted' keeps it too
+     (nothing is ever released for aborted sessions)."""
+     session = _interviewer_or_403(session_id, user.id)
+     if session["state"] == "finalized":
+         raise HTTPException(status_code=409, detail="Feedback is finalized and read-only")
+     template_items = repo.get_template_items(session["rubric_template_id"])
+     draft = {"items": body.items, "notes_md": body.notes_md}
+@@ -82,17 +83,17 @@ def put_rubric(session_id: int, body: RubricDraftBody,
+     return {
+         "saved": True,
+         "grade_preview": repo.compute_grade(saved["rubric_json"], template_items),
+     }
+ 
+ 
+ @router.post("/api/practice/{session_id}/finalize", dependencies=_MUTATING)
+ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTasks,
+-                  user: User = Depends(require_auth_api)):
++                  user: User = Depends(require_session_participant)):
+     """T7.2: grade + finalized_at + burned + want-queue removal + state flip,
+     one transaction. Optional body.grade overrides the computed score."""
+     session, _ = _session_or_404(session_id, user.id)  # 404-existence before role/state checks
+     try:
+         feedback = repo.finalize(session_id, user.id, body.grade)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+@@ -107,17 +108,17 @@ def post_finalize(session_id: int, body: FinalizeBody, background: BackgroundTas
+     return {
+         "finalized": True,
+         "grade": float(feedback["grade"]),
+         "finalized_at": feedback["finalized_at"],
+     }
+ 
+ 
+ @router.get("/api/practice/{session_id}/feedback")
+-def get_feedback(session_id: int, user: User = Depends(require_auth_api)):
++def get_feedback(session_id: int, user: User = Depends(require_session_participant)):
+     """T7.3: released feedback — both participants, post-finalize only."""
+     session, _ = _session_or_404(session_id, user.id)
+     if session["state"] != "finalized":
+         raise HTTPException(status_code=409, detail="Feedback is not finalized yet")
+     feedback = repo.get_feedback(session_id)
+     template_items = repo.get_template_items(session["rubric_template_id"])
+     drafted = feedback["rubric_json"].get("items", {}) if feedback else {}
+     return {
+diff --git a/webapp/routes/practice_recordings.py b/webapp/routes/practice_recordings.py
+index 80c713f..3b4d7e3 100644
+--- a/webapp/routes/practice_recordings.py
++++ b/webapp/routes/practice_recordings.py
+@@ -13,16 +13,17 @@ from __future__ import annotations
+ 
+ import os
+ 
+ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+ from fastapi.responses import FileResponse
+ from starlette.concurrency import run_in_threadpool
+ 
+ from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import require_session_participant
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.repositories import recordings as repo
+ from webapp.routes.practice import _session_or_404
+ from webapp.upload_limits import (
+     DEFAULT_REC_CHUNK_MB,
+     DEFAULT_REC_TOTAL_MB,
+@@ -44,17 +45,17 @@ def _limits() -> tuple[int, int]:
+ 
+ 
+ @router.post("/api/practice/{session_id}/recordings/chunk",
+              dependencies=_MUTATING)
+ async def upload_chunk(session_id: int,
+                        seq: int = Form(ge=0),
+                        mime: str = Form(),
+                        blob: UploadFile = File(),
+-                       user: User = Depends(require_auth_api)):
++                       user: User = Depends(require_session_participant)):
+     session, role = _session_or_404(session_id, user.id)
+     if session["state"] not in ("live", "debrief"):
+         # The final flush lands right after End (state already debrief).
+         raise HTTPException(status_code=409,
+                             detail="Recording chunks only during or right after the call")
+     if mime not in _ALLOWED_MIME:
+         raise HTTPException(status_code=415, detail="mime must be audio/webm or audio/mp4")
+ 
+@@ -72,34 +73,34 @@ async def upload_chunk(session_id: int,
+             role=role, seq=seq, mime=mime, data=data)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"ok": True, "chunks": row["chunks"], "bytes": row["bytes"]}
+ 
+ 
+ @router.post("/api/practice/{session_id}/recordings/complete",
+              dependencies=_MUTATING)
+-def complete_recording(session_id: int, user: User = Depends(require_auth_api)):
++def complete_recording(session_id: int, user: User = Depends(require_session_participant)):
+     _session_or_404(session_id, user.id)
+     try:
+         row = repo.complete(session_id, user.id)
+     except TransitionError as exc:
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+     return {"completed": True, "chunks": row["chunks"], "bytes": row["bytes"]}
+ 
+ 
+ @router.get("/api/practice/{session_id}/recordings")
+-def list_recordings(session_id: int, user: User = Depends(require_auth_api)):
++def list_recordings(session_id: int, user: User = Depends(require_session_participant)):
+     _session_or_404(session_id, user.id)
+     return {"recordings": repo.list_for_session(session_id)}
+ 
+ 
+ @router.get("/api/practice/{session_id}/recordings/{target_user_id}")
+ def download_recording(session_id: int, target_user_id: int,
+-                       user: User = Depends(require_auth_api)):
++                       user: User = Depends(require_session_participant)):
+     """Authed passthrough — either participant may fetch either side
+     (spec §5: 'the two participants')."""
+     session, _ = _session_or_404(session_id, user.id)
+     if target_user_id not in (session["interviewer_id"], session["candidate_id"]):
+         raise HTTPException(status_code=404, detail="No such recording")
+     row = repo.get_recording(session_id, target_user_id)
+     if row is None:
+         raise HTTPException(status_code=404, detail="No such recording")
+diff --git a/webapp/routes/proposals.py b/webapp/routes/proposals.py
+index 7934329..c87b997 100644
+--- a/webapp/routes/proposals.py
++++ b/webapp/routes/proposals.py
+@@ -13,16 +13,21 @@ import logging
+ from datetime import datetime
+ from typing import Optional
+ 
+ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+ from fastapi.responses import Response
+ from pydantic import BaseModel, Field
+ 
+ from webapp.auth.dependencies import require_auth_api
++from webapp.auth.guest import (
++    discard_minted_guest,
++    require_auth_or_mint_guest,
++    require_session_participant,
++)
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.ics import build_session_ics
+ from webapp.practice_states import TransitionError
+ from webapp.push.events import push_to_user
+ from webapp.repositories import proposals as repo
+ from webapp.repositories.cases import get_case_by_id
+ from webapp.repositories.practice_sessions import get_practice_session
+@@ -120,22 +125,23 @@ def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
+     )
+     return {"accepted": True, "session_id": prop["session_id"],
+             "session_url": f"/session/{prop['session_id']}",
+             "ics_url": f"/ics/session-{prop['session_id']}.ics"}
+ 
+ 
+ @router.post("/api/proposals/claim/{claim_token}", dependencies=_MUTATING)
+ def claim_proposal(claim_token: str, request: Request, background: BackgroundTasks,
+-                   user: User = Depends(require_auth_api)):
++                   user: User = Depends(require_auth_or_mint_guest)):
+     """Claim an open 'send a link' proposal (spec §5.2). Any authed user except
+     the creator; guests arrive in B2 by overriding require_auth_api."""
+     try:
+         result = repo.claim_proposal(claim_token, user.id)
+     except TransitionError as exc:
++        discard_minted_guest(request)
+         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+ 
+     if result["session_id"] is not None:
+         _send_invites(request, result["session_id"])
+         background.add_task(
+             push_to_user, result["from_user_id"],
+             title="Your invite was claimed",
+             body="Someone claimed your session link",
+@@ -170,17 +176,17 @@ def counter_proposal(proposal_id: int, body: CounterBody, background: Background
+         data={"kind": "proposal_countered", "proposal_id": prop["id"]},
+     )
+     return {"countered": True, "proposal_id": prop["id"],
+             "counter_times": prop["counter_times_json"]}
+ 
+ 
+ @router.get("/ics/session-{session_id}.ics")
+ def session_ics(session_id: int, request: Request,
+-                user: User = Depends(require_auth_api)):
++                user: User = Depends(require_session_participant)):
+     """Download link for the invite (spec §4.7) — participants only."""
+     session, _ = _session_or_404(session_id, user.id)
+     ics = _build_ics_for(request, session)
+     return Response(
+         ics, media_type="text/calendar; charset=utf-8; method=REQUEST",
+         headers={"Content-Disposition":
+                  f'attachment; filename="caseroom-session-{session_id}.ics"'},
+     )
+@@ -190,48 +196,50 @@ def _build_ics_for(request: Request, session: dict) -> str:
+     base_url = str(request.base_url).rstrip("/")
+     host = request.base_url.hostname or "caseroom.local"
+     emails = _participant_emails(session)
+     return build_session_ics(
+         session_id=session["id"],
+         case_title=session["case_title"],
+         starts_at=session["scheduled_at"],
+         organizer_name=session["interviewer_name"],
+-        organizer_email=emails["interviewer"],
++        organizer_email=emails["interviewer"] or "guest@caseroom.invalid",
+         attendee_name=session["candidate_name"],
+-        attendee_email=emails["candidate"],
++        attendee_email=emails["candidate"] or "guest@caseroom.invalid",
+         session_url=f"{base_url}/session/{session['id']}",
+         host=host,
+     )
+ 
+ 
+ def _participant_emails(session: dict) -> dict:
+     from webapp.db import get_pool
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute("SELECT id, email FROM users WHERE id = ANY(%s);",
+                         ([session["interviewer_id"], session["candidate_id"]],))
+             by_id = {row[0]: row[1] for row in cur.fetchall()}
+-    return {"interviewer": by_id[session["interviewer_id"]],
+-            "candidate": by_id[session["candidate_id"]]}
++    return {"interviewer": by_id.get(session["interviewer_id"]),
++            "candidate": by_id.get(session["candidate_id"])}
+ 
+ 
+ def _send_invites(request: Request, session_id: int) -> None:
+     """Email both parties; failures are logged, never raised (the session
+     already exists and the .ics is downloadable)."""
+     try:
+         from webapp.auth.email_sender import get_email_sender
+         session = get_practice_session(session_id)
+         ics = _build_ics_for(request, session)
+         emails = _participant_emails(session)
+         base_url = str(request.base_url).rstrip("/")
+         when = (session["scheduled_at"].strftime("%A %b %-d, %H:%M %Z")
+                 if session["scheduled_at"] else "now — join when ready")
+         sender = get_email_sender()
+         for role, addr in emails.items():
++            if not addr:
++                continue  # guest participant: no inbox to invite
+             counterpart = (session["candidate_name"] if role == "interviewer"
+                            else session["interviewer_name"])
+             sender.send(
+                 to=addr,
+                 subject=f"Case practice scheduled: {session['case_title']}",
+                 text_body=(
+                     f"Your case practice with {counterpart} is scheduled ({when}).\n\n"
+                     f"Case: {session['case_title']}\n"
+diff --git a/webapp/routes/rooms.py b/webapp/routes/rooms.py
+index 31526f0..8e6d244 100644
+--- a/webapp/routes/rooms.py
++++ b/webapp/routes/rooms.py
+@@ -5,50 +5,51 @@ intersections land in Phases 8/9 into the placeholder panels.
+ """
+ 
+ from __future__ import annotations
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Request
+ from fastapi.responses import RedirectResponse
+ 
+ from webapp.auth.dependencies import require_auth, require_auth_api
++from webapp.auth.guest import require_auth_no_guest
+ from webapp.auth.users import User
+ from webapp.repositories import dashboard as dashboard_repo
+ from webapp.repositories import proposals as proposals_repo
+ from webapp.repositories import queues as queues_repo
+ from webapp.repositories.practice_sessions import (
+     list_upcoming_for_user,
+     public_stats,
+     sweep_stale_sessions,
+ )
+ from webapp.repositories.rooms import get_or_create_room, get_room_by_slug
+ from webapp.templating import render
+ 
+ router = APIRouter(tags=["rooms"])
+ 
+ 
+ @router.get("/room")
+-def my_room(request: Request, user: User = Depends(require_auth)):
++def my_room(request: Request, user: User = Depends(require_auth_no_guest)):
+     room = get_or_create_room(user.id)
+     return RedirectResponse(url=f"/room/{room['slug']}", status_code=303)
+ 
+ 
+ @router.get("/api/dashboard")
+ def dashboard(user: User = Depends(require_auth_api)):
+     """Spec §5: own history, trends, recommendations — never anyone else's
+     (T9.3: the user id comes from the session, not a parameter)."""
+     return {
+         "history": dashboard_repo.history(user.id),
+         "dimension_averages": dashboard_repo.dimension_averages(user.id),
+         "recommendations": dashboard_repo.recommendations(user.id),
+     }
+ 
+ 
+ @router.get("/room/{slug}")
+-def room_page(slug: str, request: Request, user: User = Depends(require_auth)):
++def room_page(slug: str, request: Request, user: User = Depends(require_auth_no_guest)):
+     sweep_stale_sessions()          # A4: page loads stand in for cron
+     proposals_repo.sweep_expired()  # T8.3: same treatment for proposals
+     room = get_room_by_slug(slug)
+     if room is None:
+         raise HTTPException(status_code=404, detail="Room not found")
+ 
+     is_own = room["owner_user_id"] == user.id
+     ctx = {
+diff --git a/webapp/routes/search.py b/webapp/routes/search.py
+index 6261076..34e452c 100644
+--- a/webapp/routes/search.py
++++ b/webapp/routes/search.py
+@@ -5,16 +5,17 @@ Direct GET ``/search?q=…`` (browser navigation / refresh after ``hx-push-url``
+ returns the full browse page so users never see a bare fragment without layout.
+ """
+ 
+ from __future__ import annotations
+ 
+ from fastapi import APIRouter, Depends, Request
+ 
+ from webapp.auth.dependencies import require_auth
++from webapp.auth.guest import require_auth_no_guest
+ from webapp.auth.users import User
+ from webapp.repositories.cases import (
+     SearchFilters,
+     count_all_cases,
+     get_filter_options,
+     search_cases,
+ )
+ from webapp.routes.pages import _attach_vote_stats
+@@ -32,17 +33,17 @@ def _is_htmx(request: Request) -> bool:
+ def search(
+     request: Request,
+     q:          str | None = None,
+     difficulty: str | None = None,
+     industry:   str | None = None,
+     case_type:  str | None = None,
+     school:     str | None = None,
+     include_duplicates: str | None = None,
+-    user: User = Depends(require_auth),
++    user: User = Depends(require_auth_no_guest),
+ ):
+     filters = SearchFilters.from_query(
+         q=q, difficulty=difficulty, industry=industry, case_type=case_type, school=school,
+         include_duplicates=include_duplicates,
+     )
+     settings = request.app.state.settings
+     cases, total = search_cases(filters, limit=settings.search_result_limit)
+     _attach_vote_stats(cases)
