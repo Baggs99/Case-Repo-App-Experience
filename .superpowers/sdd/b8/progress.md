@@ -19,6 +19,7 @@ Run suite: DATABASE_URL=postgresql://localhost/caserepo_bgap_b8 $PY -m pytest te
 
 ## Task ledger
 - Task 1 (migrations 034/035): complete (commits 35b0882..9d0f274, review SPEC PASS/CODE PASS, 2 non-blocking Minors: index test asserts name-not-shape [verified correct live], unqualified catalog filters). Test 2/2, idempotent exit 0.
+- Task 2 (drills.py gauntlet primitives: daily_set/public_drill/score_slot): complete (commit f52c5f7, review SPEC PASS/CODE PASS, append-only verified byte-identical). Test 8/8. Triaged Minors for final: provisional flag stamped by route (Task 6, verify), header-docblock line, optional test hardening (choices-kept, negative-factor).
 
 ## Assumptions
 - school_percentile in the gauntlet results = user_global_percentile (the value B6's my_school_standing.your_percentile surfaces on the school card). A distinct within-school population is a future refinement; brief only says "school percentile".
