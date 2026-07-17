@@ -1,0 +1,117 @@
+........................................................................ [ 14%]
+........................................................................ [ 28%]
+........................................................................ [ 42%]
+........................................................................ [ 56%]
+........................................................................ [ 70%]
+........................................................................ [ 84%]
+........................................................................ [ 98%]
+........                                                                 [100%]
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+
+tests/test_api_v1_auth.py::TestApiV1Auth::test_login_success_sets_cookie_and_returns_user
+  /Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/lib/python3.13/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_api_v1_auth.py: 3 warnings
+tests/test_api_v1_cases.py: 1 warning
+tests/test_api_v1_devices.py: 2 warnings
+tests/test_api_v1_sessions.py: 1 warning
+tests/test_availability.py: 2 warnings
+tests/test_b1_api_v1_proposals.py: 2 warnings
+tests/test_b1_pairing_shortcode.py: 3 warnings
+tests/test_b1_proposals_open.py: 9 warnings
+tests/test_b7_timeline_api.py: 3 warnings
+tests/test_counterpart_recs.py: 3 warnings
+tests/test_dashboard.py: 2 warnings
+tests/test_drills_api.py: 1 warning
+tests/test_drills_bank.py: 1 warning
+tests/test_exhibits.py: 1 warning
+tests/test_feedback.py: 3 warnings
+tests/test_oauth_routes.py: 3 warnings
+tests/test_otp.py: 2 warnings
+tests/test_pairing.py: 6 warnings
+tests/test_profile_routes.py: 2 warnings
+tests/test_queues_proposals.py: 3 warnings
+tests/test_recommendations.py: 1 warning
+tests/test_recordings.py: 3 warnings
+tests/test_reveal_ws_e2e.py: 2 warnings
+tests/test_reveals.py: 3 warnings
+tests/test_session_mode.py: 2 warnings
+tests/test_turn.py: 2 warnings
+tests/test_ws_integration.py: 3 warnings
+  /Users/thomaskgould/dev/bgap-b6/webapp/auth/sessions.py:74: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires = datetime.utcnow() + SESSION_DURATION
+
+tests/test_api_v1_auth.py: 4 warnings
+tests/test_api_v1_cases.py: 5 warnings
+tests/test_api_v1_devices.py: 6 warnings
+tests/test_api_v1_sessions.py: 5 warnings
+tests/test_availability.py: 13 warnings
+tests/test_b1_api_v1_proposals.py: 5 warnings
+tests/test_b1_pairing_shortcode.py: 13 warnings
+tests/test_b1_proposals_open.py: 38 warnings
+tests/test_b7_timeline_api.py: 27 warnings
+tests/test_counterpart_recs.py: 5 warnings
+tests/test_dashboard.py: 11 warnings
+tests/test_drills_api.py: 7 warnings
+tests/test_drills_bank.py: 3 warnings
+tests/test_exhibits.py: 7 warnings
+tests/test_feedback.py: 52 warnings
+tests/test_otp.py: 2 warnings
+tests/test_pairing.py: 22 warnings
+tests/test_profile_routes.py: 13 warnings
+tests/test_queues_proposals.py: 28 warnings
+tests/test_recommendations.py: 5 warnings
+tests/test_recordings.py: 41 warnings
+tests/test_reveal_ws_e2e.py: 11 warnings
+tests/test_reveals.py: 41 warnings
+tests/test_session_mode.py: 5 warnings
+tests/test_turn.py: 5 warnings
+tests/test_ws_integration.py: 17 warnings
+  /Users/thomaskgould/dev/bgap-b6/webapp/auth/sessions.py:122: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    if row["expires_at"] < datetime.utcnow().replace(tzinfo=row["expires_at"].tzinfo):
+
+tests/test_b1_proposals_open.py::TestClaim::test_claim_now_with_case_auto_accepts_and_creates_session
+tests/test_b1_proposals_open.py::TestClaim::test_claim_now_with_case_auto_accepts_and_creates_session
+tests/test_b1_proposals_open.py::TestClaim::test_double_claim_409
+tests/test_b1_proposals_open.py::TestClaim::test_double_claim_409
+tests/test_b1_proposals_open.py::TestCounter::test_recipient_counters_then_proposer_accepts
+tests/test_b1_proposals_open.py::TestCounter::test_recipient_counters_then_proposer_accepts
+tests/test_queues_proposals.py::TestQueuesAndProposals::test_accept_creates_session_and_ics
+tests/test_queues_proposals.py::TestQueuesAndProposals::test_accept_creates_session_and_ics
+  /Users/thomaskgould/dev/bgap-b6/webapp/auth/email_sender.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+tests/test_otp.py::TestOtp::test_codes_hashed_at_rest
+tests/test_otp.py::TestOtp::test_existing_user_verify_sets_cookie
+tests/test_otp.py::TestOtp::test_new_registered_email_provisions_and_verifies
+tests/test_otp.py::TestOtp::test_wrong_code_rejected_and_attempts_capped
+  /Users/thomaskgould/dev/bgap-b6/webapp/auth/otp.py:62: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at = datetime.utcnow() + OTP_LIFETIME
+
+tests/test_otp.py::TestOtp::test_existing_user_verify_sets_cookie
+tests/test_otp.py::TestOtp::test_new_registered_email_provisions_and_verifies
+tests/test_otp.py::TestOtp::test_wrong_code_rejected_and_attempts_capped
+tests/test_otp.py::TestOtp::test_wrong_code_rejected_and_attempts_capped
+tests/test_otp.py::TestOtp::test_wrong_code_rejected_and_attempts_capped
+tests/test_otp.py::TestOtp::test_wrong_code_rejected_and_attempts_capped
+  /Users/thomaskgould/dev/bgap-b6/webapp/auth/otp.py:106: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow().replace(tzinfo=row["expires_at"].tzinfo)
+
+tests/test_signup_gate.py::TestSignupGate::test_registered_domain_issues_link
+  /Users/thomaskgould/dev/bgap-b6/webapp/auth/email_verification.py:56: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at = datetime.utcnow() + VERIFICATION_TOKEN_LIFETIME
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+512 passed, 485 warnings in 7.10s
+<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
