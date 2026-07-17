@@ -45,7 +45,7 @@
                 {% for p in inbox %}
                 <li class="text-sm" data-proposal="{{ p.id }}">
                     <div class="font-medium text-slate-900 dark:text-slate-100">
-                        {{ p.from_name }} proposes <span class="italic">{{ p.case_title }}</span>
+                        {{ p.from_name }} proposes <span class="italic">{{ p.case_title or "a case (interviewer's choice)" }}</span>
                     </div>
                     <div class="text-[13px] text-slate-500 dark:text-slate-400 mb-1.5">
                         They'd be the {{ p.from_role }} — you'd be the

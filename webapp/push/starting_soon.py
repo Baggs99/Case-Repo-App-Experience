@@ -11,7 +11,6 @@ Run: notify_starting_soon() now runs each pass of the consolidated background
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from psycopg.rows import dict_row
@@ -53,19 +52,3 @@ async def notify_starting_soon(window_minutes: int = 15) -> int:
             )
 
     return len(rows)
-
-
-async def starting_soon_loop(interval_seconds: int = 60) -> None:
-    """Call notify_starting_soon() every interval_seconds, forever.
-
-    One bad pass must never kill the loop — exceptions are logged and
-    swallowed. CancelledError propagates so shutdown can stop it cleanly.
-    """
-    while True:
-        try:
-            await notify_starting_soon()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("starting_soon pass failed")
-        await asyncio.sleep(interval_seconds)

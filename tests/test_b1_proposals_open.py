@@ -284,6 +284,14 @@ class TestCounter(unittest.TestCase):
         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/counter",
                                        json={"times": [t1]}).status_code, 409)
 
+    def test_counter_requires_auth(self):
+        pid = self._propose_to_bob()
+        t1 = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        r = TestClient(app).post(f"/api/proposals/{pid}/counter", json={"times": [t1]})
+        self.assertEqual(r.status_code, 401)
+
     def test_counter_times_capped_at_three(self):
         pid = self._propose_to_bob()
         times = [(datetime.now(timezone.utc) + timedelta(days=d)).isoformat()

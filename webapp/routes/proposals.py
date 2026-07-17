@@ -90,7 +90,7 @@ def proposal_inbox(user: User = Depends(require_auth_api)):
 def accept_proposal(proposal_id: int, body: RespondBody, request: Request,
                     background: BackgroundTasks,
                     user: User = Depends(require_auth_api)):
-    repo.sweep_expired()  # an 8-day-old proposal must expire, not accept
+    repo.sweep_expired()  # A3: an over-window proposal (now-ping >2h, or past its earliest start) must expire, not accept
     try:
         prop = repo.respond(proposal_id, user.id, accept=True,
                             scheduled_at=body.scheduled_at, counter_time=body.time)
