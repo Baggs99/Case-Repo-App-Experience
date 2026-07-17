@@ -27,7 +27,6 @@ from webapp.repositories.practice_sessions import get_default_rubric_template_id
 from webapp.repositories.rooms import get_or_create_room
 
 MAX_PROPOSED_TIMES = 3
-EXPIRY_DAYS = 7
 
 _COLS = """
     p.id, p.from_user_id, p.to_user_id, p.case_id, p.from_role, p.message,
@@ -174,15 +173,33 @@ def create_proposal(*, from_user_id: int, to_user_id: Optional[int],
             return cur.fetchone()
 
 
-def sweep_expired() -> int:
-    """T8.3: pending proposals older than 7 days flip to 'expired' on page
-    load — no cron dependency. Returns rows swept."""
+def sweep_expired(now_expiry_min: int = 120) -> int:
+    """Spec A3 expiry (tunable via PROPOSAL_NOW_EXPIRY_MIN):
+      - now-proposals (no proposed_times) expire now_expiry_min after creation
+      - scheduled proposals expire once their earliest proposed start passes
+      - countered proposals expire once their earliest counter time passes
+    Returns rows swept. Runs from the 60-s maintenance loop (Task 7)."""
     with get_pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE proposals SET state = 'expired', responded_at = NOW()"
-                " WHERE state = 'pending'"
-                f"  AND created_at < NOW() - INTERVAL '{EXPIRY_DAYS} days';"
+                " WHERE (state = 'pending'"
+                "        AND (proposed_times_json IS NULL"
+                "             OR jsonb_array_length(proposed_times_json) = 0)"
+                "        AND created_at < NOW() - make_interval(mins => %s))"
+                "    OR (state = 'pending'"
+                "        AND proposed_times_json IS NOT NULL"
+                "        AND jsonb_array_length(proposed_times_json) > 0"
+                "        AND (SELECT MIN((e)::timestamptz)"
+                "               FROM jsonb_array_elements_text(proposed_times_json) e)"
+                "            < NOW())"
+                "    OR (state = 'countered'"
+                "        AND counter_times_json IS NOT NULL"
+                "        AND jsonb_array_length(counter_times_json) > 0"
+                "        AND (SELECT MIN((e)::timestamptz)"
+                "               FROM jsonb_array_elements_text(counter_times_json) e)"
+                "            < NOW());",
+                (now_expiry_min,),
             )
             return cur.rowcount
 

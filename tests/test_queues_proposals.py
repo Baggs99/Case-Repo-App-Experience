@@ -190,14 +190,27 @@ class TestQueuesAndProposals(unittest.TestCase):
         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/decline").status_code, 200)
         self.assertEqual(self.bob.post(f"/api/proposals/{pid}/decline").status_code, 409)
 
-    def test_expiry_sweep(self):
-        pid = self._propose().json()["id"]
+    def test_expiry_sweep_scheduled_past_start(self):
+        # A3: a scheduled proposal whose earliest proposed start has passed
+        # expires on the next sweep (accept must expire it, not accept it).
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        pid = self._propose(proposed_times=[past]).json()["id"]
+        r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
+        self.assertEqual(r.status_code, 409)
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT state FROM proposals WHERE id = %s;", (pid,))
+                self.assertEqual(cur.fetchone()[0], "expired")
+
+    def test_expiry_sweep_now_proposal(self):
+        # A3: a now-proposal (no proposed_times) older than the 2-h window expires.
+        pid = self._propose(proposed_times=[]).json()["id"]
         import psycopg
         with psycopg.connect(_DB_URL) as conn:
             with conn.cursor() as cur:
                 cur.execute("UPDATE proposals SET created_at = NOW() - INTERVAL"
-                            " '8 days' WHERE id = %s;", (pid,))
-        # Accept must expire it first, not accept it.
+                            " '3 hours' WHERE id = %s;", (pid,))
         r = self.bob.post(f"/api/proposals/{pid}/accept", json={})
         self.assertEqual(r.status_code, 409)
         with psycopg.connect(_DB_URL) as conn:
