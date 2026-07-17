@@ -34,6 +34,7 @@ struct DesignSystemGallery: View {
                     section("PALETTE") { swatches }
                     section("TYPE SCALE") { typeSamples }
                     section("GLASS") { glassSamples }
+                    section("FLAT GLASS · KEY / CHIP") { flatGlassSamples }
                     section("THE MARK") {
                         HStack(spacing: 28) {
                             StaircaseMarkView().frame(width: 48, height: 40)
@@ -128,6 +129,16 @@ struct DesignSystemGallery: View {
                 .frame(maxWidth: .infinity).padding(20).glassPanel()
             Text("Chip").dsText(.rowTitle).foregroundStyle(palette.ink)
                 .padding(.horizontal, 16).padding(.vertical, 10).glassChip()
+        }
+    }
+
+    // The flat key/chip variant (Canon §1 line 29) — solid white .55, top-only highlight.
+    private var flatGlassSamples: some View {
+        HStack(spacing: 12) {
+            Text("Key · r16").dsText(.rowTitle).foregroundStyle(palette.ink)
+                .frame(maxWidth: .infinity).padding(20).glassKey()
+            Text("Add a firm").dsText(.rowTitle).foregroundStyle(palette.ink)
+                .padding(.horizontal, 16).padding(.vertical, 10).glassChipFlat()
         }
     }
 }

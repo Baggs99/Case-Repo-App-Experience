@@ -22,6 +22,7 @@ final class PreviewFixturesTests: XCTestCase {
         XCTAssertEqual(d.tonight.time, "19:00")
         XCTAssertEqual(d.recap.interviewer, "T. Becker")
         XCTAssertEqual(d.timeline.first?.readiness, "ON PACE")
+        XCTAssertEqual(d.timeline.first?.days, "58d")   // "Nd" hero form (days now the 14/700 lead)
         XCTAssertTrue(d.timeline.first!.onPace)
         XCTAssertFalse(d.timeline[1].onPace)   // only McKinsey is green
         XCTAssertEqual(d.standing.schoolPercentile, 91)
@@ -37,6 +38,6 @@ final class PreviewFixturesTests: XCTestCase {
         XCTAssertEqual(d.diagnostic.casesLogged, 15)
         XCTAssertEqual(d.tonight.caseTitle, "Dental roll-up")
         XCTAssertEqual(d.standing.schoolPercentile, 88)
-        XCTAssertEqual(d.timeline.first?.days, "57 days")
+        XCTAssertEqual(d.timeline.first?.days, "57d")
     }
 }

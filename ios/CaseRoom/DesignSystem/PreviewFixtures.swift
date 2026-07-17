@@ -96,9 +96,9 @@ enum PreviewFixtures {
             PreviewPending(interviewer: "S. Park", time: "Tonight 21:30", caseTitle: "asks you to interview"),
         ],
         timeline: [
-            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "58 days", readiness: "ON PACE", onPace: true),
-            TimelineFirm(name: "BCG", date: "Sep 30", days: "76 days", readiness: "PUSH QUANT", onPace: false),
-            TimelineFirm(name: "Bain", date: "Oct 08", days: "84 days", readiness: "EARLY", onPace: false),
+            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "58d", readiness: "ON PACE", onPace: true),
+            TimelineFirm(name: "BCG", date: "Sep 30", days: "76d", readiness: "PUSH QUANT", onPace: false),
+            TimelineFirm(name: "Bain", date: "Oct 08", days: "84d", readiness: "EARLY", onPace: false),
         ],
         standing: PreviewCohortStanding(schoolPercentile: 91)
     )
@@ -124,9 +124,9 @@ enum PreviewFixtures {
             PreviewPending(interviewer: "T. Becker", time: "Today 18:00", caseTitle: "Dental roll-up"),
         ],
         timeline: [
-            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "57 days", readiness: "ON PACE", onPace: true),
-            TimelineFirm(name: "BCG", date: "Sep 30", days: "75 days", readiness: "PUSH QUANT", onPace: false),
-            TimelineFirm(name: "Bain", date: "Oct 08", days: "83 days", readiness: "EARLY", onPace: false),
+            TimelineFirm(name: "McKinsey", date: "Sep 12", days: "57d", readiness: "ON PACE", onPace: true),
+            TimelineFirm(name: "BCG", date: "Sep 30", days: "75d", readiness: "PUSH QUANT", onPace: false),
+            TimelineFirm(name: "Bain", date: "Oct 08", days: "83d", readiness: "EARLY", onPace: false),
         ],
         standing: PreviewCohortStanding(schoolPercentile: 88)
     )

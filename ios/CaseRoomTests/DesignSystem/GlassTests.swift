@@ -17,6 +17,13 @@ final class GlassTests: XCTestCase {
         _ = AnyView(DSScrim())
     }
 
+    // Flat key/chip glass (Canon §1 line 29): keys radius 16, chips capsule.
+    func testFlatGlassKeyModifiersProduceViews() {
+        _ = AnyView(Text("x").glassKey())
+        _ = AnyView(Text("x").glassKey(cornerRadius: 999))
+        _ = AnyView(Text("x").glassChipFlat())
+    }
+
     func testRiseTransitionExists() {
         _ = AnyTransition.dsRise
     }

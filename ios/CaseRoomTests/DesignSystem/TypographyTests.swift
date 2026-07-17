@@ -44,4 +44,13 @@ final class TypographyTests: XCTestCase {
         XCTAssertEqual(DSTextStyle.kicker.tracking, 1.6, accuracy: 0.001)        // 10 × .16em
         XCTAssertEqual(DSTextStyle.rowTitle.tracking, 0, accuracy: 0.001)
     }
+
+    // Timeline label statics = canvas pixel-truth (3a 1484-1497 / 7b 365-377):
+    // firm·date 9px/.1em, days 14px tabular no-tracking, tag 8px/.1em, TODAY 8.5px/.14em.
+    func testTimelineTypeScaleTrackingValues() {
+        XCTAssertEqual(DSTextStyle.timelineFirmKicker.tracking, 0.9, accuracy: 0.001)   // 9 × .1em
+        XCTAssertEqual(DSTextStyle.timelineDays.tracking, 0, accuracy: 0.001)           // 14 tabular
+        XCTAssertEqual(DSTextStyle.timelineTag.tracking, 0.8, accuracy: 0.001)          // 8 × .1em
+        XCTAssertEqual(DSTextStyle.timelineTodayLabel.tracking, 1.19, accuracy: 0.001)  // 8.5 × .14em
+    }
 }
