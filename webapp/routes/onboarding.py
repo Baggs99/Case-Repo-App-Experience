@@ -18,9 +18,18 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from webapp.auth import otp as otp_mod
+from webapp.auth.email_sender import build_verification_email, get_email_sender
+from webapp.auth.email_verification import issue_verification_token
 from webapp.auth.sessions import attach_session_cookie, create_session
-from webapp.auth.users import get_user_by_id
+from webapp.auth.users import (
+    EmailAlreadyRegistered,
+    InvalidEmailDomain,
+    get_or_create_school_user,
+    get_user_by_id,
+    normalize_email,
+)
 from webapp.csrf import require_same_origin
+from webapp.repositories.schools import domain_is_registered
 
 router = APIRouter(prefix="/api/v1")
 
@@ -45,6 +54,10 @@ class OtpVerifyBody(BaseModel):
     code: str
 
 
+class SignupRequestBody(BaseModel):
+    email: str
+
+
 def _user_json(user_id: int) -> dict:
     from webapp.routes.api_v1 import _user_json as api_user_json  # reuse the contract
     user = get_user_by_id(user_id)
@@ -67,3 +80,27 @@ def otp_verify(body: OtpVerifyBody, request: Request):
     response = JSONResponse({"user": _user_json(user_id)})
     attach_session_cookie(response, session)
     return response
+
+
+@router.post("/signup/request", status_code=202, dependencies=_MUTATING)
+def signup_request(body: SignupRequestBody, request: Request):
+    """Gate: only a registered school domain gets a sign-up link, sent via the
+    EXISTING email-verification infra (OD-B5-2). Always 202 (no enumeration)."""
+    e = normalize_email(body.email)
+    domain = e.split("@", 1)[1] if e.count("@") == 1 else ""
+    if domain and domain_is_registered(domain):
+        try:
+            user = get_or_create_school_user(e)
+            raw_token = issue_verification_token(user.id)
+            base_url = str(request.base_url).rstrip("/")
+            verification_url = f"{base_url}/verify?token={raw_token}"
+            subject, text_body, html_body = build_verification_email(
+                recipient_email=user.email, verification_url=verification_url)
+            get_email_sender().send(to=user.email, subject=subject,
+                                    text_body=text_body, html_body=html_body)
+        except (InvalidEmailDomain, EmailAlreadyRegistered):
+            pass  # never surfaces to the caller (neutral response)
+        except Exception:  # email/token failure must not leak via status
+            import logging
+            logging.getLogger(__name__).exception("signup link issue failed")
+    return JSONResponse({"status": "ok"}, status_code=202)
