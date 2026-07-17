@@ -97,3 +97,14 @@ Plan APPROVED (2 review rounds) → executing Task 1 (networking).
 - Task 5 REVIEW: APPROVE (A canvas + B quality). 4 Minors: A1 detail pane 28pt wide (frame-then-pad)
   → fix; A2 initial load no left-highlight (canvas-faithful) → optional seed; A3 row sizes inherited
   from phone component (out of scope); B1 redundant init (harmless). Portrait shot accepted (F0/F1).
+
+## FINAL whole-branch review
+- Reviewer verified: §5-F4 fully delivered, all 4 screenshots match canvas, design-fidelity rubric
+  clean (grep-clean hex, no icons, square corners, secondary=underline, tabular nums, no headcounts),
+  routing/chrome-gate sound, CasesViewModel legitimately retained, no new AppRoute. Copy verbatim
+  independently confirmed by lead (grep + screenshots).
+- One substantive finding: LibraryViewModel error/loading states not rendered (empty message masked
+  failures). FIXED — CasesListView now shows distinct error / ProgressView(loading) / empty states
+  (undesigned per §6, token-styled). Rebuilt + 45/45 focused green. Accepted seams (rec/scheduled
+  fixture-only, .caseTab CTA interim, Market Sizing exact-match, history-by-title, portrait iPad,
+  Session mic-flake) all confirmed reasonable, non-blocking.
