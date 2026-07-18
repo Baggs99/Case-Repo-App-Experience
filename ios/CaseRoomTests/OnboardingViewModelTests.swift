@@ -200,4 +200,20 @@ final class OnboardingViewModelTests: XCTestCase {
         XCTAssertTrue(store.isAuthenticated)
         XCTAssertEqual(store.user?.id, 7)
     }
+
+    // finish() must surface an error (not sit inert) if bootstrap fails to
+    // authenticate — e.g. the post-verify cookie went stale.
+    func testFinishSurfacesErrorWhenBootstrapDoesNotAuthenticate() async {
+        StubURLProtocol.reset()
+        StubURLProtocol.stubs.append(.init(statusCode: 401, data: Data(), headers: [:]))
+        let meClient = APIClient(session: URLSession(configuration: StubURLProtocol.sessionConfiguration))
+        let store = SessionStore(client: meClient)
+        let vm = makeVM(store: store)
+        vm.step = .done
+
+        await vm.finish()
+
+        XCTAssertFalse(store.isAuthenticated)
+        XCTAssertNotNil(vm.errorText)
+    }
 }

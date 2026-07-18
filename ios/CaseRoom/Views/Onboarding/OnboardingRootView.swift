@@ -33,6 +33,7 @@ struct OnboardingRootView: View {
         ZStack {
             DSBackground()
             content
+                .id(viewModel.step)   // forces insert/remove so the rise crossfade actually fires
                 .transition(.opacity)
         }
         // Rise curve (Decisions §1: 0.22,1,0.36,1) crossfades step changes — calm,

@@ -123,6 +123,10 @@ final class OnboardingViewModel {
             code = ""
             errorText = "That code didn't match."
         } catch {
+            // Clear the code on any failure too, so the keypad's auto-advance can
+            // re-fire on retype — leaving 6 filled dots would strand the user
+            // (auto-advance only fires on the 5→6 transition, not a re-tap).
+            code = ""
             errorText = genericError
         }
     }
@@ -195,9 +199,17 @@ final class OnboardingViewModel {
     // MARK: - Finish
 
     // The ONLY place isAuthenticated may flip: the verify-step cookie is already
-    // set, so bootstrap()'s /me succeeds and RootShell swaps to the shell.
+    // set, so bootstrap()'s /me succeeds and RootShell swaps to the shell. If it
+    // does NOT flip (e.g. the cookie was invalidated after verify), surface an
+    // error on the Done screen rather than leaving "Enter" inert.
     func finish() async {
+        errorText = nil
+        isSubmitting = true
+        defer { isSubmitting = false }
         await sessionStore.finishOnboarding()
+        if !sessionStore.isAuthenticated {
+            errorText = "Couldn't finish signing you in. Try again."
+        }
     }
 }
 

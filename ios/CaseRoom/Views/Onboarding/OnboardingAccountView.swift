@@ -142,6 +142,7 @@ struct OnboardingAccountView: View {
         }
         .buttonStyle(DSPressStyle())
         .glassChipFlat()
+        .opacity(viewModel.isSubmitting ? 0.5 : 1)   // dim while any action is in-flight (matches Continue)
         .disabled(viewModel.isSubmitting)
     }
 }

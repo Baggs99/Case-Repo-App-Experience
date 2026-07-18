@@ -1,0 +1,6 @@
+0140cf6 Wire onboarding container into logged-out entry (F9-T7)
+236b8c8 Ledger: Task 6 complete
+ ios/CaseRoom/App/CaseRoomApp.swift                 | 27 +++++++-
+ ios/CaseRoom/App/RootShell.swift                   |  9 ++-
+ .../Views/Onboarding/OnboardingRootView.swift      | 75 ++++++++++++++++++++++
+ 3 files changed, 107 insertions(+), 4 deletions(-)

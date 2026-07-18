@@ -46,6 +46,16 @@ struct OnboardingDoneView: View {
 
                 Spacer()
 
+                // Surfaces finish()'s failure affordance (e.g. the post-verify
+                // cookie went stale) so "Enter" is never silently inert.
+                if let error = viewModel.errorText {
+                    Text(error)
+                        .dsText(.meta)
+                        .foregroundStyle(palette.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 12)
+                }
+
                 enterButton
             }
             .padding(.horizontal, 28)
