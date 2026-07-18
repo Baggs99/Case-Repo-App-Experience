@@ -1,10 +1,42 @@
 # PROGRESS
-Updated: 2026-07-17T17:20Z (MAC MINI CUTOVER EXECUTED; FW3 in flight) ·
-Branch: **feature/backend-gap** @ 72c4351 (backend B1–B8 + F0 + F1 merged).
-Older sections below (UI-corrections handoff of 07-16 and earlier P-phase
-logs) are HISTORICAL — superseded by the backend-gap/front-end track.
+Updated: 2026-07-18 (FRONT-END TRACK COMPLETE — FW1–FW7, F0–F10 merged) ·
+Branch: **feature/backend-gap** (pushed). Older sections are HISTORICAL.
 
-## ▶ CUTOVER EXECUTED — FW3 IN FLIGHT (Mac mini, 2026-07-17)
+## ▶ CURRENT STATE — TRACK COMPLETE (Mac mini, 2026-07-18)
+
+The full myCase build is DONE on `feature/backend-gap`: backend gap B1–B8
++ front-end F0–F10, every phase merged by the §7 protocol (fresh
+integration DB + both suites + sim smoke, all green, every merge pushed).
+Final verified counts: backend **673 passed / 0 failed** · iOS **727
+tests / 0 failures** · final smoke 8/8 (onboarding, all 5 tabs live,
+console). ORCHESTRATION.md holds the complete merge log, owner-gates,
+residuals, and escalations — it is the authority for what's open.
+
+## Now
+Nothing in flight. Next concrete steps are ALL owner-gated:
+1. **Thomas demo pass** — full-app checkpoint ready; `ship myCase` (his
+   signing) → walk the owner-gates list in ORCHESTRATION.md (visual +
+   product calls from F2/F3/F5/F6/F7/F9/F10).
+2. **Thomas manual queue** — `sudo xcode-select -s /Applications/
+   Xcode-beta.app/Contents/Developer`; Google/LinkedIn OAuth apps +
+   WEBAPP_SESSION_SECRET; real firm deadline dates; school_percentile nod.
+3. **Backend follow-up batch** (needs-spec, non-blocking): F9 native
+   OAuth callback; recap-rating GET; set-deadline endpoint; per-member
+   percentile rows; trend series; gauntlet elapsed; case_id in history.
+4. **Cleanup pass** (needs-spec): recaps() unification, silent-catch →
+   loud dev asserts, RailVideoView dup — list in ORCHESTRATION.md.
+5. **Prod deploy** — still gated on owner decisions O1 (host) + TURN.
+   Do nothing until Thomas green-lights.
+
+## Assumptions (this session)
+- Merged phases in completion order within waves (F8 before F7, F3
+  before F5) — protocol permits; conflicts resolved keep-both + the
+  documented F3×F5 recap reconciliation.
+- F7's .gauntletRun AppRoute case accepted as brief-sanctioned.
+- RailVideoView render-only duplication ruled the correct side of the
+  transport HARD RULE (documented in fe-f6-report).
+
+## ▶ HISTORICAL — CUTOVER EXECUTED — FW3 IN FLIGHT (Mac mini, 2026-07-17)
 
 Boot sequence below COMPLETED on the mini this session, all steps verified:
 - Repo at ~/dev/Case-Repo-App-Experience @ 72c4351, tree clean, synced via

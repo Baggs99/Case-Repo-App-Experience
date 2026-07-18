@@ -290,6 +290,31 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   §6: bespoke logged-in gate variant, QR/short-code web pairing. FW7
   remains open until F9 merges.
 
+- 2026-07-18 F9 → feature/backend-gap @ b822ab3 (phase head 1315046, 21
+  commits). ZERO conflicts. Fresh integration DB: backend 673; iOS FULL
+  **727/0** (699 + 28). §7 smoke PASS 8/8 (onboarding welcome + passcode
+  fixtures; Home/Library/Community/Drills/Case ALL LIVE — existing login
+  un-regressed by the retrofit; F6 console regression clean). Crash sweep
+  clean. F9 flags: onboarding copy lead-authored (canvas 1d stale —
+  owner copy review recommended); native OAuth impossible by construction
+  today (callback 302s to /, isolated cookie jar) — buttons mock-proven,
+  BACKEND FOLLOW-UP: native-scheme callback + cookie hand-back + creds
+  (§8.1); owner-visual gates: STEP 01 zero-pad, text wordmark, step
+  rise-crossfade. Deferrals: Done-screen stale-cookie "Start over";
+  OAuth-success discards typed name.
+
+**FW7 COMPLETE — FRONT-END TRACK COMPLETE (FW1–FW7, F0–F10 all merged).**
+Suites journey: backend 360 → 655 → **673** · iOS 273 → 313 → **727**,
+all 0-failure on the final integration DB. Full-app demo checkpoint READY
+(needs Thomas signing via ship). Residuals for a cleanup pass (all
+non-blocking, documented in phase reports/merge log): recaps() overload +
+RecapItem/RecapListItem unification; HomeViewModel silent-catch pattern
+(want loud dev asserts) + sibling VMs; RailVideoView render-only dup;
+cases history joined by case_title (wants case_id in payload); F2/F7
+backend follow-ups (recap rating GET, set-deadline endpoint, per-member
+percentile rows, trend series, gauntlet elapsed); B5 deferred ops
+(rate-limiting, OTP reaping, avatar cleanup).
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
