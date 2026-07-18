@@ -93,6 +93,9 @@ final class DrillsViewModel {
 
     private static let barCount = 16
 
+    /// Cold-start invariant: when `trends.daily` is empty, all 16 bars render
+    /// as faint left-pads with no green last bar — harmless (no data yet),
+    /// not an error state.
     var trendBars: [TrendBar] {
         let daily = trends?.daily ?? []
         let real = Array(daily.suffix(Self.barCount))
@@ -154,10 +157,11 @@ final class DrillsViewModel {
     // MARK: - Board (C-14, Task 2 ships the group scope; Task 3 adds the switcher)
 
     /// "{n} BEHIND №{rank-1}" derived from `result.group.pointsBehindNext`
-    /// once submitted; nil pre-submission or when the field isn't present
-    /// (I3 — never fabricated).
+    /// once submitted; nil pre-submission, when the field isn't present
+    /// (I3 — never fabricated), or at rank 1 (there is no №0 to be behind).
     var boardNote: String? {
-        guard submitted, let group = gauntlet?.result?.group, let behind = group.pointsBehindNext else { return nil }
+        guard submitted, let group = gauntlet?.result?.group, let behind = group.pointsBehindNext,
+              group.rank > 1 else { return nil }
         return "\(behind) BEHIND №\(group.rank - 1)"
     }
 

@@ -92,6 +92,9 @@ final class DrillsViewModelTests: XCTestCase {
         XCTAssertEqual(DrillsViewModel.ordinal(2), "2ND")
         XCTAssertEqual(DrillsViewModel.ordinal(3), "3RD")
         XCTAssertEqual(DrillsViewModel.ordinal(11), "11TH")
+        XCTAssertEqual(DrillsViewModel.ordinal(12), "12TH")
+        XCTAssertEqual(DrillsViewModel.ordinal(13), "13TH")
+        XCTAssertEqual(DrillsViewModel.ordinal(21), "21ST")
         XCTAssertEqual(DrillsViewModel.ordinal(66), "66TH")
     }
 

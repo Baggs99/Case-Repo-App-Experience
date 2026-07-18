@@ -73,6 +73,7 @@ struct DrillsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("TODAY'S GAUNTLET — SAME SIX FOR EVERYONE").dsText(.kicker).foregroundStyle(palette.muted)
+                    .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer()
                 Text("DAY \(viewModel.streakDay)").dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
             }
@@ -83,6 +84,7 @@ struct DrillsView: View {
             beginButton
             HStack(alignment: .firstTextBaseline) {
                 Text("RESETS 06:00 · STREAK SAFE UNTIL 23:59").dsText(.kicker).foregroundStyle(palette.muted)
+                    .lineLimit(1).minimumScaleFactor(0.8)
                 Spacer()
                 if let label = viewModel.hubPercentileLabel {
                     Text(label).dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
