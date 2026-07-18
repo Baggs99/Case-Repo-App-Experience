@@ -12,7 +12,9 @@ Updated: 2026-07-17 · Branch: fe/f8-community · Lead: F8
   pinned `GET /groups/{id}` shapes + isAdmin from members[]. Reviewer confirmed swap_invite_pending live on branch.
 
 ## Now
-All 4 tasks DONE + Opus-PASS. Running full suites (iOS + backend), then whole-branch adversarial review, then report.
+PHASE COMPLETE. Full suites green (iOS 455/0, backend 655). Whole-branch Opus review = APPROVE (merge-ready,
+1 known MINOR). Report at docs/superpowers/sdd/fe-f8-report.md. iPad (F4) shut down; no dev server started.
+Handing back to orchestrator for FW4 merge — NOT pushed/merged (per hard rule).
 
 ## Done
 - Bootstrap (DB, baselines 655 / 413-0, xcodegen idempotent).
