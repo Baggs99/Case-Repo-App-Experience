@@ -1,0 +1,611 @@
+/*
+ * Purpose: Case tab — canvas 3b "calm spine" (CANON, phone). A slim glass verb
+ *          bar (the screen's ONE glass hero + ONE filled button: "Get cased
+ *          now"), the recap-gate card (the only card, sanctioned 2nd filled
+ *          exception — NOT a second glass hero), then flat hairline sections:
+ *          NEXT UP (+ Swap), UPCOMING (rise-in, add-to-calendar), PENDING
+ *          (Accept/New time/Decline + dashed "awaiting reply" sent rows), and
+ *          HISTORY. Verb-bar taps present three MARK-bounded placeholder
+ *          sheets (T3/T4/T5 fill the bodies); a recap gate (either tapped or
+ *          a 409-surfaced `gatedRecapSessionID`) pushes the interim
+ *          RecapGateStub (F5 replaces at merge) onto casePath.
+ * Inputs: CaseTabViewModel (default live). DEBUG `-CaseFixtures` (wired in
+ *         RootShell's caseTabRoot, mirrors `-GroupPageFixtures`) injects
+ *         CaseFixtures.makeViewModel() — no dev server needed.
+ * Outputs: none directly; AppRouter.shared.casePath pushes for `.recap`;
+ *          CaseTabViewModel actions (accept/decline/counter/addToCalendar)
+ *          as side effects of row taps.
+ * Run: mounted by RootShell inside `NavigationStack(path: $router.casePath)`
+ *      for DSTab.caseTab.
+ */
+
+import SwiftUI
+
+// MARK: - The verb-bar sheet seam (T3/T4/T5 replace CaseSheetPlaceholder's
+// body per sheet — the enum + `.sheet(item:)` wiring below is the stable seam).
+enum CaseSheet: Identifiable, Hashable {
+    case getCased, caseSomeone, schedule
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .getCased: return "Get cased now"
+        case .caseSomeone: return "Case someone"
+        case .schedule: return "Schedule"
+        }
+    }
+}
+
+// MARK: - Pure section-presence logic (unit-tested; mirrors LibraryDetailCopy).
+// Hide a kicker+block entirely when its data is empty — never render an empty
+// section header (T2 brief).
+struct CaseTabSectionVisibility: Equatable {
+    let showsRecapGate: Bool
+    let showsNextUp: Bool
+    let showsUpcoming: Bool
+    let showsPending: Bool
+    let showsHistory: Bool
+
+    /// True only when nothing at all renders — the minimal serif empty line.
+    var isEmptyState: Bool {
+        !showsRecapGate && !showsNextUp && !showsUpcoming && !showsPending && !showsHistory
+    }
+
+    static func compute(
+        hasGateRecap: Bool, hasNextUp: Bool,
+        upcomingCount: Int, pendingReceivedCount: Int, sentAwaitingCount: Int, historyCount: Int
+    ) -> CaseTabSectionVisibility {
+        CaseTabSectionVisibility(
+            showsRecapGate: hasGateRecap,
+            showsNextUp: hasNextUp,
+            showsUpcoming: upcomingCount > 0,
+            showsPending: pendingReceivedCount > 0 || sentAwaitingCount > 0,
+            showsHistory: historyCount > 0
+        )
+    }
+}
+
+// MARK: - Pure copy helper (unit-tested) — PENDING row label depends on which
+// side of the proposal made the offer (canvas: "T. Becker offers to interview
+// you" vs "S. Park asks you to interview").
+enum CaseTabCopy {
+    static func pendingOfferLabel(fromName: String, fromRole: String) -> String {
+        fromRole == "candidate" ? "\(fromName) asks you to interview" : "\(fromName) offers to interview you"
+    }
+}
+
+// MARK: - Pure gate-navigation helper (unit-tested) — extracted from the
+// `.onChange(of: viewModel.gatedRecapSessionID)` handler so the "append +
+// clear" steering is testable without rendering the SwiftUI view.
+enum CaseTabGateSteering {
+    static func steer(sessionID: Int?, casePath: inout [AppRoute], clearGate: () -> Void) {
+        guard let sessionID else { return }
+        casePath.append(.recap(sessionID))
+        clearGate()
+    }
+}
+
+struct CaseTabView: View {
+    @Environment(\.dsPalette) private var palette
+    @State private var viewModel: CaseTabViewModel
+    @State private var activeSheet: CaseSheet?
+    @State private var acceptChoiceProposal: Proposal?
+    @State private var counterTarget: Proposal?
+    @State private var counterDate = Date()
+    @State private var toastMessage: String?
+    @State private var upcomingAppeared = false
+
+    // Injectable VM (default = live). RootShell's `-CaseFixtures` hatch
+    // (caseTabRoot) passes CaseFixtures.makeViewModel() — mirrors
+    // GroupPageView/AvatarSheetView's `init(viewModel:)` pattern.
+    @MainActor
+    init(viewModel: CaseTabViewModel = CaseTabViewModel()) {
+        _viewModel = State(initialValue: viewModel)
+    }
+
+    var body: some View {
+        content
+            .task { await viewModel.load() }
+            // B3 recap gate: any action that 409s with blockedByRecap sets
+            // gatedRecapSessionID — steer to the interim recap stub, then
+            // clear so a later gate can re-fire (plain Int? never re-fires
+            // the same value twice).
+            .onChange(of: viewModel.gatedRecapSessionID) { _, newValue in
+                CaseTabGateSteering.steer(sessionID: newValue, casePath: &AppRouter.shared.casePath) {
+                    viewModel.clearGate()
+                }
+            }
+            .onChange(of: viewModel.calendarError) { _, newValue in
+                guard let newValue else { return }
+                toastMessage = newValue
+                viewModel.calendarError = nil
+            }
+            .dsToast(item: $toastMessage)
+            .confirmationDialog(
+                "Choose a time", isPresented: acceptChoiceIsPresented, titleVisibility: .visible
+            ) {
+                if let proposal = acceptChoiceProposal {
+                    ForEach(proposal.proposedTimes, id: \.self) { time in
+                        Button(Self.dateTimeFormatter.string(from: time)) {
+                            Task { await viewModel.accept(proposal, at: time) }
+                        }
+                    }
+                }
+            }
+            .sheet(item: $activeSheet) { sheet in
+                CaseSheetPlaceholder(kind: sheet)
+            }
+            .sheet(item: $counterTarget) { proposal in
+                NewTimeSheet(proposal: proposal, date: $counterDate) { chosen in
+                    Task { await viewModel.counter(proposal, times: [chosen]) }
+                }
+            }
+    }
+
+    private var acceptChoiceIsPresented: Binding<Bool> {
+        Binding(get: { acceptChoiceProposal != nil }, set: { if !$0 { acceptChoiceProposal = nil } })
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                header
+                if let errorMessage = viewModel.errorMessage {
+                    errorBanner(errorMessage)
+                }
+                verbBar
+                recapGateCard
+                nextUpSection
+                upcomingSection
+                pendingSection
+                historySection
+                emptyState
+                Color.clear.frame(height: 120)   // room behind the tab bar
+            }
+            .padding(22)
+        }
+        .scrollIndicators(.hidden)
+        .dsHeaderFade()
+    }
+
+    private var header: some View {
+        Text("Case").dsText(.h1Tab).foregroundStyle(palette.ink)
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 12) {
+            Text(message).dsText(.meta).foregroundStyle(palette.muted)
+            Button { Task { await viewModel.load() } } label: {
+                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var visibility: CaseTabSectionVisibility {
+        CaseTabSectionVisibility.compute(
+            hasGateRecap: viewModel.gateRecap != nil,
+            hasNextUp: viewModel.nextUp != nil,
+            upcomingCount: viewModel.upcoming.count,
+            pendingReceivedCount: viewModel.pendingReceived.count,
+            sentAwaitingCount: viewModel.sentAwaiting.count,
+            historyCount: viewModel.history.count
+        )
+    }
+
+    // MARK: - 1. Slim glass verb bar — the ONE glass hero + ONE filled button
+    // on this screen (canvas 3b 1537-1541). Filled "Get cased now"; the other
+    // two verbs are underline text, never outlined boxes.
+
+    private var verbBar: some View {
+        HStack(spacing: 4) {
+            Button { activeSheet = .getCased } label: {
+                Text("Get cased now")
+                    .font(.archivo(12.5, weight: 600))
+                    .foregroundStyle(palette.onInk)
+                    .padding(.horizontal, 18)
+                    .frame(height: 40)
+            }
+            .buttonStyle(DSPressStyle())
+            .background(Capsule().fill(palette.ink))
+
+            Button { activeSheet = .caseSomeone } label: {
+                Text("Case someone")
+                    .font(.archivo(12, weight: 600))
+                    .underline()
+                    .foregroundStyle(palette.ink)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            Button { activeSheet = .schedule } label: {
+                Text("Schedule")
+                    .font(.archivo(12, weight: 600))
+                    .underline()
+                    .foregroundStyle(palette.ink)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 56)
+        .glassChip()
+    }
+
+    // MARK: - 2. Recap-gate card — the ONLY card on the screen (canvas 3b
+    // 1544-1552). Flat filled card (sanctioned 2nd filled exception, NOT a
+    // glass hero — plan-review M7): square corners, solid surface fill.
+    // RecapItem carries no serif "quote" field (interviewerName/grade/
+    // caseTitle only), so the lede binds the case title rather than
+    // fabricating persona-only feedback text — documented deviation.
+
+    @ViewBuilder
+    private var recapGateCard: some View {
+        if let recap = viewModel.gateRecap {
+            Button {
+                AppRouter.shared.casePath.append(.recap(recap.sessionId))
+            } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("UNREAD RECAP — CLEARS BEFORE YOUR NEXT CASE")
+                        .dsText(.kicker).foregroundStyle(palette.green)
+                    Text(recap.caseTitle)
+                        .dsText(.serif(14, italic: true)).foregroundStyle(palette.ink)
+                    Text("\(recap.interviewerName) · \(Self.gradeText(recap.grade))")
+                        .dsText(.meta).foregroundStyle(palette.muted)
+                        .padding(.bottom, 5)
+                    HStack(spacing: 14) {
+                        Text("Read the recap")
+                            .font(.archivo(12, weight: 600))
+                            .foregroundStyle(palette.onInk)
+                            .padding(.horizontal, 17)
+                            .frame(height: 38)
+                            .background(Capsule().fill(palette.ink))
+                        Text("Interviewing and drills stay open.")
+                            .dsText(.serif(11.5, italic: true)).foregroundStyle(palette.muted)
+                    }
+                }
+                .padding(.horizontal, 19).padding(.vertical, 17)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(palette.surface)
+                .overlay(Rectangle().strokeBorder(palette.hairline, lineWidth: 1))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - 3. NEXT UP — flat hairline block (canvas 3b 1554-1566), bound to
+    // vm.nextUp (the soonest scheduled session) rather than a separate
+    // recommendation entity — CaseTabViewModel has no recommendation field.
+    // Swap is a cosmetic stub (the real swap-roles endpoint is F5's session
+    // takeover) — wires the UI + a toast, per the T2 brief.
+
+    @ViewBuilder
+    private var nextUpSection: some View {
+        if let session = viewModel.nextUp {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("NEXT UP FOR YOU").dsText(.kicker).foregroundStyle(palette.muted)
+                    Spacer()
+                    Button { toastMessage = "Invite sent" } label: {
+                        Text("Swap").font(.archivo(11, weight: 600)).underline().foregroundStyle(palette.muted)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text("vs \(session.otherUser) · \(session.caseTitle)")
+                    .font(.archivo(16, weight: 700))
+                    .foregroundStyle(palette.ink)
+                Text(Self.sessionMeta(session))
+                    .dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
+            }
+            .padding(.top, 13).padding(.bottom, 4)
+            .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+        }
+    }
+
+    // MARK: - 4. UPCOMING — flat rows (canvas 3b 1568-1599), rise-in staggered
+    // (Motion.rise), each with an add-to-calendar underline affordance.
+
+    @ViewBuilder
+    private var upcomingSection: some View {
+        if !viewModel.upcoming.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("UPCOMING").dsText(.kicker).foregroundStyle(palette.muted)
+                    Spacer()
+                    Text("ON YOUR CALENDAR")
+                        .font(.archivo(8.5, weight: 600)).tracking(0.12 * 8.5)
+                        .foregroundStyle(palette.muted)
+                }
+                .padding(.bottom, 2)
+                ForEach(Array(viewModel.upcoming.enumerated()), id: \.element.id) { index, session in
+                    upcomingRow(session)
+                        .rise(upcomingAppeared, delay: Double(index) * DSMotion.stagger)
+                }
+            }
+            .padding(.top, 13)
+            .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+            .onAppear { upcomingAppeared = true }
+        }
+    }
+
+    private func upcomingRow(_ session: SessionSummary) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("vs \(session.otherUser) · \(session.caseTitle)")
+                    .dsText(.rowTitleStrong).foregroundStyle(palette.ink).lineLimit(1)
+                Text(Self.sessionMeta(session)).dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
+            }
+            Spacer(minLength: 8)
+            Button { Task { await viewModel.addToCalendar(session) } } label: {
+                Text("Add to calendar")
+                    .font(.archivo(11, weight: 600)).underline().foregroundStyle(palette.ink)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 12)
+        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
+    }
+
+    // MARK: - 5. PENDING — received rows w/ Accept/New time/Decline (canvas
+    // 3b 1601-1631); sent-awaiting rows below, dashed hairline, no actions.
+
+    @ViewBuilder
+    private var pendingSection: some View {
+        if !viewModel.pendingReceived.isEmpty || !viewModel.sentAwaiting.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("PENDING — \(viewModel.pendingReceived.count)").dsText(.kicker).foregroundStyle(palette.muted)
+                    Spacer()
+                    Text("ONE COUNTER ROUND · NO CHAT")
+                        .font(.archivo(8.5, weight: 600)).tracking(0.12 * 8.5)
+                        .foregroundStyle(palette.muted)
+                }
+                .padding(.bottom, 2)
+                ForEach(viewModel.pendingReceived) { proposal in
+                    pendingRow(proposal)
+                }
+                ForEach(viewModel.sentAwaiting) { proposal in
+                    sentAwaitingRow(proposal)
+                }
+            }
+            .padding(.top, 13)
+            .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+        }
+    }
+
+    private func pendingRow(_ proposal: Proposal) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(CaseTabCopy.pendingOfferLabel(fromName: proposal.fromName, fromRole: proposal.fromRole))
+                    .dsText(.rowTitleStrong).foregroundStyle(palette.ink)
+                Text(Self.proposalMeta(proposal)).dsText(.meta).foregroundStyle(palette.muted)
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 12) {
+                Button { acceptProposal(proposal) } label: {
+                    Text("Accept").font(.archivo(12.5, weight: 600)).underline().foregroundStyle(palette.ink)
+                }
+                .buttonStyle(.plain)
+                Button { counterTarget = proposal; counterDate = proposal.proposedTimes.first ?? Date() } label: {
+                    Text("New time").font(.archivo(12.5, weight: 600)).underline().foregroundStyle(palette.muted)
+                }
+                .buttonStyle(.plain)
+                Button { Task { await viewModel.decline(proposal) } } label: {
+                    Text("Decline").font(.archivo(12.5, weight: 600)).underline().foregroundStyle(palette.muted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 12)
+        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
+    }
+
+    /// Sent-and-awaiting rows: dashed-era hairline, verbatim "awaiting reply",
+    /// no actions. Proposal carries no recipient-name field (only fromName —
+    /// the sender), so the row leads with the case title rather than a
+    /// fabricated "You → X" — documented deviation from canvas's `sentWho3`.
+    private func sentAwaitingRow(_ proposal: Proposal) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(proposal.caseTitle ?? "Practice case").dsText(.rowTitleStrong).foregroundStyle(palette.ink)
+                Text(Self.proposalMeta(proposal)).dsText(.meta).foregroundStyle(palette.muted)
+            }
+            Spacer(minLength: 8)
+            Text("awaiting reply").dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
+        }
+        .padding(.vertical, 12)
+        .overlay(DashedLine(color: palette.hairline), alignment: .bottom)
+    }
+
+    private func acceptProposal(_ proposal: Proposal) {
+        if proposal.proposedTimes.count > 1 {
+            acceptChoiceProposal = proposal
+        } else {
+            let time = proposal.proposedTimes.first ?? Date()
+            Task { await viewModel.accept(proposal, at: time) }
+        }
+    }
+
+    // MARK: - 6. HISTORY — flat rows, greyed, tabular date (canvas 3b 1643-1666).
+
+    @ViewBuilder
+    private var historySection: some View {
+        if !viewModel.history.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("HISTORY").dsText(.kicker).foregroundStyle(palette.muted).padding(.bottom, 2)
+                ForEach(viewModel.history) { session in
+                    historyRow(session)
+                }
+            }
+            .padding(.top, 13)
+            .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+        }
+    }
+
+    private func historyRow(_ session: SessionSummary) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.caseTitle).dsText(.rowTitle).foregroundStyle(palette.muted).lineLimit(1)
+                Text("\(session.otherUser) · \(Self.historyDate(session.endedAt))")
+                    .dsText(.meta).tabularNumbers().foregroundStyle(palette.faint)
+            }
+            Spacer(minLength: 8)
+            if let grade = session.grade {
+                Text(String(format: "%.1f", grade))
+                    .font(.archivo(11, weight: 600)).tabularNumbers().foregroundStyle(palette.muted)
+            }
+        }
+        .padding(.vertical, 12)
+        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
+    }
+
+    // MARK: - 7. Empty state — undesigned but token-styled, terse (T2 brief).
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if visibility.isEmptyState {
+            Text("Nothing cased yet — tap Get cased now to start.")
+                .dsText(.serif(13, italic: true)).foregroundStyle(palette.muted)
+                .padding(.top, 24)
+        }
+    }
+
+    // MARK: - Formatting helpers
+
+    private static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE h:mm a"
+        return formatter
+    }()
+
+    private static let historyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    private static func sessionMeta(_ session: SessionSummary) -> String {
+        guard let scheduledAt = session.scheduledAt else { return session.role }
+        return "\(dateTimeFormatter.string(from: scheduledAt)) · \(session.role)"
+    }
+
+    private static func proposalMeta(_ proposal: Proposal) -> String {
+        let time = proposal.proposedTimes.first.map { dateTimeFormatter.string(from: $0) } ?? "time TBD"
+        if let caseType = proposal.caseType { return "\(caseType) · \(time)" }
+        return time
+    }
+
+    private static func gradeText(_ grade: Double?) -> String {
+        grade.map { String(format: "%.1f/5", $0) } ?? "—"
+    }
+
+    private static func historyDate(_ date: Date?) -> String {
+        guard let date else { return "" }
+        return historyDateFormatter.string(from: date)
+    }
+}
+
+// MARK: - Subviews
+
+/// A 1px dashed hairline — the "sent" row's dashed-era divider (canvas §1
+/// glass recipes don't cover this; it is the one dashed rule in the system,
+/// marking a row as pending-outbound rather than settled).
+private struct DashedLine: View {
+    var color: Color
+    var body: some View {
+        GeometryReader { geo in
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: geo.size.width, y: 0))
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        .frame(height: 1)
+    }
+}
+
+/// The canvas content rise: 16px up + fade, staggered by `delay` (Design
+/// Decisions §1: "rise 420ms cubic-bezier(0.22,1,0.36,1) 16px up, staggered
+/// ~120-150ms"). Mirrors GauntletRunView's private `rise(_:delay:)`.
+private extension View {
+    func rise(_ appeared: Bool, delay: Double) -> some View {
+        self
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .animation(DSMotion.riseCurve.delay(delay), value: appeared)
+    }
+}
+
+/// The verb-bar sheet placeholder shell — T3/T4/T5 replace the body per
+/// their brief; the enum + `.sheet(item:)` seam in CaseTabView stays stable.
+private struct CaseSheetPlaceholder: View {
+    let kind: CaseSheet
+    @Environment(\.dsPalette) private var palette
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(kind.title).dsText(.cardTitle).foregroundStyle(palette.ink)
+            // MARK: T3/T4/T5 fills this — the real sheet body per its brief.
+            Text("Coming soon.")
+                .dsText(.serif(13.5, italic: true)).foregroundStyle(palette.muted)
+            Button { dismiss() } label: {
+                Text("Close").dsText(.actionLabel).underline().foregroundStyle(palette.muted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSheet()
+        .padding(.horizontal, 14)
+        .presentationBackground(.clear)
+        .presentationDetents([.medium])
+    }
+}
+
+/// "New time" — a compact DatePicker counters the pending proposal with one
+/// alternate time (`vm.counter(_:times:)` — one counter round, per canvas).
+private struct NewTimeSheet: View {
+    let proposal: Proposal
+    @Binding var date: Date
+    let onSend: (Date) -> Void
+    @Environment(\.dsPalette) private var palette
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("NEW TIME").dsText(.kicker).foregroundStyle(palette.muted)
+            Text(proposal.caseTitle ?? "Practice case").dsText(.cardTitle).foregroundStyle(palette.ink)
+            DatePicker("", selection: $date)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+            Button {
+                onSend(date)
+                dismiss()
+            } label: {
+                Text("Send").dsText(.rowTitle).foregroundStyle(palette.onInk)
+                    .frame(maxWidth: .infinity).frame(height: 48)
+            }
+            .buttonStyle(DSPressStyle())
+            .background(Capsule().fill(palette.ink))
+            Button { dismiss() } label: {
+                Text("Cancel").dsText(.actionLabel).underline().foregroundStyle(palette.muted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSheet()
+        .padding(.horizontal, 14)
+        .presentationBackground(.clear)
+        .presentationDetents([.medium])
+    }
+}
+
+#if DEBUG
+#Preview {
+    ZStack { DSBackground(); CaseTabView(viewModel: CaseFixtures.makeViewModel()) }
+}
+#endif
