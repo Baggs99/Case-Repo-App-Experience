@@ -117,7 +117,14 @@ private struct PhoneConsole: View {
 
             bottomBar
         }
-        .overlay { if model.isPDFOpen { pdfPlaceholder } }   // T5 stub (no crash)
+        // T5 — the phone PDF pager: a full-screen single-column authored reader
+        // (deviation #5 — no canvas anchor; same 3 pages + design tokens).
+        .overlay {
+            if model.isPDFOpen {
+                PhonePDFPager(model: model).transition(.dsRise)
+            }
+        }
+        .animation(DSMotion.sheetCurve, value: model.isPDFOpen)
     }
 
     // MARK: Header (kicker + title + tap-to-run clock pill)
@@ -348,6 +355,7 @@ private struct PhoneConsole: View {
     }
 
     // MARK: Bottom floating glass bar
+    // (phone PDF pager lives in ConsolePDFView.swift, mounted as an overlay above)
 
     private var bottomBar: some View {
         HStack(spacing: 6) {
@@ -392,32 +400,6 @@ private struct PhoneConsole: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
     }
-
-    // MARK: PDF placeholder (T5 stub — no-op-graceful until the pager lands)
-
-    private var pdfPlaceholder: some View {
-        ZStack {
-            palette.page.ignoresSafeArea()
-            VStack(spacing: 14) {
-                Text("CASE PACK — INTERVIEWER COPY · 8 PAGES")
-                    .font(.archivo(9.5, weight: 600)).tracking(9.5 * 0.15)
-                    .foregroundStyle(palette.muted)
-                    .multilineTextAlignment(.center)
-                Text("The script keeps scoring; this is the paper.")
-                    .dsText(.serif(14, italic: true))
-                    .foregroundStyle(palette.muted)
-                    .multilineTextAlignment(.center)
-                Button { model.closePDF() } label: {
-                    Text("‹ Back to script")
-                        .font(.archivo(12, weight: 600))
-                        .foregroundStyle(palette.ink)
-                        .underline(true, pattern: .solid)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(24)
-        }
-    }
 }
 
 // MARK: - Tablet console (canvas 1a) — chrome + LEFT pane
@@ -451,7 +433,6 @@ private struct TabletConsole: View {
                 bodyGrid
             }
         }
-        .overlay { if model.isPDFOpen { pdfPlaceholder } }   // T5 stub (no crash)
     }
 
     // MARK: Top bar (mark + wordmark | CASE | CANDIDATE | clock | Finalize)
@@ -549,7 +530,17 @@ private struct TabletConsole: View {
 
     private var bodyGrid: some View {
         HStack(spacing: 0) {
-            leftPane.frame(maxWidth: .infinity, maxHeight: .infinity)
+            leftPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // T5 — the PDF overlay covers the LEFT column ONLY (canvas
+                // `inset:0; z-index:15` inside the left-pane div); the 380px rail
+                // stays rendered + live beside it.
+                .overlay {
+                    if model.isPDFOpen {
+                        TabletPDFOverlay(model: model).transition(.dsRise)
+                    }
+                }
+                .animation(DSMotion.sheetCurve, value: model.isPDFOpen)
             rightRail
         }
     }
@@ -1005,29 +996,8 @@ private struct TabletConsole: View {
         .overlay(alignment: .bottom) { Rectangle().fill(palette.hairlineSoft).frame(height: 1) }
     }
 
-    // MARK: PDF placeholder (T5 stub — graceful back-to-script until the overlay lands, tablet)
-
-    private var pdfPlaceholder: some View {
-        ZStack {
-            palette.page.ignoresSafeArea()
-            VStack(spacing: 14) {
-                Text("CASE PACK — INTERVIEWER COPY · 8 PAGES")
-                    .font(.archivo(9.5, weight: 600)).tracking(9.5 * 0.15)
-                    .foregroundStyle(palette.muted)
-                Text("The script keeps scoring; this is the paper.")
-                    .dsText(.serif(14, italic: true))
-                    .foregroundStyle(palette.muted)
-                Button { model.closePDF() } label: {
-                    Text("‹ Back to script")
-                        .font(.archivo(12, weight: 600))
-                        .foregroundStyle(palette.ink)
-                        .underline(true, pattern: .solid)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(24)
-        }
-    }
+    // MARK: PDF overlay (T5) — the LEFT-pane case-pack reader (TabletPDFOverlay,
+    // in ConsolePDFView.swift), mounted in `bodyGrid` so the rail stays live.
 }
 
 // MARK: - Candidate feed (canvas 1a rail top, A7)
