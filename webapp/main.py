@@ -56,6 +56,7 @@ from webapp.routes import connections as connections_routes
 from webapp.routes import drills as drills_routes
 from webapp.routes import files as files_routes
 from webapp.routes import guest as guest_routes
+from webapp.routes import guest_web as guest_web_routes
 from webapp.routes import exhibits as exhibits_routes
 from webapp.routes import groups as groups_routes
 from webapp.routes import leaderboards as leaderboards_routes
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(queues_routes.router)
     app.include_router(proposals_routes.router)
     app.include_router(guest_routes.router)
+    app.include_router(guest_web_routes.router)
     app.include_router(signal_ws_routes.router)
     app.include_router(exhibits_routes.router)
     app.include_router(recommendations_routes.router)

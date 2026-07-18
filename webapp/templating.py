@@ -22,6 +22,7 @@ def render(
     template_name: str,
     context: dict[str, Any] | None = None,
     *,
+    status_code: int = 200,
     response_headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
     """Render a template with `current_user` and `current_user_is_admin`
@@ -42,7 +43,7 @@ def render(
         except Exception:
             ctx.setdefault("pending_proposal_count", 0)
 
-    tr_kw: dict[str, Any] = {}
+    tr_kw: dict[str, Any] = {"status_code": status_code}
     if response_headers:
         tr_kw["headers"] = response_headers
 
