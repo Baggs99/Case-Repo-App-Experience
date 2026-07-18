@@ -140,6 +140,45 @@ class TestGuestLinkGate(unittest.TestCase):
         after = self._user_count()
         self.assertEqual(after, before)  # no orphan guest row left behind
 
+    def test_post_claim_cross_origin_403_no_mint(self):
+        """require_same_origin (CSRF) rejects a cross-origin POST before the
+        guest is minted — so no orphan row and no claim."""
+        tok = self._mk_open()
+        before = self._user_count()
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        anon = TestClient(app, follow_redirects=False)
+        r = anon.post(f"/g/claim/{tok}", headers={"Origin": "https://evil.example"})
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(self._user_count(), before)  # decorator dep ran before mint
+        # The link is untouched — still claimable same-origin afterwards.
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM proposals WHERE claim_token = %s;", (tok,))
+
+    def test_post_claim_existing_guest_reclaim_403(self):
+        """A guest is scoped to ONE session (B2): re-claiming a second link with
+        the same guest cookie is 403'd at the dependency, minting nothing new."""
+        from fastapi.testclient import TestClient
+        from webapp.main import app
+        guest = TestClient(app, follow_redirects=False)
+        r1 = guest.post(f"/g/claim/{self._mk_open()}",
+                        headers={"Origin": "http://testserver"})
+        self.assertEqual(r1.status_code, 303, r1.text)
+        sid = int(r1.headers["location"].rsplit("/", 1)[1])
+        import psycopg
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("SELECT interviewer_id FROM practice_sessions WHERE id = %s;", (sid,))
+            guest_id = cur.fetchone()[0]
+        tok2 = self._mk_open()
+        before = self._user_count()
+        r2 = guest.post(f"/g/claim/{tok2}", headers={"Origin": "http://testserver"})
+        self.assertEqual(r2.status_code, 403, r2.text)
+        self.assertEqual(self._user_count(), before)  # no second guest minted
+        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM proposals WHERE claim_token = %s;", (tok2,))
+        self._cleanup_guest(guest_id, sid)
+
 
 @unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
 @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
