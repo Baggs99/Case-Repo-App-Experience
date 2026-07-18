@@ -9,9 +9,15 @@ Updated: 2026-07-18 · Branch: fe/f6-console · Worktree: /Users/thomaskgould/de
 - Sims: iPhone 17 942222D4 booted + mic granted (app/tests/xctest); iPad 653F37B8 idle (boot+grant per task); stray F4 iPhone shut.
 
 ## Now
-T1–T4 done + approved. Dispatching T5 (PDF mode — tablet left-overlay + phone).
+T1–T5 ALL done + approved. Running full suites → whole-branch adversarial review → report.
 
 ## Done
+- T5 PDF case-pack mode (73e36d0): pdfBackdrop token (#E7EBF1 + dark, rv#5); tablet overlay covers
+  LEFT pane ONLY (rail stays live — confirmed in shots) with 3 authored pages (brief+timing / Exhibit
+  01 table + e1 Release synced to script SENT / answer key INTERVIEWER ONLY + quant chain); phone
+  full-screen pager; pager grey-ends + "04–08 IN THE FULL PACK". iOS **699**/0. Shots tablet-pdf-
+  p1/p2/p3 + phone-pdf. Opus review APPROVE-WITH-NITS (left-only overlay + live rail + verbatim pages +
+  e1 SENT sync all confirmed) → 1 trivial title-tracking nit accepted (sub-0.1px, imperceptible).
 - T4 tablet hero RIGHT rail (68d5750, +fix 9be1e6d): candidate feed (dark pane, LIVE chip, self-view
   118×66, dark tokens) + SEGMENT TIMER (34pt tabular, RUNNING chip, Start/Pause, Stop·log) + SEGMENTS
   LOGGED laps + RUBRIC — LIVE (all dims, 16pt mini-cells sharing score handler, ink/slate split,
