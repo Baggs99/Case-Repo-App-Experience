@@ -7,8 +7,8 @@
  *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
- *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5) — see
- *         the #if DEBUG blocks).
+ *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5),
+ *         -OnbWelcome, -OnbEmail (F9) — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -98,6 +98,16 @@ struct CaseRoomApp: App {
                 // percentile 66, +40 PTS, 5/6 correct, 3RD IN C-14, weak = market
                 // sizing, elapsed 04:12.
                 GauntletRunView(viewModel: PreviewGauntletRunFixture.resultVM)
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbWelcome") {
+                // Onboarding welcome (F9-T3) fixture hatch: the mark-draws hero,
+                // full-screen, VM parked at .welcome. onLogin is a no-op standalone
+                // (the container wires it to LoginView in Task 7).
+                OnboardingWelcomeView(viewModel: OnboardingFixtures.viewModel(step: .welcome))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbEmail") {
+                // Onboarding school-email gate (F9-T3) fixture hatch: STEP 1 OF 05,
+                // fixture VM pre-seeded with amara@yale.edu so the field is populated
+                // (simctl can't type).
+                OnboardingEmailView(viewModel: OnboardingFixtures.viewModel(step: .email))
             } else {
                 rootView
             }
