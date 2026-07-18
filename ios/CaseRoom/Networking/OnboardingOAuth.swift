@@ -36,6 +36,11 @@ protocol OAuthStarter {
 private let onboardingCallbackScheme = "caseroom"
 
 final class WebAuthOAuthStarter: NSObject, OAuthStarter, ASWebAuthenticationPresentationContextProviding {
+    // ASWebAuthenticationSession must be retained by the caller until auth
+    // completes (Apple docs) — the transient main-queue start closure below is
+    // not enough, so hold it here and clear it in the completion handler.
+    private var activeSession: ASWebAuthenticationSession?
+
     func start(provider: OAuthProvider) async throws {
         let url = APIClient.shared.baseURL
             .appendingPathComponent("auth")
@@ -44,7 +49,8 @@ final class WebAuthOAuthStarter: NSObject, OAuthStarter, ASWebAuthenticationPres
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let session = ASWebAuthenticationSession(
                 url: url, callbackURLScheme: onboardingCallbackScheme
-            ) { callbackURL, error in
+            ) { [weak self] callbackURL, error in
+                self?.activeSession = nil
                 // Any error (user cancel, 503, transport) or a missing callback
                 // collapses to the single typed onboarding failure — the flow
                 // only needs "OAuth didn't complete", not the specific cause.
@@ -56,9 +62,11 @@ final class WebAuthOAuthStarter: NSObject, OAuthStarter, ASWebAuthenticationPres
             }
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = false
+            activeSession = session
             // ASWebAuthenticationSession.start() must run on the main thread.
             DispatchQueue.main.async {
                 if !session.start() {
+                    self.activeSession = nil
                     continuation.resume(throwing: OnboardingError.oauthUnavailable)
                 }
             }
