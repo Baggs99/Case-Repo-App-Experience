@@ -113,6 +113,9 @@ final class OnboardingViewModel {
     // MARK: - Passcode
 
     func submitCode() async {
+        // The keypad only fires onComplete at 6 digits, but guard the one submit
+        // path that has no field validation so a partial code is never POSTed.
+        guard code.count == 6 else { return }
         errorText = nil
         isSubmitting = true
         defer { isSubmitting = false }
