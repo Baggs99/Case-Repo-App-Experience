@@ -29,6 +29,15 @@ struct RootShell: View {
     // unaffected.
     private var libraryDetailOpen: Bool { router.selection == .library && !router.libraryPath.isEmpty }
 
+    // F8 Task 2 parallel: the pushed group page (canvas 6a C-14 detail) ships
+    // with its own `‹ Back` + slate context label chrome, same as Library's
+    // pushed case detail — no top pills, no tab bar while it's on screen.
+    private var communityDetailOpen: Bool { router.selection == .community && !router.communityPath.isEmpty }
+
+    // Generalized gate for the three top-pill overlays + the tab bar: true
+    // while ANY tab has a pushed detail route on screen.
+    private var detailOpen: Bool { libraryDetailOpen || communityDetailOpen }
+
     var body: some View {
         Group {
             if sessionStore.isAuthenticated {
@@ -52,11 +61,14 @@ struct RootShell: View {
         }
         .task {
             #if DEBUG
-            // -LibraryFixtures fakes auth directly (CaseRoomApp.applyDebugLaunchHatches)
-            // with no dev server running; bootstrap()'s client.me() would hit a
-            // dead 127.0.0.1 host, fail unauthorized, and race-clobber the fake
-            // user back to nil. Skip it on this screenshot-only path.
-            if ProcessInfo.processInfo.arguments.contains("-LibraryFixtures") { return }
+            // -LibraryFixtures/-CommunityFixtures fake auth directly (CaseRoomApp.
+            // applyDebugLaunchHatches) with no dev server running; bootstrap()'s
+            // client.me() would hit a dead 127.0.0.1 host, fail unauthorized, and
+            // race-clobber the fake user back to nil. Skip it on these
+            // screenshot-only paths.
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
             #endif
             await sessionStore.bootstrap()
         }
@@ -71,13 +83,13 @@ struct RootShell: View {
                 .contentMargins(.top, 64, for: .scrollContent)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if !libraryDetailOpen {
+            if !detailOpen {
                 DSTabBar(selection: $router.selection, maxWidth: hSize == .regular ? 560 : nil)
                     .padding(.bottom, hSize == .regular ? 14 : 12)
             }
         }
         .overlay(alignment: .top) {
-            if hSize == .regular && !libraryDetailOpen {
+            if hSize == .regular && !detailOpen {
                 HStack {
                     WordmarkChip()
                     Spacer()
@@ -101,10 +113,10 @@ struct RootShell: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if hSize != .regular && !libraryDetailOpen { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
+            if hSize != .regular && !detailOpen { WordmarkChip().padding(.leading, 16).padding(.top, 8) }
         }
         .overlay(alignment: .topTrailing) {
-            if hSize != .regular && !libraryDetailOpen { avatarButton.padding(.trailing, 16).padding(.top, 8) }
+            if hSize != .regular && !detailOpen { avatarButton.padding(.trailing, 16).padding(.top, 8) }
         }
         .task {
             #if DEBUG
@@ -112,11 +124,13 @@ struct RootShell: View {
             // tap); skip it on DEBUG screenshot paths so the shot is clean.
             // Normal launches (and Release) always request as before.
             let args = ProcessInfo.processInfo.arguments
-            if args.contains("-DevLogin") || args.contains("-LibraryFixtures") { return }
+            if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
         .sheet(isPresented: $router.avatarSheet) { AvatarSheetView() }
+        .sheet(isPresented: $router.groupCreate) { groupCreateSheet }
         .sheet(item: Binding(
             get: { router.proposeToUserID.map(ProposeTarget.init) },
             set: { if $0 == nil { router.proposeToUserID = nil } }
@@ -153,6 +167,44 @@ struct RootShell: View {
         )
     }
 
+    // F8 Task 3: the group-create sheet. `-GroupCreateFixtures` injects a
+    // fixture-backed VM with `created` pre-populated (CommunityFixtures.
+    // createdGroup) so simctl gets the "YOU'RE THE ADMIN" success state with
+    // no dev server and no typing/tapping — mirrors groupPageDestination(id:).
+    @ViewBuilder
+    private var groupCreateSheet: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-GroupCreateFixtures") {
+            GroupCreateView(viewModel: GroupCreateViewModel(fixtureCreated: CommunityFixtures.createdGroup))
+        } else {
+            GroupCreateView()
+        }
+        #else
+        GroupCreateView()
+        #endif
+    }
+
+    // F8 Task 2: the `.groupPage` destination. `-GroupPageFixtures` (mirrors
+    // `-CommunityFixtures`) injects a fixture-backed VM (admin variant — see
+    // CommunityFixtures.groupDetail/groupProgress) so simctl gets a populated
+    // shot with no dev server; the live path passes sessionStore.user?.id
+    // through as the isAdmin-match seam (same pattern as makeDrill() above).
+    @ViewBuilder
+    private func groupPageDestination(id: Int) -> some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-GroupPageFixtures") {
+            GroupPageView(groupId: id, viewModel: GroupPageViewModel(
+                fixtureDetail: CommunityFixtures.groupDetail,
+                fixtureIsAdmin: true,
+                fixtureProgress: CommunityFixtures.groupProgress))
+        } else {
+            GroupPageView(groupId: id, currentUserId: sessionStore.user?.id)
+        }
+        #else
+        GroupPageView(groupId: id, currentUserId: sessionStore.user?.id)
+        #endif
+    }
+
     @ViewBuilder
     private var selectedTab: some View {
         switch router.selection {
@@ -170,7 +222,14 @@ struct RootShell: View {
         case .caseTab:
             SessionsView()
         case .community:
-            CommunityTabStub()
+            NavigationStack(path: $router.communityPath) {
+                CommunityView()
+                    .navigationDestination(for: AppRoute.self) { route in
+                        if case .groupPage(let id) = route {
+                            groupPageDestination(id: id)
+                        }
+                    }
+            }
         case .drills:
             DrillsTabStub()
         }

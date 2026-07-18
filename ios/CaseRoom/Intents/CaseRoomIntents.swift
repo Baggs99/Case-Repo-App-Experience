@@ -53,6 +53,7 @@ final class AppRouter {
     // Tab + navigation state observed by RootShell.
     var selection: DSTab = .home
     var avatarSheet = false
+    var groupCreate = false
     var proposeToUserID: Int?
     var sessionTakeoverID: Int?
     var drillRun = false          // the shell owns the drill sheet, keyed off this

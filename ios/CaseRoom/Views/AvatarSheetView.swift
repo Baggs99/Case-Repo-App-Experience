@@ -4,7 +4,8 @@
  *          buried "Administer a group" seam. Presented as a glass sheet from the
  *          top-trailing avatar pill (no You tab).
  * Inputs: AvatarSheetViewModel; SessionStore (logout); AppRouter (group seam).
- * Outputs: profile/settings writes; logout; router.go(.community).
+ * Outputs: profile/settings writes; logout; router.groupCreate = true (F8-T3
+ *          create-group sheet — no AppRoute case, mirrors avatarSheet).
  * Run: presented by RootShell via `.sheet(isPresented: $router.avatarSheet)`.
  */
 
@@ -117,8 +118,7 @@ struct AvatarSheetView: View {
         HStack {
             Spacer()
             Button {
-                // F8 seam: replace with the create-group route when FW4 lands.
-                AppRouter.shared.go(to: .community)
+                AppRouter.shared.groupCreate = true
                 dismiss()
             } label: {
                 Text("Administer a group").dsText(.meta).foregroundStyle(palette.faint)
