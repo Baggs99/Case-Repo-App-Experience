@@ -1,0 +1,450 @@
+diff --git a/tests/test_f10_guest_web.py b/tests/test_f10_guest_web.py
+new file mode 100644
+index 0000000..dc74e60
+--- /dev/null
++++ b/tests/test_f10_guest_web.py
+@@ -0,0 +1,144 @@
++"""
++F10 Task 1: the guest link-gate (/g/claim/{token}) — GET renders the 8a gate
++bound to a real open, instant, candidate-role, case-set proposal; POST claims
++it (minting a guest when unauthenticated) and 303-redirects to the console.
++Follows the login/cookie + open-link idiom of tests/test_b1_proposals_open.py.
++"""
++
++from __future__ import annotations
++
++import unittest
++from datetime import datetime, timedelta, timezone
++
++from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
++
++
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestLinkGate(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._ctx = TestClient(app)
++        cls.alice = cls._ctx.__enter__()
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('F10 Gate Case', 'f10 gate case',"
++                    " 'DevSchool', 2091, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++        s = create_session(cls.aid, user_agent="f10-test", ip_address=None)
++        cls.alice.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                # proposals.session_id FKs practice_sessions -> delete proposals first.
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._ctx.__exit__(None, None, None)
++
++    def _mk_open(self, **overrides):
++        """Alice (candidate role) sends an open link — from_role=candidate so
++        the claimer becomes the interviewer, per the gate's SQL restriction."""
++        payload = {"case_id": self.case_id, "from_role": "candidate"}
++        payload.update(overrides)
++        r = self.alice.post("/api/proposals", json=payload)
++        self.assertEqual(r.status_code, 200, r.text)
++        return r.json()["claim_token"]
++
++    def _user_count(self):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT COUNT(*) FROM users;")
++                return cur.fetchone()[0]
++
++    def _cleanup_guest(self, user_id, session_id):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                # FK order: proposals.session_id -> practice_sessions.id (no
++                # cascade), practice_sessions.interviewer_id -> users.id (no
++                # cascade) -> delete proposal, then session, then user.
++                cur.execute("DELETE FROM proposals WHERE session_id = %s;", (session_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (session_id,))
++                cur.execute("DELETE FROM sessions WHERE user_id = %s;", (user_id,))
++                cur.execute("DELETE FROM users WHERE id = %s AND is_guest = TRUE;", (user_id,))
++
++    # ── GET /g/claim/{token} ────────────────────────────────────────────────
++
++    def test_get_gate_renders_open_proposal(self):
++        tok = self._mk_open()
++        r = self.alice.get(f"/g/claim/{tok}")
++        self.assertEqual(r.status_code, 200, r.text)
++        self.assertIn("ASKED TO INTERVIEW", r.text.upper())
++        self.assertIn("F10 Gate Case", r.text)
++        # from_name = a@yale.edu's display_name (COALESCE/split_part fallback);
++        # anchor on the h1's own closing style attr so this isn't a
++        # trivially-true substring check against arbitrary HTML.
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT COALESCE(display_name, split_part(email, '@', 1))"
++                        " FROM users WHERE id = %s;", (self.aid,))
++            expected_from_name = cur.fetchone()[0]
++        self.assertIn(f'color:#0D1C31">{expected_from_name}</h1>', r.text)
++
++    def test_get_gate_unknown_token_404(self):
++        r = self.alice.get("/g/claim/bogustoken")
++        self.assertEqual(r.status_code, 404)
++        self.assertIn("no longer active", r.text.lower())
++
++    # ── POST /g/claim/{token} ───────────────────────────────────────────────
++
++    def test_post_claim_unauth_mints_guest_and_redirects(self):
++        tok = self._mk_open()
++        before = self._user_count()
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        anon = TestClient(app, follow_redirects=False)
++        r = anon.post(f"/g/claim/{tok}", headers={"Origin": "http://testserver"})
++        self.assertEqual(r.status_code, 303, r.text)
++        self.assertTrue(r.headers["location"].startswith("/g/session/"))
++        after = self._user_count()
++        self.assertEqual(after, before + 1)
++        # Locate + clean up the minted guest.
++        session_id = int(r.headers["location"].rsplit("/", 1)[1])
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT interviewer_id FROM practice_sessions WHERE id = %s;",
++                            (session_id,))
++                guest_id = cur.fetchone()[0]
++        self._cleanup_guest(guest_id, session_id)
++
++    def test_post_claim_scheduled_token_404_no_orphan_guest(self):
++        when = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
++        tok = self._mk_open(proposed_times=[when])
++        before = self._user_count()
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        anon = TestClient(app, follow_redirects=False)
++        r = anon.post(f"/g/claim/{tok}", headers={"Origin": "http://testserver"})
++        self.assertEqual(r.status_code, 404, r.text)
++        after = self._user_count()
++        self.assertEqual(after, before)  # no orphan guest row left behind
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/webapp/main.py b/webapp/main.py
+index 39f6e0a..7a931e0 100644
+--- a/webapp/main.py
++++ b/webapp/main.py
+@@ -49,20 +49,21 @@ from webapp.db import close_pool, init_pool
+ from webapp.middleware import SessionMiddleware
+ from webapp.maintenance import maintenance_loop
+ from webapp.routes import admin as admin_routes
+ from webapp.routes import api_v1 as api_v1_routes
+ from webapp.routes import auth as auth_routes
+ from webapp.routes import auth_oauth as auth_oauth_routes
+ from webapp.routes import connections as connections_routes
+ from webapp.routes import drills as drills_routes
+ from webapp.routes import files as files_routes
+ from webapp.routes import guest as guest_routes
++from webapp.routes import guest_web as guest_web_routes
+ from webapp.routes import exhibits as exhibits_routes
+ from webapp.routes import groups as groups_routes
+ from webapp.routes import leaderboards as leaderboards_routes
+ from webapp.routes import onboarding as onboarding_routes
+ from webapp.routes import pages as pages_routes
+ from webapp.routes import practice as practice_routes
+ from webapp.routes import practice_exhibits as practice_exhibits_routes
+ from webapp.routes import practice_feedback as practice_feedback_routes
+ from webapp.routes import practice_recordings as practice_recordings_routes
+ from webapp.routes import profile as profile_routes
+@@ -147,20 +148,21 @@ def create_app() -> FastAPI:
+     app.include_router(admin_routes.router)
+     app.include_router(rooms_routes.router)
+     app.include_router(practice_routes.router)
+     app.include_router(practice_exhibits_routes.router)
+     app.include_router(practice_feedback_routes.router)
+     app.include_router(session_flow_routes.router)
+     app.include_router(practice_recordings_routes.router)
+     app.include_router(queues_routes.router)
+     app.include_router(proposals_routes.router)
+     app.include_router(guest_routes.router)
++    app.include_router(guest_web_routes.router)
+     app.include_router(signal_ws_routes.router)
+     app.include_router(exhibits_routes.router)
+     app.include_router(recommendations_routes.router)
+     app.include_router(timeline_routes.router)
+     app.include_router(api_v1_routes.router)
+     app.include_router(drills_routes.router)
+     app.include_router(profile_routes.router)
+     app.include_router(onboarding_routes.router)
+     app.include_router(auth_oauth_routes.router)
+     app.include_router(connections_routes.router)
+diff --git a/webapp/repositories/proposals.py b/webapp/repositories/proposals.py
+index c42cfac..a973f37 100644
+--- a/webapp/repositories/proposals.py
++++ b/webapp/repositories/proposals.py
+@@ -256,20 +256,56 @@ def list_for_api(user_id: int) -> list[dict]:
+         WHERE (p.to_user_id = %(u)s AND p.state = 'pending')
+            OR (p.from_user_id = %(u)s AND p.state = 'countered')
+         ORDER BY p.created_at DESC;
+     """
+     with get_pool().connection() as conn:
+         with conn.cursor(row_factory=dict_row) as cur:
+             cur.execute(sql, {"u": user_id})
+             return cur.fetchall()
+ 
+ 
++def get_open_by_claim_token(token: str) -> Optional[dict]:
++    """Read-only preview for the guest link-gate (F10 Task 1, GET/POST
++    /g/claim/{token}). Restricted to a token THIS path may claim: instant (no
++    proposed_times), case-set, candidate-role, unclaimed — so the claimer
++    always becomes the interviewer. A scheduled / case-less / already-claimed
++    / interviewer-role token returns None → the gate 404s it for everyone
++    (closes I3: claim_proposal's instant-only guard is guest-only, so without
++    this a logged-in user could claim a scheduled token and 303 to a broken
++    /g/session/None).
++
++    "Instant" is IS NULL OR empty array, not IS NULL alone: create_proposal
++    always writes Jsonb(times), so a "now" proposal created via the real
++    POST /api/proposals path (ProposalBody.proposed_times defaults to []) is
++    stored as JSONB '[]', never SQL NULL — confirmed against the seeded dev
++    DB. This matches the same instant-proposal check already used by
++    sweep_expired and claim_proposal's guest guard (both treat a falsy/empty
++    proposed_times_json as "now")."""
++    sql = """
++        SELECT p.id AS proposal_id,
++               COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS from_name,
++               p.case_id, c.case_title
++        FROM proposals p
++        JOIN users u ON u.id = p.from_user_id
++        JOIN cases c ON c.id = p.case_id
++        WHERE p.claim_token = %s AND p.state = 'pending' AND p.to_user_id IS NULL
++          AND (p.proposed_times_json IS NULL
++               OR jsonb_array_length(p.proposed_times_json) = 0)
++          AND p.case_id IS NOT NULL
++          AND p.from_role = 'candidate';
++    """
++    with get_pool().connection() as conn:
++        with conn.cursor(row_factory=dict_row) as cur:
++            cur.execute(sql, (token,))
++            return cur.fetchone()
++
++
+ def pending_count(user_id: int) -> int:
+     """Nav badge. Uses idx_proposals_inbox; called on every page render."""
+     with get_pool().connection() as conn:
+         with conn.cursor() as cur:
+             cur.execute("SELECT COUNT(*) FROM proposals"
+                         " WHERE to_user_id = %s AND state = 'pending';",
+                         (user_id,))
+             return cur.fetchone()[0]
+ 
+ 
+diff --git a/webapp/routes/guest_web.py b/webapp/routes/guest_web.py
+new file mode 100644
+index 0000000..2d52c93
+--- /dev/null
++++ b/webapp/routes/guest_web.py
+@@ -0,0 +1,74 @@
++"""
++Purpose: F10 Task 1 — the guest interviewer link-gate (canvas 8a `gIsGate`),
++         a zero-chrome public page: "Continue as guest" or "Log in".
++Inputs:  GET/POST /g/claim/{claim_token}; the open-proposal preview from
++         webapp.repositories.proposals.get_open_by_claim_token.
++Outputs: Renders templates/guest_gate.html; on a successful claim, 303s to
++         the (not-yet-built) /g/session/{id} console.
++Run:     included from webapp.main via app.include_router(guest_web_routes.router)
++"""
++
++from __future__ import annotations
++
++from fastapi import APIRouter, Depends, Request, Response
++from fastapi.responses import RedirectResponse
++
++from webapp.auth.guest import discard_minted_guest, require_auth_or_mint_guest
++from webapp.auth.users import User
++from webapp.csrf import require_same_origin
++from webapp.practice_states import TransitionError
++from webapp.repositories import proposals as proposals_repo
++from webapp.templating import render
++
++router = APIRouter(tags=["guest-web"])
++
++
++@router.get("/g/claim/{claim_token}")
++def guest_gate(claim_token: str, request: Request):
++    """Public — the unguessable token is the capability, no auth dependency.
++    404s a non-open/non-instant/claimed token with a neutral message (no
++    existence disclosure beyond what the token holder already knows)."""
++    prop = proposals_repo.get_open_by_claim_token(claim_token)
++    if prop is None:
++        return render(request, "guest_gate.html", {"gone": True}, status_code=404)
++    return render(request, "guest_gate.html", {
++        "gone": False,
++        "from_name": prop["from_name"],
++        "case_title": prop["case_title"],
++        "claim_token": claim_token,
++    })
++
++
++@router.post("/g/claim/{claim_token}", dependencies=[Depends(require_same_origin)])
++def guest_claim(claim_token: str, request: Request, response: Response,
++               user: User = Depends(require_auth_or_mint_guest)):
++    """'Continue as guest' / real-user claim. Re-checks the same open-instant-
++    candidate-role gate the GET used — a token gone since the page loaded
++    (raced/claimed/expired) 404s instead of falling through to
++    claim_proposal's broader (scheduling-capable) semantics. Because the gate
++    SQL restricts from_role='candidate', the claimer is always the
++    interviewer here, so claim_proposal's RecapGateError path is unreachable
++    on this route (it only fires when the claimer takes the candidate seat)."""
++    prop = proposals_repo.get_open_by_claim_token(claim_token)
++    if prop is None:
++        discard_minted_guest(request)
++        return render(request, "guest_gate.html", {"gone": True}, status_code=404)
++    try:
++        result = proposals_repo.claim_proposal(claim_token, user.id, is_guest=user.is_guest)
++    except TransitionError as exc:
++        discard_minted_guest(request)
++        return render(request, "guest_gate.html", {
++            "gone": False,
++            "from_name": prop["from_name"],
++            "case_title": prop["case_title"],
++            "claim_token": claim_token,
++            "error": exc.detail,
++        }, status_code=409)
++
++    # require_auth_or_mint_guest set the guest's Set-Cookie on the dependency-
++    # shared `response`; FastAPI only auto-merges those headers when the
++    # endpoint returns a plain value, not when it returns a Response subclass
++    # (RedirectResponse here) directly — so copy them across explicitly.
++    redirect = RedirectResponse(f"/g/session/{result['session_id']}", status_code=303)
++    redirect.headers.raw.extend(response.headers.raw)
++    return redirect
+diff --git a/webapp/templates/guest_gate.html b/webapp/templates/guest_gate.html
+new file mode 100644
+index 0000000..a726c1c
+--- /dev/null
++++ b/webapp/templates/guest_gate.html
+@@ -0,0 +1,57 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++<meta charset="UTF-8">
++<meta name="viewport" content="width=device-width, initial-scale=1.0">
++<title>myCase — {% if gone %}Link expired{% else %}You've been asked to interview{% endif %}</title>
++<link rel="preconnect" href="https://fonts.googleapis.com">
++<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
++<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
++<style>
++  :root{--green:#1B9A5F}
++  body{margin:0;min-height:100vh;background:#F3F5F8;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;position:relative;overflow-x:hidden}
++  button{cursor:pointer}
++</style>
++</head>
++<body>
++<svg width="480" height="400" viewBox="0 0 48 40" aria-hidden="true" style="position:absolute;top:120px;right:-200px;opacity:.4;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
++
++{% if gone %}
++<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 28px;text-align:center;position:relative">
++  <div style="display:flex;align-items:center;gap:8px;margin-bottom:28px">
++    <svg width="20" height="17" viewBox="0 0 48 40" aria-hidden="true"><defs><linearGradient id="g24" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#g24)" stroke-width="5"></path></svg>
++    <span style="font-size:15px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
++  </div>
++  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:15px;color:#515A66">This link is no longer active.</div>
++</div>
++{% else %}
++<div style="padding:66px 24px 0;display:flex;align-items:center;gap:8px;position:relative">
++  <svg width="20" height="17" viewBox="0 0 48 40" aria-hidden="true"><defs><linearGradient id="g24" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#g24)" stroke-width="5"></path></svg>
++  <span style="font-size:15px;color:#0D1C31"><span style="font-family:'Source Serif 4',serif;font-style:italic">my</span><span style="font-weight:800;letter-spacing:-0.02em">Case</span></span>
++</div>
++<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 28px;max-width:480px;margin:0 auto;width:100%;box-sizing:border-box;position:relative">
++  <div style="font-weight:600;font-size:10px;letter-spacing:.18em;color:var(--green);margin-bottom:14px">YOU'VE BEEN ASKED TO INTERVIEW</div>
++  <h1 style="margin:0 0 6px;font-weight:800;font-size:32px;letter-spacing:-0.035em;line-height:1.05;color:#0D1C31">{{ from_name }}</h1>
++  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:14.5px;color:#515A66;margin-bottom:22px">Wants to run: {{ case_title }}</div>
++  <div style="border-top:1px solid #C9D2DF;padding:11px 0;display:flex;justify-content:space-between;align-items:baseline">
++    <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">THEIR REQUEST</span>
++    <span style="font-weight:600;font-size:12.5px;color:#0D1C31">{{ case_title }}</span>
++  </div>
++  <div style="border-top:1px solid #C9D2DF;border-bottom:1px solid #C9D2DF;padding:11px 0;display:flex;justify-content:space-between;align-items:baseline">
++    <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">YOUR SIDE</span>
++    <span style="font-weight:600;font-size:12.5px;color:#0D1C31">Script, answer key, timer — all provided</span>
++  </div>
++  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:12.5px;color:#A9B4C4;margin-top:14px">Guests run the full console. The session just won't join any record.</div>
++  {% if error %}
++  <div style="font-weight:600;font-size:12.5px;color:#B3261E;margin-top:14px">{{ error }}</div>
++  {% endif %}
++</div>
++<div style="padding:0 24px 52px;display:flex;flex-direction:column;gap:9px;max-width:480px;margin:0 auto;width:100%;box-sizing:border-box;position:relative">
++  <form method="post" action="/g/claim/{{ claim_token }}">
++    <button type="submit" style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:14px;height:52px;cursor:pointer;transition:transform .16s ease,opacity .16s ease">Continue as guest</button>
++  </form>
++  <a href="/login?next=/g/claim/{{ claim_token }}" style="text-align:center;text-decoration:none;display:block;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;color:#0D1C31;height:48px;line-height:48px;background:rgba(255,255,255,.55);backdrop-filter:blur(12px) saturate(1.6);-webkit-backdrop-filter:blur(12px) saturate(1.6);border:1px solid rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(13,28,49,.07),inset 0 1px 0 rgba(255,255,255,.9)">Log in — keep it on your record</a>
++</div>
++{% endif %}
++</body>
++</html>
+diff --git a/webapp/templating.py b/webapp/templating.py
+index 4efa5e2..1808e7d 100644
+--- a/webapp/templating.py
++++ b/webapp/templating.py
+@@ -15,41 +15,42 @@ _BROWSE_NO_STORE = {
+     "Cache-Control": "no-store, must-revalidate",
+     "Pragma": "no-cache",
+ }
+ 
+ 
+ def render(
+     request: Request,
+     template_name: str,
+     context: dict[str, Any] | None = None,
+     *,
++    status_code: int = 200,
+     response_headers: dict[str, str] | None = None,
+ ) -> HTMLResponse:
+     """Render a template with `current_user` and `current_user_is_admin`
+     injected automatically."""
+     ctx = dict(context or {})
+     user = getattr(request.state, "user", None)
+     ctx.setdefault("current_user", user)
+ 
+     settings = getattr(request.app.state, "settings", None)
+     is_admin = bool(settings and user and settings.is_admin(user.email))
+     ctx.setdefault("current_user_is_admin", is_admin)
+ 
+     if user:
+         # Nav proposal badge (spec §4.7) — one indexed COUNT per page render.
+         from webapp.repositories.proposals import pending_count
+         try:
+             ctx.setdefault("pending_proposal_count", pending_count(user.id))
+         except Exception:
+             ctx.setdefault("pending_proposal_count", 0)
+ 
+-    tr_kw: dict[str, Any] = {}
++    tr_kw: dict[str, Any] = {"status_code": status_code}
+     if response_headers:
+         tr_kw["headers"] = response_headers
+ 
+     return request.app.state.templates.TemplateResponse(
+         request, template_name, ctx, **tr_kw,
+     )
+ 
+ 
+ def render_browse_page(
+     request: Request, template_name: str, context: dict[str, Any] | None = None
