@@ -1,0 +1,40 @@
+ ios/CaseRoom/App/CaseRoomApp.swift                 |  71 ++++++-
+ ios/CaseRoom/App/RootShell.swift                   |   9 +-
+ ios/CaseRoom/Networking/APIClient.swift            |  46 ++++-
+ ios/CaseRoom/Networking/Models.swift               |  18 ++
+ ios/CaseRoom/Networking/OnboardingOAuth.swift      |  84 ++++++++
+ ios/CaseRoom/State/OnboardingFixtures.swift        |  96 +++++++++
+ ios/CaseRoom/State/OnboardingViewModel.swift       | 225 +++++++++++++++++++++
+ ios/CaseRoom/State/SessionStore.swift              |   8 +
+ .../Views/Onboarding/OnboardingAccountView.swift   | 154 ++++++++++++++
+ .../Views/Onboarding/OnboardingDoneView.swift      |  95 +++++++++
+ .../Views/Onboarding/OnboardingEmailView.swift     | 110 ++++++++++
+ .../Views/Onboarding/OnboardingGroupJoinView.swift | 130 ++++++++++++
+ .../Views/Onboarding/OnboardingPasscodeView.swift  | 102 ++++++++++
+ .../Views/Onboarding/OnboardingProgressMark.swift  |  63 ++++++
+ .../Views/Onboarding/OnboardingRootView.swift      |  76 +++++++
+ .../Views/Onboarding/OnboardingWelcomeView.swift   |  78 +++++++
+ ios/CaseRoom/Views/Onboarding/PasscodeKeypad.swift | 109 ++++++++++
+ ios/CaseRoomTests/OnboardingServiceTests.swift     | 154 ++++++++++++++
+ ios/CaseRoomTests/OnboardingViewModelTests.swift   | 219 ++++++++++++++++++++
+ ios/CaseRoomTests/PasscodeKeypadTests.swift        |  49 +++++
+ 20 files changed, 1891 insertions(+), 5 deletions(-)
+2c14c86 Ledger: Task 7 + final-fix batch complete
+b382453 F9 review-fix batch: clear code on any verify fail, Done failure affordance, OAuth dim, rise transition .id
+0140cf6 Wire onboarding container into logged-out entry (F9-T7)
+236b8c8 Ledger: Task 6 complete
+87bd644 Add onboarding group-join + You're in. done screens (F9-T6)
+383095f Ledger: Task 5 complete
+a458d14 Add onboarding account-completion screen (F9-T5)
+48ab892 Ledger: Task 4 complete
+c7e7749 Add F9 onboarding passcode screen (email OTP keypad)
+42f881f Ledger: Task 3 complete
+da929ee Ghost full staircase behind onboarding progress trim (F9 T3 review fix)
+1efc8d1 Add F9 onboarding welcome + school-email screens
+67335bb Onboarding fixtures: throw StubError.unused not fatalError (F9 T2 review fix)
+b7cfc77 Add onboarding VM, progress mark, passcode keypad + fixtures
+1bf7a30 Ledger: Task 1 complete
+ddeb143 Retain ASWebAuthenticationSession until completion (F9 T1 review fix)
+34b336c Add onboarding OTP/join service + OAuth starter + finishOnboarding
+1b57610 Fold plan-review findings into F9 plan (seam test, B6 cite, OAuth flag)
+a4acffa Add F9 onboarding plan + progress ledger

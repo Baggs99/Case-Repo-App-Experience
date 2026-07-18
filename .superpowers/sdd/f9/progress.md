@@ -1,5 +1,8 @@
 # F9 Onboarding retrofit — progress ledger
 
+## STATUS: DONE — head d4c51e8. iOS 727/0, backend 655. Whole-branch review APPROVE (0 CRIT/0 IMP/3 MINOR). Report: docs/superpowers/sdd/fe-f9-report.md. No dev server started (fixture hatches); iPad never booted; port 8109 clear.
+
+
 Branch: fe/f9-onboarding · Worktree: /Users/thomaskgould/dev/fe-f9 · Cut at ae46fed.
 
 ## Baselines (bootstrap, verified 2026-07-18)
