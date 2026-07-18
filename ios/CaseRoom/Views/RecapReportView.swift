@@ -24,6 +24,12 @@ struct RecapReportView: View {
 
     @State private var model: RecapViewModel
     @Environment(\.dsPalette) private var palette
+    // MARK: - F5-T7 close-out sheet state (the gate). The sheet floats in the
+    // overlay seam below; its unlock rides `scrollMetrics` off the report scroll,
+    // latched by `everUnlocked` so it stays open once the report is read.
+    @State private var closeOut: RecapCloseOutViewModel
+    @State private var scrollMetrics = RecapScrollMetrics()
+    @State private var everUnlocked = false
     #if DEBUG
     @State private var scrollToTailForShot = false  // -startRecap shot only
     #endif
@@ -32,6 +38,7 @@ struct RecapReportView: View {
         self.sessionId = sessionId
         self.flowService = flowService
         _model = State(initialValue: RecapViewModel(sessionId: sessionId, flow: flowService))
+        _closeOut = State(initialValue: RecapCloseOutViewModel(sessionId: sessionId, flow: flowService))
     }
 
     var body: some View {
@@ -49,19 +56,41 @@ struct RecapReportView: View {
         // dark seam, exactly like DebriefView's dark→light return point.
         .dsTheme(.light)
         .toolbar(.hidden, for: .navigationBar)
-        // MARK: - F5-T7 close-out seam. T7 floats its glass "RATE THIS CASE 1–5"
-        // close-out sheet HERE, as an .overlay(alignment: .bottom) over this
-        // scroll. The scroll body already reserves 250pt of bottom padding so the
-        // floating sheet never occludes the ATTACHED row; T7 drives the unlock
-        // threshold (scrollBottom − 16) off its own scroll listener and clears the
-        // gate via flowService.recapClose. This placeholder documents the seam.
-        .overlay(alignment: .bottom) { EmptyView() /* T7: close-out sheet */ }
+        // MARK: - F5-T7 close-out seam. The floating glass "RATE THIS CASE 1–5"
+        // close-out sheet floats HERE, over the scroll. The scroll body reserves
+        // 250pt of bottom padding so the sheet never occludes the ATTACHED row; it
+        // unlocks at scrollBottom − 16 (RecapCloseOutPresentation, fed by
+        // `scrollMetrics`) and clears the gate via flowService.recapClose.
+        .overlay(alignment: .bottom) {
+            RecapCloseOutSheet(
+                model: closeOut,
+                unlocked: sheetUnlocked,
+                progress: sheetProgress,
+                interviewerName: model.interviewerName,
+                onCleared: { AppRouter.shared.recapSessionID = nil }
+            )
+        }
+        // "Gate cleared." rises over the report on close, then the cover dismisses.
+        .dsToast(item: Binding(get: { closeOut.toast }, set: { closeOut.toast = $0 }))
         .task {
             await model.onAppear()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-startRecap") {
                 try? await Task.sleep(nanoseconds: 500_000_000)  // let the report lay out
-                scrollToTailForShot = true
+                let mode = Self.debugCloseOutMode()
+                // locked keeps the report near the top; unlocked/cleared scroll the
+                // report's end into frame behind the (forced-open) sheet.
+                if mode != "locked" { scrollToTailForShot = true }
+                switch mode {
+                case "unlocked":
+                    closeOut.rating = 4                     // Close enabled
+                case "cleared":
+                    closeOut.rating = 4
+                    closeOut.cleared = true
+                    closeOut.toast = "Gate cleared."        // held for the shot (no dismiss)
+                default:
+                    break
+                }
             }
             #endif
         }
@@ -92,39 +121,114 @@ struct RecapReportView: View {
     // MARK: - Scroll body
 
     private var scrollBody: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if model.report != nil {
-                        report
-                    } else if model.loaded {
-                        unavailable
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+        // GeometryReader captures the scroll viewport height; the inner probe
+        // reports the content's live offset + height (F5-T7 unlock at bottom − 16).
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if model.report != nil {
+                            report
+                        } else if model.loaded {
+                            unavailable
+                        } else {
+                            ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+                        }
+                        // Tail anchor (above the reserved bottom padding) so the
+                        // -startRecap shot can scroll the ATTACHED row into frame.
+                        Color.clear.frame(height: 1).id(Self.tailAnchor)
                     }
-                    // Tail anchor (above the reserved bottom padding) so the
-                    // -startRecap shot can scroll the ATTACHED row into frame.
-                    Color.clear.frame(height: 1).id(Self.tailAnchor)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 22)
+                    // Generous bottom padding reserves room for T7's floating close-out
+                    // sheet so the last content row is never hidden behind it (canvas 6b:
+                    // the scroll pads 250px at the bottom for the sheet).
+                    .padding(.bottom, 250)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // MARK: - F5-T7 scroll probe. Reports the report's live offset +
+                    // content height so the close-out sheet unlocks at bottom − 16.
+                    .background(scrollProbe)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 22)
-                // Generous bottom padding reserves room for T7's floating close-out
-                // sheet so the last content row is never hidden behind it (canvas 6b:
-                // the scroll pads 250px at the bottom for the sheet).
-                .padding(.bottom, 250)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .coordinateSpace(name: Self.scrollSpace)
+                #if DEBUG
+                // Screenshot-only: -startRecap scrolls to the tail so the ATTACHED row
+                // is captured (the report is taller than one screen). Inert otherwise.
+                .onChange(of: scrollToTailForShot) { _, on in
+                    if on { proxy.scrollTo(Self.tailAnchor, anchor: .bottom) }
+                }
+                #endif
             }
-            #if DEBUG
-            // Screenshot-only: -startRecap scrolls to the tail so the ATTACHED row
-            // is captured (the report is taller than one screen). Inert otherwise.
-            .onChange(of: scrollToTailForShot) { _, on in
-                if on { proxy.scrollTo(Self.tailAnchor, anchor: .bottom) }
+            .onPreferenceChange(RecapScrollKey.self) { sample in
+                guard sample.contentHeight > 0 else { return }
+                scrollMetrics.offset = sample.offset
+                scrollMetrics.contentHeight = sample.contentHeight
+                updateUnlockLatch()
             }
-            #endif
+            .onAppear {
+                scrollMetrics.viewportHeight = viewport.size.height
+                updateUnlockLatch()
+            }
+            .onChange(of: viewport.size.height) { _, height in
+                scrollMetrics.viewportHeight = height
+                updateUnlockLatch()
+            }
         }
     }
 
+    // MARK: - F5-T7 close-out unlock (bottom − 16) + progress
+
+    private var scrollProbe: some View {
+        GeometryReader { geo in
+            Color.clear.preference(
+                key: RecapScrollKey.self,
+                value: RecapScrollSample(
+                    offset: -geo.frame(in: .named(Self.scrollSpace)).minY,
+                    contentHeight: geo.size.height))
+        }
+    }
+
+    /// Latch the unlock once the report reaches bottom − 16, so the close-out
+    /// stays open even if the reader scrolls back up.
+    private func updateUnlockLatch() {
+        guard !everUnlocked else { return }
+        if RecapCloseOutPresentation.isUnlocked(
+            offset: scrollMetrics.offset,
+            contentHeight: scrollMetrics.contentHeight,
+            viewportHeight: scrollMetrics.viewportHeight) {
+            withAnimation(DSMotion.sheetCurve) { everUnlocked = true }
+        }
+    }
+
+    private var sheetUnlocked: Bool {
+        #if DEBUG
+        if let mode = Self.debugCloseOutMode() { return mode != "locked" }
+        #endif
+        return everUnlocked
+    }
+
+    private var sheetProgress: Double {
+        #if DEBUG
+        if Self.debugCloseOutMode() == "locked" { return 0.62 }
+        #endif
+        return RecapCloseOutPresentation.scrollProgress(
+            offset: scrollMetrics.offset,
+            contentHeight: scrollMetrics.contentHeight,
+            viewportHeight: scrollMetrics.viewportHeight)
+    }
+
+    #if DEBUG
+    // The -startRecap sub-arg selecting the close-out screenshot state
+    // (locked / unlocked / cleared); nil = the plain T6 report shot.
+    static func debugCloseOutMode() -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-startRecap"), i + 1 < args.count else { return nil }
+        let next = args[i + 1]
+        return ["locked", "unlocked", "cleared"].contains(next) ? next : nil
+    }
+    #endif
+
     private static let tailAnchor = "recap-tail"
+    private static let scrollSpace = "recap-scroll"
 
     // MARK: - Report content
 

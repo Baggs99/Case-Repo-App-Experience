@@ -501,7 +501,11 @@ struct RecapPreviewFlowService: SessionFlowService {
     func swapAccept(id: Int) async throws -> SwapAccepted { throw StubError.unused }
     func recaps() async throws -> [RecapListItem] { recaps }
     func recapViewed(id: Int) async throws -> RecapViewedResult { RecapViewedResult(viewed: true) }
-    func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult { throw StubError.unused }
+    // F5-T7: canned success so the close-out sheet's Close clears the gate on the
+    // `-startRecap unlocked/cleared` shots (gate_cleared true).
+    func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult {
+        RecapCloseResult(closed: true, gateCleared: true)
+    }
     func feedbackReport(id: Int) async throws -> FeedbackReport { report }
 }
 
