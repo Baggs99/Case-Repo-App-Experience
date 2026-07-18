@@ -1,0 +1,9 @@
+34b336c Add onboarding OTP/join service + OAuth starter + finishOnboarding
+1b57610 Fold plan-review findings into F9 plan (seam test, B6 cite, OAuth flag)
+ docs/superpowers/plans/2026-07-17-fe-f9-plan.md |  36 ++++--
+ ios/CaseRoom/Networking/APIClient.swift         |  46 ++++++-
+ ios/CaseRoom/Networking/Models.swift            |  18 +++
+ ios/CaseRoom/Networking/OnboardingOAuth.swift   |  76 ++++++++++++
+ ios/CaseRoom/State/SessionStore.swift           |   8 ++
+ ios/CaseRoomTests/OnboardingServiceTests.swift  | 154 ++++++++++++++++++++++++
+ 6 files changed, 325 insertions(+), 13 deletions(-)

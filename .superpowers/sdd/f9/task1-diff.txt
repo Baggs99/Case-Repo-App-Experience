@@ -1,0 +1,556 @@
+diff --git a/docs/superpowers/plans/2026-07-17-fe-f9-plan.md b/docs/superpowers/plans/2026-07-17-fe-f9-plan.md
+index ced105b..bee42ea 100644
+--- a/docs/superpowers/plans/2026-07-17-fe-f9-plan.md
++++ b/docs/superpowers/plans/2026-07-17-fe-f9-plan.md
+@@ -21,40 +21,46 @@ The design "passcode keypad" maps to the **email OTP** endpoints (not the sign-u
+ link is the web path; a 6-digit keypad is the native equivalent and the report ships it):
+ 
+ - `POST /api/v1/auth/otp/request` — same-origin, unauth. Always `202 {"status":"ok"}` (no
+   enumeration). Code issued only for existing user OR registry domain; dev writes email to
+   `output/emails/`.
+ - `POST /api/v1/auth/otp/verify` — same-origin, unauth. `200 {"user":{...}}` + **session
+   cookie**, or `401`. **Provisions a school user for a new registry email.**
+ - `PUT /api/v1/profile` — required + same-origin. `display_name ≤100`, bio ≤2000,
+   linkedin_url ≤300. (Account-completion display name.)
+ - `POST /api/v1/groups/join` — required + same-origin. body `{invite_code}` → group row or
+-  `404` "Unknown invite code". (Group-join step.)
++  `404` "Unknown invite code". (Group-join step.) **Endpoint is B6, not B5** — cite
++  `bgap-b6-report.md` (webapp/routes/groups.py:69). Response = `{id,name,school_id,invite_code,
++  role,already_member}`; `JoinedGroup` Codable decodes a deliberate 3-of-6 subset
++  `{id,name,already_member}` (Swift ignores extra keys).
+ - `GET /auth/google` · `GET /auth/linkedin` — browser routes, **503 without creds +
+   WEBAPP_SESSION_SECRET** (not provisioned — ORCHESTRATION §8.1). Callback 302s to `/` with a
+   session cookie.
+ 
+ Registered users: seed provides `a/b/c@yale.edu` / password `caseroom-dev-1`; registry
+ domains = yale.edu / umich.edu / chicagobooth.edu.
+ 
+ ### KNOWN UNCERTAINTIES / FLAGS (carry into report — do NOT invent new patterns to hide them)
+ 1. **Canvas 1d is stale + truncated.** All onboarding copy/layout is authored from the §2-1d
+    prose + F0 tokens + the 8a/3-series look. Every string is lead-authored; flag as such.
+ 2. **STEP mapping.** 5 progress steps chosen: (1) email, (2) passcode, (3) account,
+    (4) group, (5) done; welcome is the pre-step intro. Judgment call — flag.
+-3. **OAuth native return path.** B5's OAuth callback 302s to `/` and sets a *web* session
+-   cookie; it does NOT redirect to a native `caseroom://` callback scheme, which
+-   `ASWebAuthenticationSession` needs to hand control back. Combined with un-provisioned creds
+-   (503 in dev), live native OAuth cannot be verified this phase. We ship the buttons + a
+-   protocol-injected `OAuthStarter` (testable, mocked), open `/auth/google|linkedin` via
+-   `ASWebAuthenticationSession`, and FLAG the callback-scheme gap + creds as a Thomas
+-   follow-up (§8.1). Buttons are proven by fixture shots + VM tests, not a live round-trip.
++3. **OAuth native return path (impossible by construction, not just un-provisioned).** B5's
++   OAuth callback 302s to `/` (https) and sets a *web* session cookie. `ASWebAuthenticationSession`
++   watches for a redirect matching a native `callbackURLScheme`; a 302 to `/` never matches, so
++   the completion handler never fires (sheet dead-ends). Separately the session runs in
++   SafariViewService with its own cookie jar, so even a successful web login's cookie never
++   reaches APIClient's `HTTPCookieStorage`. So live native OAuth cannot work today regardless of
++   creds. We ship the buttons + a protocol-injected `OAuthStarter` (testable, mocked), open
++   `/auth/google|linkedin` via `ASWebAuthenticationSession`, and FLAG as a Thomas follow-up
++   (§8.1): backend must add a **native-scheme callback redirect + a token/cookie hand-back**,
++   AND provision creds. Buttons are proven by fixture shots + VM tests, not a live round-trip.
+ 4. Post-verify the user is authenticated server-side (cookie) but the onboarding flow holds
+    the returned `User` locally and does NOT flip `SessionStore.isAuthenticated` until the
+    final "Enter" — otherwise RootShell would swap the onboarding cover for the shell and drop
+    account/group steps. Final step calls `SessionStore.bootstrap()` (cookie is set → `/me`
+    returns the user → authenticated).
+ 
+ ## Global constraints (§2 of the FE + backend execution docs, verbatim-by-reference)
+ 
+ - Models: lead + reviewers `opus`; implementers `opus` for every screen task (all F9 screen
+   work is JUDGMENT — style retrofit from prose); plumbing (Task 1) may be `sonnet` but the
+@@ -126,31 +132,34 @@ borrows `.glassKey()` styling and the `DSPressStyle` press.
+ 
+ ### Task 1 — Plumbing: OnboardingService + models + OAuthStarter + SessionStore hook (opus)
+ Files: `Networking/APIClient.swift`, `Networking/OnboardingOAuth.swift` (new),
+ `State/SessionStore.swift`, `Networking/Models.swift` (models), tests
+ `CaseRoomTests/OnboardingServiceTests.swift`.
+ - Protocol `OnboardingService { func requestOTP(email:) async throws; func verifyOTP(email:
+   code:) async throws -> User; func joinGroup(inviteCode:) async throws -> JoinedGroup }`.
+   APIClient conforms: `/api/v1/auth/otp/request` (POST body `{email}`), `/api/v1/auth/otp/verify`
+   (POST body `{email,code}` → `{user}`), `/api/v1/groups/join` (POST body `{invite_code}`).
+   `verifyOTP` maps `401` → `APIError.unauthorized`; `joinGroup` maps `404` → a typed
+-  `OnboardingError.unknownInviteCode`.
++  `OnboardingError.unknownInviteCode`. **`verifyOTP` decodes a `{ user: User }` wrapper and
++  returns `.user`** (the route returns `{"user":{...}}`, not a bare User).
+ - `JoinedGroup` Codable = `{id, name, already_member}` (matches groups.py `join_by_code`).
+ - `OAuthStarter` protocol `{ func start(provider: OAuthProvider) async throws }` +
+   `WebAuthOAuthStarter` using `ASWebAuthenticationSession` against
+   `baseURL/auth/<provider>` (import `AuthenticationServices`); `OAuthProvider {google,linkedin}`.
+   Live start throws `OnboardingError.oauthUnavailable` on 503 / cancel. (Callback-scheme gap
+   FLAGGED in the docblock — Thomas follow-up.)
+ - `SessionStore.finishOnboarding()` → `await bootstrap()`.
+ - Tests (URLProtocol stub, existing test pattern): request/verify/join decode + status
+   mapping (202/200/401/404); `finishOnboarding` flips `isAuthenticated` when `/me` succeeds.
+ - Evidence: tests green + build. No screen.
++- **Per-task before build: run `xcodegen generate` in `ios/` (static .xcodeproj must pick up
++  new files) and commit the project.** (Applies to every task adding a file.)
+ 
+ ### Task 2 — Onboarding VM + progress mark + passcode keypad + fixtures (opus, JUDGMENT)
+ Files: `State/OnboardingViewModel.swift`, `DesignSystem/... or Views/Onboarding/OnboardingProgressMark.swift`,
+ `Views/Onboarding/PasscodeKeypad.swift`, `State/OnboardingFixtures.swift` (DEBUG),
+ tests `CaseRoomTests/OnboardingViewModelTests.swift`, `CaseRoomTests/PasscodeKeypadTests.swift`.
+ - `OnboardingViewModel`: `enum Step { case welcome, email, passcode, account, group, done }`
+   (progress index for email…done = 1…5); `@Observable @MainActor`; fields `email`, `code`,
+   `displayName`, `inviteCode`; `isSubmitting`, `errorText`; user held locally after verify.
+   Methods: `submitEmail()` (requestOTP → step .passcode), `submitCode()` (verifyOTP → hold
+   user → step .account; 401 → errorText), `resendCode()`, `submitAccount()` (updateProfile
+@@ -159,23 +168,26 @@ tests `CaseRoomTests/OnboardingViewModelTests.swift`, `CaseRoomTests/PasscodeKey
+   `joinGroup()` (→ .done; 404 → errorText), `skipGroup()` (→ .done), `finish()`
+   (SessionStore.finishOnboarding), `back()`. Injects `OnboardingService`, `OAuthStarter`,
+   `ProfileService`, `SessionStore`.
+ - `OnboardingProgressMark`: `StaircaseMark().trim(from:0,to: CGFloat(step)/5)` animated with
+   `DSMotion.drawCurve` on step change + `STEP N OF 05` kicker (tabular N). ink→green gradient.
+ - `PasscodeKeypad`: 6 filled/empty dots + 0-9 glass keys (`.glassKey()`) + `⌫`; appends to a
+   bound `code` String capped at 6; fires `onComplete` when length hits 6 (auto-advance).
+   Digits `.tabularNumbers()`. No `.` / `±` (distinct from GauntletKeypad).
+ - Fixtures: `OnboardingFixtures` stub service (success + injectable 401/404/oauth-unavailable),
+   personas for each step (email `amara@yale.edu`, code `••••••`, name "Amara Osei", C-14).
+-- Tests: step transitions for the happy path; 401 on verify keeps step .passcode + sets
+-  errorText; 404 on join keeps .group + errorText; skipGroup → .done; oauth-unavailable path;
+-  keypad auto-advance at 6 + cap + delete. Evidence: tests green + build.
++- Tests: step transitions for the happy path; **`submitEmail` requestOTP transport-failure →
++  stays .email + errorText (never advances to passcode for a code never sent)**; 401 on verify
++  keeps step .passcode + sets errorText; 404 on join keeps .group + errorText; skipGroup →
++  .done; oauth-unavailable path; keypad auto-advance at 6 + cap + delete. **SEAM TEST (locks
++  the retrofit invariant): walk welcome→group and assert `sessionStore.isAuthenticated` stays
++  `false` at every step, flipping to `true` only after `finish()`.** Evidence: tests green + build.
+ 
+ ### Task 3 — Welcome + Email gate screens (opus, JUDGMENT)
+ Files: `Views/Onboarding/OnboardingWelcomeView.swift`, `Views/Onboarding/OnboardingEmailView.swift`;
+ CaseRoomApp `-Onboarding welcome|email` hatches; VM tests already cover logic.
+ - Welcome: `DSBackground` + faint tint blobs (F0 provides via DSBackground), centered wordmark
+   + `StaircaseMarkView(animated:true)` (the mark draws on entry), a serif-voice lede, ONE ink
+   capsule primary "Get started" (→ VM .email), underline secondary "Log in" (→ presents the
+   existing LoginView; do NOT delete or restyle LoginView). ≤1 glass hero, ≤3 greens.
+ - Email gate: top progress mark (`STEP 1 OF 05`), H1 "Your school email.", a single glass
+   field (capsule glass, square content elsewhere), serif aside re: registry check, ink primary
+diff --git a/ios/CaseRoom/Networking/APIClient.swift b/ios/CaseRoom/Networking/APIClient.swift
+index 350b64d..9221f32 100644
+--- a/ios/CaseRoom/Networking/APIClient.swift
++++ b/ios/CaseRoom/Networking/APIClient.swift
+@@ -112,20 +112,29 @@ protocol BoardService {
+ protocol CommunityService {
+     func connections() async throws -> [Connection]
+     func groups() async throws -> [GroupSummary]
+     func createGroup(name: String) async throws -> GroupSummary
+     func group(id: Int) async throws -> GroupDetail
+     func transferGroupAdmin(id: Int, userId: Int) async throws
+     func groupProgress(id: Int) async throws -> [GroupProgressMember]
+     func schoolStanding() async throws -> SchoolStanding
+ }
+ 
++// Signup onboarding seams (F9, B5 OTP + B6 group-join). All same-origin from
++// the native client (no Origin header needed — matches every other mutating
++// method here). requestOTP is unauth; verifyOTP sets the session cookie.
++protocol OnboardingService {
++    func requestOTP(email: String) async throws
++    func verifyOTP(email: String, code: String) async throws -> User
++    func joinGroup(inviteCode: String) async throws -> JoinedGroup
++}
++
+ struct CaseQuery {
+     var q: String?
+     var difficulty: String?
+     var industry: String?
+     var caseType: String?
+     var school: String?
+     var limit: Int?
+ }
+ 
+ // Covers the existing /api/practice/* endpoints (Task 7). All cookie-authed;
+@@ -160,21 +169,21 @@ protocol SessionFlowService {
+     func acceptCase(id: Int, caseId: Int) async throws -> SessionDetail
+     func swap(id: Int) async throws -> SwapInitiated
+     func swapAccept(id: Int) async throws -> SwapAccepted
+     func recaps() async throws -> [RecapListItem]
+     func recapViewed(id: Int) async throws -> RecapViewedResult
+     func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult
+     func feedbackReport(id: Int) async throws -> FeedbackReport
+ }
+ 
+ actor APIClient: SessionService, SessionFlowService, PairService, DrillService, AvailabilityService, ProfileService,
+-    TimelineService, RecommendationService, GauntletService, BoardService, CommunityService {
++    TimelineService, RecommendationService, GauntletService, BoardService, CommunityService, OnboardingService {
+     static let shared = APIClient()
+ 
+     // Immutable and Sendable, so safe to read from outside actor isolation
+     // (e.g. resolving relative preview/PDF URLs from a SwiftUI view).
+     nonisolated let baseURL: URL
+     private let session: URLSession
+     private let decoder: JSONDecoder
+     private let encoder: JSONEncoder
+ 
+     init(session: URLSession = URLSession(configuration: AppGroup.makeURLSessionConfiguration())) {
+@@ -242,20 +251,55 @@ actor APIClient: SessionService, SessionFlowService, PairService, DrillService,
+     }
+ 
+     func logout() async throws {
+         try await sendNoContent(path: "/api/v1/auth/logout", method: "POST")
+     }
+ 
+     func me() async throws -> User {
+         try await send(path: "/api/v1/me", method: "GET")
+     }
+ 
++    // MARK: - Onboarding (OnboardingService, F9)
++
++    // POST /api/v1/auth/otp/request — unauth, same-origin. Server always 202
++    // {"status":"ok"} (no account enumeration); any 2xx is success, so the
++    // no-content helper (which only requires a 2xx) is exactly right.
++    func requestOTP(email: String) async throws {
++        struct OTPRequestBody: Encodable { let email: String }
++        try await sendNoContent(path: "/api/v1/auth/otp/request", method: "POST", body: OTPRequestBody(email: email))
++    }
++
++    // POST /api/v1/auth/otp/verify — unauth, same-origin. 200 {"user":{...}} +
++    // session cookie, or 401 (mapped to APIError.unauthorized in performRaw).
++    // Decodes the {user} wrapper and returns .user, mirroring login(...).
++    func verifyOTP(email: String, code: String) async throws -> User {
++        struct VerifyBody: Encodable { let email: String; let code: String }
++        struct VerifyResponse: Decodable { let user: User }
++        let response: VerifyResponse = try await send(
++            path: "/api/v1/auth/otp/verify", method: "POST", body: VerifyBody(email: email, code: code)
++        )
++        return response.user
++    }
++
++    // POST /api/v1/groups/join (B6) — required, same-origin. body {invite_code}
++    // -> group row, or 404 "Unknown invite code". The generic helper throws
++    // APIError.server(404); catch and rethrow the typed error so the VM can show
++    // an invite-specific message rather than a bare server-error.
++    func joinGroup(inviteCode: String) async throws -> JoinedGroup {
++        struct JoinBody: Encodable { let inviteCode: String }   // -> {"invite_code": ...}
++        do {
++            return try await send(path: "/api/v1/groups/join", method: "POST", body: JoinBody(inviteCode: inviteCode))
++        } catch APIError.server(404) {
++            throw OnboardingError.unknownInviteCode
++        }
++    }
++
+     // MARK: - Cases
+ 
+     func cases(query: CaseQuery = CaseQuery()) async throws -> [CaseSummary] {
+         struct CasesResponse: Decodable { let cases: [CaseSummary]; let total: Int }
+         var items: [URLQueryItem] = []
+         if let q = query.q { items.append(URLQueryItem(name: "q", value: q)) }
+         if let difficulty = query.difficulty { items.append(URLQueryItem(name: "difficulty", value: difficulty)) }
+         if let industry = query.industry { items.append(URLQueryItem(name: "industry", value: industry)) }
+         if let caseType = query.caseType { items.append(URLQueryItem(name: "case_type", value: caseType)) }
+         if let school = query.school { items.append(URLQueryItem(name: "school", value: school)) }
+diff --git a/ios/CaseRoom/Networking/Models.swift b/ios/CaseRoom/Networking/Models.swift
+index e94d2ee..40231c3 100644
+--- a/ios/CaseRoom/Networking/Models.swift
++++ b/ios/CaseRoom/Networking/Models.swift
+@@ -215,20 +215,38 @@ struct SchoolRef: Codable, Equatable {
+ struct ProfileDetail: Codable, Equatable {
+     let id: Int
+     let email: String
+     let displayName: String?
+     let bio: String?
+     let linkedinUrl: String?
+     let school: SchoolRef?
+     let photoUrl: String?
+ }
+ 
++// POST /api/v1/groups/join (B6, webapp/routes/groups.py:69) row. The route
++// returns {id, name, school_id, invite_code, role, already_member}; this
++// decodes a deliberate 3-of-6 subset — Swift ignores the unlisted keys, and
++// convertFromSnakeCase maps already_member -> alreadyMember.
++struct JoinedGroup: Codable, Equatable {
++    let id: Int
++    let name: String
++    let alreadyMember: Bool
++}
++
++// Typed onboarding failures the generic APIError can't distinguish: a 404 from
++// /groups/join is an unknown invite code (not a routing miss), and OAuth is
++// surfaced as unavailable on 503/cancel (see OnboardingOAuth.swift).
++enum OnboardingError: Error, Equatable {
++    case unknownInviteCode
++    case oauthUnavailable
++}
++
+ // B5 GET/PUT /api/v1/settings/notifications — the five category flags.
+ struct NotificationSettings: Codable, Equatable {
+     var proposals: Bool
+     var sessionReminders: Bool
+     var feedback: Bool
+     var freeNow: Bool
+     var community: Bool
+ 
+     var allEnabled: Bool { proposals && sessionReminders && feedback && freeNow && community }
+ }
+diff --git a/ios/CaseRoom/Networking/OnboardingOAuth.swift b/ios/CaseRoom/Networking/OnboardingOAuth.swift
+new file mode 100644
+index 0000000..9746c69
+--- /dev/null
++++ b/ios/CaseRoom/Networking/OnboardingOAuth.swift
+@@ -0,0 +1,76 @@
++/*
++ * Purpose: OAuth entry seam for the F9 onboarding account step — opens the
++ *          backend's /auth/<provider> browser route in an ASWebAuthenticationSession.
++ * Inputs: OAuthProvider (google | linkedin); APIClient.shared.baseURL.
++ * Outputs: none on success (the web session cookie is set browser-side);
++ *          throws OnboardingError.oauthUnavailable on 503/cancel/error.
++ * Run: OnboardingViewModel.startOAuth(provider:) calls OAuthStarter.start(provider:).
++ *
++ * LIVE-GAP (Thomas follow-up, plan §8.1): this CANNOT complete a live round-trip
++ * today by construction. B5's OAuth callback 302s to `/` (https), which never
++ * matches the native callbackURLScheme "caseroom", so the session's completion
++ * handler never fires; separately the session runs in SafariViewService with its
++ * own cookie jar, so even a successful web login's cookie never reaches
++ * APIClient's HTTPCookieStorage. Live native OAuth needs a backend native-scheme
++ * callback redirect + a token/cookie hand-back (and provisioned creds). Shipped
++ * as a protocol-injected, mockable seam; proven by VM tests + fixtures, never a
++ * live browser round-trip.
++ */
++
++import AuthenticationServices
++import Foundation
++import UIKit
++
++enum OAuthProvider: String {
++    case google
++    case linkedin
++}
++
++protocol OAuthStarter {
++    func start(provider: OAuthProvider) async throws
++}
++
++// The native callbackURLScheme ASWebAuthenticationSession watches for. The
++// backend does not yet redirect to it (see LIVE-GAP above); kept here so the
++// wiring is correct once the follow-up lands.
++private let onboardingCallbackScheme = "caseroom"
++
++final class WebAuthOAuthStarter: NSObject, OAuthStarter, ASWebAuthenticationPresentationContextProviding {
++    func start(provider: OAuthProvider) async throws {
++        let url = APIClient.shared.baseURL
++            .appendingPathComponent("auth")
++            .appendingPathComponent(provider.rawValue)
++
++        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
++            let session = ASWebAuthenticationSession(
++                url: url, callbackURLScheme: onboardingCallbackScheme
++            ) { callbackURL, error in
++                // Any error (user cancel, 503, transport) or a missing callback
++                // collapses to the single typed onboarding failure — the flow
++                // only needs "OAuth didn't complete", not the specific cause.
++                if error != nil || callbackURL == nil {
++                    continuation.resume(throwing: OnboardingError.oauthUnavailable)
++                } else {
++                    continuation.resume()
++                }
++            }
++            session.presentationContextProvider = self
++            session.prefersEphemeralWebBrowserSession = false
++            // ASWebAuthenticationSession.start() must run on the main thread.
++            DispatchQueue.main.async {
++                if !session.start() {
++                    continuation.resume(throwing: OnboardingError.oauthUnavailable)
++                }
++            }
++        }
++    }
++
++    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
++        // The key window of the active foreground scene; a fresh anchor is a safe
++        // fallback the system still presents from.
++        let scene = UIApplication.shared.connectedScenes
++            .compactMap { $0 as? UIWindowScene }
++            .first { $0.activationState == .foregroundActive }
++        return scene?.keyWindow ?? ASPresentationAnchor()
++    }
++}
+diff --git a/ios/CaseRoom/State/SessionStore.swift b/ios/CaseRoom/State/SessionStore.swift
+index d116533..f308663 100644
+--- a/ios/CaseRoom/State/SessionStore.swift
++++ b/ios/CaseRoom/State/SessionStore.swift
+@@ -42,20 +42,28 @@ final class SessionStore {
+         lastError = nil
+         do {
+             user = try await client.login(email: email, password: password)
+         } catch APIError.unauthorized {
+             lastError = "Invalid email or password."
+         } catch {
+             lastError = "Couldn't reach the server. Try again."
+         }
+     }
+ 
++    // The onboarding flow holds the returned User locally and only flips
++    // isAuthenticated here, after the OTP-verify session cookie is set — so
++    // RootShell keeps showing the onboarding cover through the account/group
++    // steps instead of swapping to the shell mid-flow.
++    func finishOnboarding() async {
++        await bootstrap()
++    }
++
+     func logout() async {
+         do {
+             try await client.logout()
+         } catch {
+             // Best-effort — clear local state regardless of server outcome.
+         }
+         user = nil
+         // Clear App Group state so the widget process can't read the
+         // logged-out user's snapshot or reuse the group session cookie.
+         SnapshotStore.clear()
+diff --git a/ios/CaseRoomTests/OnboardingServiceTests.swift b/ios/CaseRoomTests/OnboardingServiceTests.swift
+new file mode 100644
+index 0000000..1a8a118
+--- /dev/null
++++ b/ios/CaseRoomTests/OnboardingServiceTests.swift
+@@ -0,0 +1,154 @@
++/*
++ * Purpose: Unit tests for the F9 onboarding seams — OnboardingService (OTP
++ *          request/verify, group join + status mapping) and SessionStore's
++ *          finishOnboarding() bootstrap hook.
++ * Inputs: canned JSON via StubURLProtocol (reused from APIClientTests).
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++final class OnboardingServiceTests: XCTestCase {
++    private var client: APIClient!
++
++    override func setUp() {
++        super.setUp()
++        StubURLProtocol.reset()
++        let session = URLSession(configuration: StubURLProtocol.sessionConfiguration)
++        client = APIClient(session: session)
++    }
++
++    private func stub(_ json: String, status: Int) {
++        StubURLProtocol.stubs.append(
++            .init(statusCode: status, data: Data(json.utf8), headers: ["Content-Type": "application/json"])
++        )
++    }
++
++    // MARK: - requestOTP
++
++    func testRequestOTPSucceedsOn202AndPostsEmail() async throws {
++        stub(#"{"status": "ok"}"#, status: 202)
++
++        try await client.requestOTP(email: "amara@yale.edu")
++
++        let request = StubURLProtocol.recordedRequests.first!
++        XCTAssertEqual(request.url?.path, "/api/v1/auth/otp/request")
++        XCTAssertEqual(request.httpMethod, "POST")
++        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
++        XCTAssertEqual(body["email"] as? String, "amara@yale.edu")
++    }
++
++    func testRequestOTPSucceedsOnBare200() async throws {
++        stub(#"{"status": "ok"}"#, status: 200)
++
++        try await client.requestOTP(email: "amara@yale.edu")
++
++        XCTAssertEqual(StubURLProtocol.recordedRequests.first?.url?.path, "/api/v1/auth/otp/request")
++    }
++
++    func testRequestOTPTransportFailureThrows() async {
++        // No stub queued — StubURLProtocol fails with URLError(.unknown), which
++        // APIClient wraps as APIError.transport.
++        do {
++            try await client.requestOTP(email: "amara@yale.edu")
++            XCTFail("expected a transport failure")
++        } catch APIError.transport {
++            // expected
++        } catch {
++            XCTFail("expected APIError.transport, got \(error)")
++        }
++    }
++
++    // MARK: - verifyOTP
++
++    func testVerifyOTPDecodesUserOn200() async throws {
++        stub(#"{"user": {"id": 7, "email": "amara@yale.edu", "name": "Amara Osei"}}"#, status: 200)
++
++        let user = try await client.verifyOTP(email: "amara@yale.edu", code: "123456")
++
++        XCTAssertEqual(user.id, 7)
++        XCTAssertEqual(user.email, "amara@yale.edu")
++        XCTAssertEqual(user.name, "Amara Osei")
++
++        let request = StubURLProtocol.recordedRequests.first!
++        XCTAssertEqual(request.url?.path, "/api/v1/auth/otp/verify")
++        XCTAssertEqual(request.httpMethod, "POST")
++        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
++        XCTAssertEqual(body["email"] as? String, "amara@yale.edu")
++        XCTAssertEqual(body["code"] as? String, "123456")
++    }
++
++    func testVerifyOTPThrowsUnauthorizedOn401() async {
++        stub(#"{"detail": "invalid_code"}"#, status: 401)
++
++        do {
++            _ = try await client.verifyOTP(email: "amara@yale.edu", code: "000000")
++            XCTFail("expected unauthorized")
++        } catch APIError.unauthorized {
++            // expected
++        } catch {
++            XCTFail("expected APIError.unauthorized, got \(error)")
++        }
++    }
++
++    // MARK: - joinGroup
++
++    func testJoinGroupDecodesSubsetOn200() async throws {
++        // Server returns all six keys; JoinedGroup decodes only id/name/already_member.
++        stub(#"""
++        {"id": 14, "name": "Yale SOM 26", "school_id": 2, "invite_code": "C-14",
++         "role": "member", "already_member": false}
++        """#, status: 200)
++
++        let group = try await client.joinGroup(inviteCode: "C-14")
++
++        XCTAssertEqual(group.id, 14)
++        XCTAssertEqual(group.name, "Yale SOM 26")
++        XCTAssertFalse(group.alreadyMember)
++
++        let request = StubURLProtocol.recordedRequests.first!
++        XCTAssertEqual(request.url?.path, "/api/v1/groups/join")
++        XCTAssertEqual(request.httpMethod, "POST")
++        let body = try JSONSerialization.jsonObject(with: request.httpBodyOrStream()) as! [String: Any]
++        XCTAssertEqual(body["invite_code"] as? String, "C-14")
++    }
++
++    func testJoinGroupThrowsUnknownInviteCodeOn404() async {
++        stub(#"{"detail": "Unknown invite code"}"#, status: 404)
++
++        do {
++            _ = try await client.joinGroup(inviteCode: "NOPE")
++            XCTFail("expected unknownInviteCode")
++        } catch OnboardingError.unknownInviteCode {
++            // expected
++        } catch {
++            XCTFail("expected OnboardingError.unknownInviteCode, got \(error)")
++        }
++    }
++
++    // MARK: - SessionStore.finishOnboarding
++
++    func testFinishOnboardingFlipsIsAuthenticatedWhenMeReturnsUser() async {
++        // me() decodes a bare User at /api/v1/me (see APIClient.me / testRealFixture_me).
++        stub(#"{"id": 7, "email": "amara@yale.edu", "name": "Amara Osei"}"#, status: 200)
++        let store = SessionStore(client: client)
++        XCTAssertFalse(store.isAuthenticated)
++
++        await store.finishOnboarding()
++
++        XCTAssertTrue(store.isAuthenticated)
++        XCTAssertEqual(store.user?.id, 7)
++    }
++
++    func testFinishOnboardingStaysUnauthenticatedOn401() async {
++        stub(#"{"detail": "not_authenticated"}"#, status: 401)
++        let store = SessionStore(client: client)
++
++        await store.finishOnboarding()
++
++        XCTAssertFalse(store.isAuthenticated)
++        XCTAssertNil(store.user)
++    }
++}

@@ -16,15 +16,23 @@ struct OnboardingProgressMark: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            StaircaseMark()
-                .trim(from: 0, to: CGFloat(progressStep) / 5)
-                .stroke(
-                    LinearGradient(colors: [palette.ink, palette.green],
-                                   startPoint: .bottom, endPoint: .top),
-                    style: StrokeStyle(lineWidth: 4, lineCap: .butt, lineJoin: .miter))
-                .aspectRatio(48.0 / 40.0, contentMode: .fit)
-                .frame(width: 30, height: 25)
-                .animation(DSMotion.drawCurve, value: progressStep)
+            // The whole staircase sits ghosted (hairline) so the box always reads
+            // as the mark; the ink→green stroke inks OVER it as steps advance — the
+            // "mark drawing itself" progress pattern, legible even at step 1.
+            ZStack {
+                StaircaseMark()
+                    .stroke(palette.hairline,
+                            style: StrokeStyle(lineWidth: 4, lineCap: .butt, lineJoin: .miter))
+                StaircaseMark()
+                    .trim(from: 0, to: CGFloat(progressStep) / 5)
+                    .stroke(
+                        LinearGradient(colors: [palette.ink, palette.green],
+                                       startPoint: .bottom, endPoint: .top),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .butt, lineJoin: .miter))
+                    .animation(DSMotion.drawCurve, value: progressStep)
+            }
+            .aspectRatio(48.0 / 40.0, contentMode: .fit)
+            .frame(width: 30, height: 25)
 
             Text("STEP \(stepNumber) OF 05")
                 .dsText(.kicker)

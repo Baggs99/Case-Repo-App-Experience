@@ -1,0 +1,810 @@
+diff --git a/ios/CaseRoom/Networking/OnboardingOAuth.swift b/ios/CaseRoom/Networking/OnboardingOAuth.swift
+index 9746c69..05be6f9 100644
+--- a/ios/CaseRoom/Networking/OnboardingOAuth.swift
++++ b/ios/CaseRoom/Networking/OnboardingOAuth.swift
+@@ -31,39 +31,47 @@ protocol OAuthStarter {
+ }
+ 
+ // The native callbackURLScheme ASWebAuthenticationSession watches for. The
+ // backend does not yet redirect to it (see LIVE-GAP above); kept here so the
+ // wiring is correct once the follow-up lands.
+ private let onboardingCallbackScheme = "caseroom"
+ 
+ final class WebAuthOAuthStarter: NSObject, OAuthStarter, ASWebAuthenticationPresentationContextProviding {
++    // ASWebAuthenticationSession must be retained by the caller until auth
++    // completes (Apple docs) — the transient main-queue start closure below is
++    // not enough, so hold it here and clear it in the completion handler.
++    private var activeSession: ASWebAuthenticationSession?
++
+     func start(provider: OAuthProvider) async throws {
+         let url = APIClient.shared.baseURL
+             .appendingPathComponent("auth")
+             .appendingPathComponent(provider.rawValue)
+ 
+         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+             let session = ASWebAuthenticationSession(
+                 url: url, callbackURLScheme: onboardingCallbackScheme
+-            ) { callbackURL, error in
++            ) { [weak self] callbackURL, error in
++                self?.activeSession = nil
+                 // Any error (user cancel, 503, transport) or a missing callback
+                 // collapses to the single typed onboarding failure — the flow
+                 // only needs "OAuth didn't complete", not the specific cause.
+                 if error != nil || callbackURL == nil {
+                     continuation.resume(throwing: OnboardingError.oauthUnavailable)
+                 } else {
+                     continuation.resume()
+                 }
+             }
+             session.presentationContextProvider = self
+             session.prefersEphemeralWebBrowserSession = false
++            activeSession = session
+             // ASWebAuthenticationSession.start() must run on the main thread.
+             DispatchQueue.main.async {
+                 if !session.start() {
++                    self.activeSession = nil
+                     continuation.resume(throwing: OnboardingError.oauthUnavailable)
+                 }
+             }
+         }
+     }
+ 
+     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+         // The key window of the active foreground scene; a fresh anchor is a safe
+diff --git a/ios/CaseRoom/State/OnboardingFixtures.swift b/ios/CaseRoom/State/OnboardingFixtures.swift
+new file mode 100644
+index 0000000..2501f85
+--- /dev/null
++++ b/ios/CaseRoom/State/OnboardingFixtures.swift
+@@ -0,0 +1,92 @@
++/*
++ * Purpose: DEBUG-only fixtures for the F9 onboarding flow — a StubOnboardingBackend
++ *          (OnboardingService + ProfileService + OAuthStarter) with injectable
++ *          outcomes (success by default; flags force verify-401, join-404,
++ *          oauth-unavailable, request-failure, profile-failure) plus the Amara
++ *          Osei / yale.edu persona seeds and a factory that parks a fixture-backed
++ *          OnboardingViewModel at any Step for the screen hatches (Tasks 3-7).
++ * Inputs: none.
++ * Outputs: StubOnboardingBackend, OnboardingFixtures (seeds + viewModel(step:)).
++ * Run: OnboardingRootView's -Onboarding <step> hatch builds via OnboardingFixtures.
++ */
++
++#if DEBUG
++import Foundation
++
++/// A single stub covering all three onboarding service protocols, so one
++/// instance backs the whole VM. Flags default to the success path; set one to
++/// force the matching failure. Reused by OnboardingViewModelTests via
++/// @testable import (DEBUG symbols are visible to the test target).
++final class StubOnboardingBackend: OnboardingService, ProfileService, OAuthStarter {
++    var forceRequestFailure = false
++    var forceVerify401 = false
++    var forceJoin404 = false
++    var forceOAuthUnavailable = false
++    var forceProfileFailure = false
++    var verifiedUser = User(id: 1, email: OnboardingFixtures.email, name: OnboardingFixtures.displayName)
++
++    private(set) var requestOTPCalls = 0
++    private(set) var startedProviders: [OAuthProvider] = []
++
++    // MARK: OnboardingService
++
++    func requestOTP(email: String) async throws {
++        requestOTPCalls += 1
++        if forceRequestFailure { throw APIError.transport(URLError(.notConnectedToInternet)) }
++    }
++
++    func verifyOTP(email: String, code: String) async throws -> User {
++        if forceVerify401 { throw APIError.unauthorized }
++        return verifiedUser
++    }
++
++    func joinGroup(inviteCode: String) async throws -> JoinedGroup {
++        if forceJoin404 { throw OnboardingError.unknownInviteCode }
++        return JoinedGroup(id: 14, name: "C-14", alreadyMember: false)
++    }
++
++    // MARK: OAuthStarter
++
++    func start(provider: OAuthProvider) async throws {
++        startedProviders.append(provider)
++        if forceOAuthUnavailable { throw OnboardingError.oauthUnavailable }
++    }
++
++    // MARK: ProfileService (only updateProfile is exercised by onboarding)
++
++    func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail {
++        if forceProfileFailure { throw APIError.transport(URLError(.notConnectedToInternet)) }
++        return ProfileDetail(id: 1, email: OnboardingFixtures.email, displayName: displayName,
++                             bio: bio, linkedinUrl: linkedinUrl, school: nil, photoUrl: nil)
++    }
++
++    func profile() async throws -> ProfileDetail { fatalError("onboarding never reads the profile") }
++    func uploadProfilePhoto(data: Data, mime: String) async throws -> String { fatalError("onboarding never uploads a photo") }
++    func notificationSettings() async throws -> NotificationSettings { fatalError("onboarding never reads settings") }
++    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { fatalError("onboarding never writes settings") }
++}
++
++enum OnboardingFixtures {
++    // Amara Osei / yale.edu registry — the pinned persona continuity.
++    static let email = "amara@yale.edu"
++    static let displayName = "Amara Osei"
++    static let inviteCode = "C14-XXXX"
++
++    /// A fixture-backed VM parked at `step`, pre-seeded with the persona field
++    /// values so a hatch renders a populated screen without a live server. Uses
++    /// a throwaway SessionStore (finish()'s bootstrap is never driven in a shot).
++    @MainActor
++    static func viewModel(step: OnboardingViewModel.Step) -> OnboardingViewModel {
++        let backend = StubOnboardingBackend()
++        let vm = OnboardingViewModel(
++            service: backend, oauthStarter: backend,
++            profileService: backend, sessionStore: SessionStore()
++        )
++        vm.email = email
++        vm.displayName = displayName
++        vm.inviteCode = inviteCode
++        vm.step = step
++        return vm
++    }
++}
++#endif
+diff --git a/ios/CaseRoom/State/OnboardingViewModel.swift b/ios/CaseRoom/State/OnboardingViewModel.swift
+new file mode 100644
+index 0000000..a046d37
+--- /dev/null
++++ b/ios/CaseRoom/State/OnboardingViewModel.swift
+@@ -0,0 +1,213 @@
++/*
++ * Purpose: The F9 signup onboarding state machine — one @Observable @MainActor
++ *          source of truth for the step, field values, submitting/error state,
++ *          and the locally-held verified User. Drives welcome → email → passcode
++ *          → account → group → done, holding the User locally so isAuthenticated
++ *          flips ONLY in finish() (RootShell keeps showing the onboarding cover
++ *          through the account/group steps rather than swapping to the shell).
++ * Inputs: OnboardingService + OAuthStarter + ProfileService + SessionStore
++ *         (injected; convenience init binds the live APIClient/WebAuth impls).
++ * Outputs: none (network side effects via the injected services; the session
++ *          cookie set by verifyOTP is the durable auth, cashed in by finish()).
++ * Run: owned by OnboardingRootView (Task 7); fixtures via OnboardingFixtures.
++ */
++
++import Foundation
++import Observation
++
++@Observable
++@MainActor
++final class OnboardingViewModel {
++    /// The six flow positions. Raw values double as the progress index so the
++    /// mark's trim reads straight off `progressStep` (welcome is the pre-step
++    /// intro → 0; email…done → 1…5, i.e. "STEP N OF 05").
++    enum Step: Int {
++        case welcome = 0, email, passcode, account, group, done
++    }
++
++    var step: Step = .welcome
++    var email = ""
++    var code = ""
++    var displayName = ""
++    var inviteCode = ""
++    var isSubmitting = false
++    var errorText: String?
++
++    /// The verified user, held LOCALLY and never written to SessionStore.user —
++    /// the whole retrofit invariant is that auth doesn't flip mid-flow (see
++    /// finish()). Exposed read-only so a later step can greet the user by name.
++    private(set) var user: User?
++
++    /// STEP N OF 05: 1…5 for email…done, 0 for the welcome intro.
++    var progressStep: Int {
++        switch step {
++        case .welcome: return 0
++        case .email: return 1
++        case .passcode: return 2
++        case .account: return 3
++        case .group: return 4
++        case .done: return 5
++        }
++    }
++
++    private let service: OnboardingService
++    private let oauthStarter: OAuthStarter
++    private let profileService: ProfileService
++    let sessionStore: SessionStore
++
++    private let genericError = "Something went wrong. Try again."
++
++    // Live wiring: APIClient conforms to both OnboardingService and
++    // ProfileService; SessionStore is threaded from the environment (it is NOT
++    // a singleton), so the caller passes the app's shared instance.
++    convenience init(sessionStore: SessionStore) {
++        self.init(
++            service: APIClient.shared,
++            oauthStarter: WebAuthOAuthStarter(),
++            profileService: APIClient.shared,
++            sessionStore: sessionStore
++        )
++    }
++
++    init(service: OnboardingService, oauthStarter: OAuthStarter, profileService: ProfileService, sessionStore: SessionStore) {
++        self.service = service
++        self.oauthStarter = oauthStarter
++        self.profileService = profileService
++        self.sessionStore = sessionStore
++    }
++
++    // MARK: - Navigation
++
++    func goToEmail() {
++        errorText = nil
++        step = .email
++    }
++
++    func back() {
++        errorText = nil
++        switch step {
++        case .email: step = .welcome
++        case .passcode: step = .email
++        case .account: step = .passcode
++        case .group: step = .account
++        case .welcome, .done: break
++        }
++    }
++
++    // MARK: - Email gate
++
++    func submitEmail() async {
++        guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
++        errorText = nil
++        isSubmitting = true
++        defer { isSubmitting = false }
++        do {
++            try await service.requestOTP(email: email)
++            step = .passcode
++        } catch {
++            // A dropped request must NOT advance — there'd be no code to enter.
++            errorText = "Couldn't send the code. Try again."
++        }
++    }
++
++    // MARK: - Passcode
++
++    func submitCode() async {
++        errorText = nil
++        isSubmitting = true
++        defer { isSubmitting = false }
++        do {
++            user = try await service.verifyOTP(email: email, code: code)
++            step = .account
++        } catch APIError.unauthorized {
++            code = ""
++            errorText = "That code didn't match."
++        } catch {
++            errorText = genericError
++        }
++    }
++
++    func resendCode() async {
++        errorText = nil
++        isSubmitting = true
++        defer { isSubmitting = false }
++        do {
++            try await service.requestOTP(email: email)
++        } catch {
++            errorText = "Couldn't send the code. Try again."
++        }
++    }
++
++    // MARK: - Account completion
++
++    func submitAccount() async {
++        guard !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
++        errorText = nil
++        isSubmitting = true
++        defer { isSubmitting = false }
++        do {
++            _ = try await profileService.updateProfile(displayName: displayName, bio: nil, linkedinUrl: nil)
++            step = .group
++        } catch {
++            errorText = genericError
++        }
++    }
++
++    // OAuth completing account setup advances straight to the group step (the
++    // web session cookie stands in for the display-name profile write). This is
++    // a JUDGMENT call — flagged in the F9 report.
++    func startOAuth(_ provider: OAuthProvider) async {
++        errorText = nil
++        isSubmitting = true
++        defer { isSubmitting = false }
++        do {
++            try await oauthStarter.start(provider: provider)
++            step = .group
++        } catch OnboardingError.oauthUnavailable {
++            errorText = "Couldn't reach \(provider.displayName). Try email instead."
++        } catch {
++            errorText = genericError
++        }
++    }
++
++    // MARK: - Group join
++
++    func joinGroup() async {
++        guard !inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
++        errorText = nil
++        isSubmitting = true
++        defer { isSubmitting = false }
++        do {
++            _ = try await service.joinGroup(inviteCode: inviteCode)
++            step = .done
++        } catch OnboardingError.unknownInviteCode {
++            errorText = "We don't recognize that code."
++        } catch {
++            errorText = genericError
++        }
++    }
++
++    func skipGroup() {
++        errorText = nil
++        step = .done
++    }
++
++    // MARK: - Finish
++
++    // The ONLY place isAuthenticated may flip: the verify-step cookie is already
++    // set, so bootstrap()'s /me succeeds and RootShell swaps to the shell.
++    func finish() async {
++        await sessionStore.finishOnboarding()
++    }
++}
++
++private extension OAuthProvider {
++    /// Human label for the "Couldn't reach <X>" copy — brand text only (the
++    /// staircase-mark-only rule forbids brand glyphs).
++    var displayName: String {
++        switch self {
++        case .google: return "Google"
++        case .linkedin: return "LinkedIn"
++        }
++    }
++}
+diff --git a/ios/CaseRoom/Views/Onboarding/OnboardingProgressMark.swift b/ios/CaseRoom/Views/Onboarding/OnboardingProgressMark.swift
+new file mode 100644
+index 0000000..1c96a87
+--- /dev/null
++++ b/ios/CaseRoom/Views/Onboarding/OnboardingProgressMark.swift
+@@ -0,0 +1,55 @@
++/*
++ * Purpose: The onboarding progress chrome — the staircase mark drawing itself as
++ *          the flow advances (trim to progressStep/5, the native equivalent of
++ *          the canvas dashoffset `74 − 74·(step/5)`), beside a "STEP N OF 05"
++ *          kicker. The mark is the ONLY icon; no SF Symbols/emoji here.
++ * Inputs: progressStep (0…5 from OnboardingViewModel); \.dsPalette.
++ * Outputs: OnboardingProgressMark (a View).
++ * Run: OnboardingRootView places it above each step (Task 7).
++ */
++
++import SwiftUI
++
++struct OnboardingProgressMark: View {
++    @Environment(\.dsPalette) private var palette
++    let progressStep: Int
++
++    var body: some View {
++        HStack(spacing: 10) {
++            StaircaseMark()
++                .trim(from: 0, to: CGFloat(progressStep) / 5)
++                .stroke(
++                    LinearGradient(colors: [palette.ink, palette.green],
++                                   startPoint: .bottom, endPoint: .top),
++                    style: StrokeStyle(lineWidth: 4, lineCap: .butt, lineJoin: .miter))
++                .aspectRatio(48.0 / 40.0, contentMode: .fit)
++                .frame(width: 30, height: 25)
++                .animation(DSMotion.drawCurve, value: progressStep)
++
++            Text("STEP \(stepNumber) OF 05")
++                .dsText(.kicker)
++                .tabularNumbers()
++                .foregroundStyle(palette.muted)
++        }
++    }
++
++    // Zero-padded to match the "05" total (tabular digits keep both aligned).
++    private var stepNumber: String { String(format: "%02d", progressStep) }
++}
++
++#if DEBUG
++private struct OnboardingProgressMarkPreview: View {
++    @State private var step = 1
++    var body: some View {
++        ZStack {
++            DSBackground()
++            VStack(spacing: 24) {
++                ForEach(1...5, id: \.self) { OnboardingProgressMark(progressStep: $0) }
++                Button("Advance") { step = step % 5 + 1 }
++            }
++        }
++    }
++}
++
++#Preview { OnboardingProgressMarkPreview() }
++#endif
+diff --git a/ios/CaseRoom/Views/Onboarding/PasscodeKeypad.swift b/ios/CaseRoom/Views/Onboarding/PasscodeKeypad.swift
+new file mode 100644
+index 0000000..3a86d43
+--- /dev/null
++++ b/ios/CaseRoom/Views/Onboarding/PasscodeKeypad.swift
+@@ -0,0 +1,109 @@
++/*
++ * Purpose: The onboarding passcode entry — a row of 6 dots (filled ink / empty
++ *          hairline ring) over a 3×4 glass keypad (1-9, blank, 0, ⌫). Appends
++ *          digits to a bound `code` capped at 6 and fires onComplete the moment
++ *          the sixth digit lands (auto-advance). Distinct from GauntletKeypad:
++ *          NO `.` and NO `±` — digits only.
++ * Inputs: $code (digits only, ≤6); onComplete callback; \.dsPalette.
++ * Outputs: mutates the bound code; calls onComplete on the 5→6 transition.
++ * Run: OnboardingPasscodeView binds it to vm.code with onComplete → submitCode.
++ */
++
++import SwiftUI
++
++struct PasscodeKeypad: View {
++    @Environment(\.dsPalette) private var palette
++    @Binding var code: String
++    var onComplete: () -> Void
++
++    private let rows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", "⌫"]]
++
++    /// The pure key-application rule (digits-only, cap 6, ⌫ deletes last),
++    /// factored out so the append/delete/complete logic is unit-testable
++    /// without hosting the View. `completed` is true only on the 5→6 transition.
++    static func apply(key: String, to code: String) -> (code: String, completed: Bool) {
++        if key == "⌫" {
++            return (code.isEmpty ? code : String(code.dropLast()), false)
++        }
++        guard code.count < 6, key.count == 1, key.first!.isNumber else { return (code, false) }
++        let next = code + key
++        return (next, next.count == 6)
++    }
++
++    var body: some View {
++        VStack(spacing: 22) {
++            dots
++            VStack(spacing: 9) {
++                ForEach(rows, id: \.self) { row in
++                    HStack(spacing: 9) {
++                        ForEach(row, id: \.self) { key in keyButton(key) }
++                    }
++                }
++            }
++        }
++    }
++
++    // MARK: - Dots
++
++    private var dots: some View {
++        HStack(spacing: 14) {
++            ForEach(0..<6, id: \.self) { index in
++                Group {
++                    if index < code.count {
++                        Circle().fill(palette.ink)
++                    } else {
++                        Circle().stroke(palette.hairline, lineWidth: 1.5)
++                    }
++                }
++                .frame(width: 13, height: 13)
++            }
++        }
++        .animation(DSMotion.hoverCurve, value: code.count)
++    }
++
++    // MARK: - Keys
++
++    @ViewBuilder
++    private func keyButton(_ key: String) -> some View {
++        if key.isEmpty {
++            // Layout placeholder in the bottom-left slot — no key there.
++            Color.clear.frame(maxWidth: .infinity).frame(height: 54)
++        } else {
++            Button { press(key) } label: {
++                Text(key)
++                    // The ⌫ glyph isn't in Archivo — resolve it via the system
++                    // font (a sanctioned key, not a decorative icon), mirroring
++                    // GauntletKeypad.
++                    .font(key == "⌫" ? .system(size: 22, weight: .semibold) : .archivo(22, weight: 700))
++                    .tabularNumbers()
++                    .foregroundStyle(palette.ink)
++                    .frame(maxWidth: .infinity)
++                    .frame(height: 54)
++                    .glassKey()
++            }
++            .buttonStyle(DSPressStyle())
++            .accessibilityLabel(key == "⌫" ? "Delete" : key)
++        }
++    }
++
++    private func press(_ key: String) {
++        let result = Self.apply(key: key, to: code)
++        code = result.code
++        if result.completed { onComplete() }
++    }
++}
++
++#if DEBUG
++private struct PasscodeKeypadPreview: View {
++    @State private var code = "12"
++    var body: some View {
++        ZStack {
++            DSBackground()
++            PasscodeKeypad(code: $code, onComplete: {})
++                .padding(24)
++        }
++    }
++}
++
++#Preview { PasscodeKeypadPreview() }
++#endif
+diff --git a/ios/CaseRoomTests/OnboardingViewModelTests.swift b/ios/CaseRoomTests/OnboardingViewModelTests.swift
+new file mode 100644
+index 0000000..3d71aed
+--- /dev/null
++++ b/ios/CaseRoomTests/OnboardingViewModelTests.swift
+@@ -0,0 +1,203 @@
++/*
++ * Purpose: Unit tests for OnboardingViewModel — the step machine (happy path +
++ *          each failure branch) and the SEAM invariant that SessionStore stays
++ *          unauthenticated through every step, flipping to authenticated ONLY
++ *          after finish(). Reuses the DEBUG StubOnboardingBackend fixture.
++ * Inputs: StubOnboardingBackend (in-memory); StubURLProtocol for the /me hop
++ *         behind SessionStore.finishOnboarding().
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++@MainActor
++final class OnboardingViewModelTests: XCTestCase {
++    private func makeVM(backend: StubOnboardingBackend = StubOnboardingBackend(),
++                        store: SessionStore = SessionStore()) -> OnboardingViewModel {
++        OnboardingViewModel(service: backend, oauthStarter: backend, profileService: backend, sessionStore: store)
++    }
++
++    // MARK: - Happy path
++
++    func testHappyPathWalksWelcomeToDone() async {
++        let vm = makeVM()
++        XCTAssertEqual(vm.step, .welcome)
++
++        vm.goToEmail()
++        XCTAssertEqual(vm.step, .email)
++
++        vm.email = OnboardingFixtures.email
++        await vm.submitEmail()
++        XCTAssertEqual(vm.step, .passcode)
++
++        vm.code = "123456"
++        await vm.submitCode()
++        XCTAssertEqual(vm.step, .account)
++        XCTAssertEqual(vm.user?.email, OnboardingFixtures.email)
++
++        vm.displayName = OnboardingFixtures.displayName
++        await vm.submitAccount()
++        XCTAssertEqual(vm.step, .group)
++
++        vm.inviteCode = OnboardingFixtures.inviteCode
++        await vm.joinGroup()
++        XCTAssertEqual(vm.step, .done)
++        XCTAssertNil(vm.errorText)
++    }
++
++    // MARK: - progressStep mapping
++
++    func testProgressStepMapping() {
++        let vm = makeVM()
++        let expected: [OnboardingViewModel.Step: Int] = [
++            .welcome: 0, .email: 1, .passcode: 2, .account: 3, .group: 4, .done: 5,
++        ]
++        for (step, index) in expected {
++            vm.step = step
++            XCTAssertEqual(vm.progressStep, index, "progressStep for \(step)")
++        }
++    }
++
++    // MARK: - Failure branches
++
++    func testSubmitEmailRequestFailureStaysOnEmail() async {
++        let backend = StubOnboardingBackend()
++        backend.forceRequestFailure = true
++        let vm = makeVM(backend: backend)
++        vm.step = .email
++        vm.email = OnboardingFixtures.email
++
++        await vm.submitEmail()
++
++        // A code that was never sent must not surface a passcode screen.
++        XCTAssertEqual(vm.step, .email)
++        XCTAssertNotNil(vm.errorText)
++        XCTAssertFalse(vm.isSubmitting)
++    }
++
++    func testSubmitEmailGuardsEmpty() async {
++        let backend = StubOnboardingBackend()
++        let vm = makeVM(backend: backend)
++        vm.step = .email
++        vm.email = "   "
++
++        await vm.submitEmail()
++
++        XCTAssertEqual(vm.step, .email)
++        XCTAssertEqual(backend.requestOTPCalls, 0)
++    }
++
++    func testSubmitCodeUnauthorizedStaysAndClearsCode() async {
++        let backend = StubOnboardingBackend()
++        backend.forceVerify401 = true
++        let vm = makeVM(backend: backend)
++        vm.step = .passcode
++        vm.code = "000000"
++
++        await vm.submitCode()
++
++        XCTAssertEqual(vm.step, .passcode)
++        XCTAssertEqual(vm.code, "")
++        XCTAssertNotNil(vm.errorText)
++        XCTAssertNil(vm.user)
++    }
++
++    func testSubmitAccountFailureSetsError() async {
++        let backend = StubOnboardingBackend()
++        backend.forceProfileFailure = true
++        let vm = makeVM(backend: backend)
++        vm.step = .account
++        vm.displayName = OnboardingFixtures.displayName
++
++        await vm.submitAccount()
++
++        XCTAssertEqual(vm.step, .account)
++        XCTAssertNotNil(vm.errorText)
++    }
++
++    func testStartOAuthSuccessAdvancesToGroup() async {
++        let backend = StubOnboardingBackend()
++        let vm = makeVM(backend: backend)
++        vm.step = .account
++
++        await vm.startOAuth(.google)
++
++        XCTAssertEqual(vm.step, .group)
++        XCTAssertEqual(backend.startedProviders, [.google])
++        XCTAssertNil(vm.errorText)
++    }
++
++    func testStartOAuthUnavailableStaysOnAccount() async {
++        let backend = StubOnboardingBackend()
++        backend.forceOAuthUnavailable = true
++        let vm = makeVM(backend: backend)
++        vm.step = .account
++
++        await vm.startOAuth(.linkedin)
++
++        XCTAssertEqual(vm.step, .account)
++        XCTAssertNotNil(vm.errorText)
++    }
++
++    func testJoinGroupUnknownCodeStaysOnGroup() async {
++        let backend = StubOnboardingBackend()
++        backend.forceJoin404 = true
++        let vm = makeVM(backend: backend)
++        vm.step = .group
++        vm.inviteCode = "NOPE"
++
++        await vm.joinGroup()
++
++        XCTAssertEqual(vm.step, .group)
++        XCTAssertNotNil(vm.errorText)
++    }
++
++    func testSkipGroupGoesToDone() {
++        let vm = makeVM()
++        vm.step = .group
++
++        vm.skipGroup()
++
++        XCTAssertEqual(vm.step, .done)
++    }
++
++    func testBackStepsThroughFlow() {
++        let vm = makeVM()
++        vm.step = .group; vm.back(); XCTAssertEqual(vm.step, .account)
++        vm.back(); XCTAssertEqual(vm.step, .passcode)
++        vm.back(); XCTAssertEqual(vm.step, .email)
++        vm.back(); XCTAssertEqual(vm.step, .welcome)
++        vm.back(); XCTAssertEqual(vm.step, .welcome)   // no-op at the intro
++    }
++
++    // MARK: - SEAM: auth flips only at finish()
++
++    func testSessionStoreStaysUnauthenticatedUntilFinish() async {
++        StubURLProtocol.reset()
++        StubURLProtocol.stubs.append(
++            .init(statusCode: 200,
++                  data: Data(#"{"id": 7, "email": "amara@yale.edu", "name": "Amara Osei"}"#.utf8),
++                  headers: ["Content-Type": "application/json"])
++        )
++        let meClient = APIClient(session: URLSession(configuration: StubURLProtocol.sessionConfiguration))
++        let store = SessionStore(client: meClient)
++        let vm = makeVM(store: store)
++
++        XCTAssertFalse(store.isAuthenticated)          // welcome
++        vm.email = OnboardingFixtures.email
++
++        vm.goToEmail();            XCTAssertFalse(store.isAuthenticated)
++        await vm.submitEmail();     XCTAssertFalse(store.isAuthenticated)   // .passcode
++        vm.code = "123456"
++        await vm.submitCode();      XCTAssertFalse(store.isAuthenticated)   // .account (user held locally)
++        vm.displayName = OnboardingFixtures.displayName
++        await vm.submitAccount();   XCTAssertFalse(store.isAuthenticated)   // .group
++
++        // The verify step already set a cookie locally; only finish() cashes it.
++        await vm.finish()
++        XCTAssertTrue(store.isAuthenticated)
++        XCTAssertEqual(store.user?.id, 7)
++    }
++}
+diff --git a/ios/CaseRoomTests/PasscodeKeypadTests.swift b/ios/CaseRoomTests/PasscodeKeypadTests.swift
+new file mode 100644
+index 0000000..d4a613a
+--- /dev/null
++++ b/ios/CaseRoomTests/PasscodeKeypadTests.swift
+@@ -0,0 +1,49 @@
++/*
++ * Purpose: Unit tests for PasscodeKeypad.apply — the pure key rule behind the
++ *          keypad: digits append up to 6, a 7th is ignored, ⌫ removes the last,
++ *          and `completed` is true exactly on the 5→6 transition (auto-advance).
++ * Inputs: none (pure static helper).
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++final class PasscodeKeypadTests: XCTestCase {
++    func testAppendsUpToSix() {
++        var code = ""
++        for digit in ["1", "2", "3", "4", "5", "6"] {
++            code = PasscodeKeypad.apply(key: digit, to: code).code
++        }
++        XCTAssertEqual(code, "123456")
++    }
++
++    func testIgnoresSeventhDigit() {
++        let result = PasscodeKeypad.apply(key: "7", to: "123456")
++        XCTAssertEqual(result.code, "123456")
++        XCTAssertFalse(result.completed)
++    }
++
++    func testDeleteRemovesLast() {
++        XCTAssertEqual(PasscodeKeypad.apply(key: "⌫", to: "123").code, "12")
++    }
++
++    func testDeleteOnEmptyIsNoOp() {
++        let result = PasscodeKeypad.apply(key: "⌫", to: "")
++        XCTAssertEqual(result.code, "")
++        XCTAssertFalse(result.completed)
++    }
++
++    func testCompletedFiresExactlyAtSix() {
++        XCTAssertFalse(PasscodeKeypad.apply(key: "5", to: "1234").completed)   // → 5 digits
++        XCTAssertTrue(PasscodeKeypad.apply(key: "6", to: "12345").completed)   // → 6th lands
++        XCTAssertFalse(PasscodeKeypad.apply(key: "7", to: "123456").completed) // capped, no re-fire
++        XCTAssertFalse(PasscodeKeypad.apply(key: "⌫", to: "123456").completed) // delete never completes
++    }
++
++    func testIgnoresNonDigitKeys() {
++        XCTAssertEqual(PasscodeKeypad.apply(key: "a", to: "12").code, "12")
++        XCTAssertEqual(PasscodeKeypad.apply(key: ".", to: "12").code, "12")
++    }
++}
