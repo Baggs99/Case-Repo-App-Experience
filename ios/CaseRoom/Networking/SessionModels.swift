@@ -61,6 +61,20 @@ struct RubricState: Codable, Equatable {
 struct Finalized: Codable, Equatable {
     let grade: Double
     let finalizedAt: Date
+    // MARK: - F5 debrief seeding (B3 §7.3) — additive + optional so pre-F5
+    // fixtures/tests (and the finalize response before these keys existed) still
+    // decode. Explicit init keeps existing Finalized(grade:finalizedAt:) call
+    // sites compiling; Codable synthesis is unaffected.
+    let nextRecommendation: Recommendation?
+    let prefillProposal: FinalizePrefill?
+
+    init(grade: Double, finalizedAt: Date,
+         nextRecommendation: Recommendation? = nil, prefillProposal: FinalizePrefill? = nil) {
+        self.grade = grade
+        self.finalizedAt = finalizedAt
+        self.nextRecommendation = nextRecommendation
+        self.prefillProposal = prefillProposal
+    }
 }
 
 // POST /api/practice/pair/create response (Task 14).
