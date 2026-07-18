@@ -12,7 +12,7 @@ Branch: fe/f9-onboarding · Worktree: /Users/thomaskgould/dev/fe-f9 · Cut at ae
 - docs/superpowers/plans/2026-07-17-fe-f9-plan.md — WRITTEN. Plan review: PENDING.
 
 ## Tasks
-- Task 1 (plumbing: OnboardingService + OAuthStarter + SessionStore hook): PENDING
+- Task 1 (plumbing: OnboardingService + OAuthStarter + SessionStore hook): COMPLETE (34b336c; review APPROVE both axes; fix c... session-retain committed). Suite 708/0 (+9). Reviewer IMPORTANT (dormant session-retain) fixed; MINORs = xcodeproj folder-globbed (no pbxproj change expected), thin transport coverage on verify/join (optional).
 - Task 2 (VM + progress mark + passcode keypad + fixtures): PENDING
 - Task 3 (Welcome + Email screens): PENDING
 - Task 4 (Passcode screen): PENDING
