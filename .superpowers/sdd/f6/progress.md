@@ -9,9 +9,15 @@ Updated: 2026-07-18 · Branch: fe/f6-console · Worktree: /Users/thomaskgould/de
 - Sims: iPhone 17 942222D4 booted + mic granted (app/tests/xctest); iPad 653F37B8 idle (boot+grant per task); stray F4 iPhone shut.
 
 ## Now
-T1–T5 ALL done + approved. Running full suites → whole-branch adversarial review → report.
+PHASE DONE. Report `docs/superpowers/sdd/fe-f6-report.md` written. Head f16a8d2. Backend 655/0,
+iOS 699/0, transport CLEAN. Awaiting orchestrator merge (do NOT push/merge).
 
 ## Done
+- Close-out: full suites fresh (backend 655/0, iOS 699/0); whole-branch Opus adversarial review =
+  SHIP-WITH-FOLLOWUPS, transport-boundary CLEAN. 1 IMPORTANT (interviewer candidate-video was an
+  unwired placeholder) FIXED (f16a8d2 — display-only RailVideoView threading remoteTrack/localCapture;
+  boundary grep-verified clean; RailVideoView-duplication residual adjudicated + recorded in report).
+  Findings 2–4 verified-safe/documented. Report + ledger committed.
 - T5 PDF case-pack mode (73e36d0): pdfBackdrop token (#E7EBF1 + dark, rv#5); tablet overlay covers
   LEFT pane ONLY (rail stays live — confirmed in shots) with 3 authored pages (brief+timing / Exhibit
   01 table + e1 Release synced to script SENT / answer key INTERVIEWER ONLY + quant chain); phone
