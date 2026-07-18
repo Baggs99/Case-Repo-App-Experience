@@ -274,9 +274,11 @@ struct NegotiationStageView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
         .padding(.vertical, 16)
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.hairline, lineWidth: 1))
+        // §5: page content is SQUARE and never an outlined box — a flat block
+        // set off by a hairline rule (matching proposeRow / requestBlock), not a
+        // rounded strokeBorder card. Glass panels/chips/sheets stay rounded.
+        .overlay(alignment: .top) { Rectangle().fill(palette.hairline).frame(height: 1) }
     }
 
     private func sectionLabel(_ text: String) -> some View {

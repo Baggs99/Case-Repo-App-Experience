@@ -160,6 +160,37 @@ final class DebriefPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testRatingTreats409AsCleared() async {
+        // An already-closed recap 409s. Parity with RecapCloseOutViewModel: the
+        // gate is already clear — keep the rating, clear the gate, no false error.
+        let flow = DebriefStubFlowService()
+        flow.recapCloseResult = .failure(APIError.server(409))
+        let vm = DebriefViewModel(sessionId: 4040, flow: flow)
+
+        await vm.rate(4)
+
+        XCTAssertEqual(flow.recordedRatings, [4])   // attempted…
+        XCTAssertEqual(vm.rating, 4)                 // …rating kept (no rollback)
+        XCTAssertTrue(vm.gateCleared)
+        XCTAssertNil(vm.rateError)
+    }
+
+    @MainActor
+    func testRateNoOpAfterGateCleared() async {
+        // In-flight/cleared guard (mirrors RecapCloseOutViewModel): once the gate
+        // is cleared, a further tap must not fire a second recapClose.
+        let flow = DebriefStubFlowService()
+        let vm = DebriefViewModel(sessionId: 4040, flow: flow)
+
+        await vm.rate(4)
+        XCTAssertTrue(vm.gateCleared)
+
+        await vm.rate(2)                             // already cleared → ignored
+        XCTAssertEqual(flow.recordedRatings, [4])    // only the first close fired
+        XCTAssertEqual(vm.rating, 4)                 // unchanged
+    }
+
+    @MainActor
     func testRatingRollsBackOnCloseFailure() async {
         let flow = DebriefStubFlowService()
         flow.recapCloseResult = .failure(DebriefStubFlowService.Unused())

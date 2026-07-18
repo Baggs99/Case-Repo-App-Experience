@@ -190,6 +190,44 @@ final class NegotiationViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testResolveFromHeldViewSetsKeptPickSynchronouslyWithoutNetwork() async {
+        // Candidate has countered and is awaiting the interviewer; the held view
+        // already carries currentPick + candidateCounter.
+        let held = makeView(whoseTurn: "interviewer", roundUsed: 2, pick: pick, counter: counter)
+        let service = StubSessionFlowService(view: held)
+        let vm = NegotiationViewModel(sessionId: 1, service: service)
+        await vm.refresh(stampedCaseId: nil)   // seed the held view; still live
+        XCTAssertNil(vm.resolution)
+
+        // The interviewer accepts their own pick → the case is stamped. Deriving
+        // from the ALREADY-HELD view sets the resolution SYNCHRONOUSLY (no await,
+        // no network GET) so SessionView's hold engages before the lobby renders.
+        vm.resolveFromHeldView(stampedCaseId: pick.caseId)
+
+        XCTAssertEqual(vm.resolution, .keptPick)               // set pre-refresh
+        XCTAssertEqual(vm.candidateStage, .keptPick(pick))
+        // resolution != nil && !acknowledged == SessionView.holdingNegotiationResolution
+        XCTAssertFalse(vm.resolutionAcknowledged)
+    }
+
+    @MainActor
+    func testResolveFromHeldViewIgnoresInterviewerAndUnstamped() async {
+        // Interviewer side never derives a candidate resolution.
+        let held = makeView(role: "interviewer", whoseTurn: "interviewer", roundUsed: 2, pick: pick, counter: counter)
+        let vm = NegotiationViewModel(sessionId: 1, service: StubSessionFlowService(view: held))
+        await vm.refresh(stampedCaseId: nil)
+        vm.resolveFromHeldView(stampedCaseId: pick.caseId)
+        XCTAssertNil(vm.resolution)
+
+        // Candidate, but still unstamped → nothing to resolve yet.
+        let candidateHeld = makeView(whoseTurn: "interviewer", roundUsed: 2, pick: pick, counter: counter)
+        let candidateVM = NegotiationViewModel(sessionId: 1, service: StubSessionFlowService(view: candidateHeld))
+        await candidateVM.refresh(stampedCaseId: nil)
+        candidateVM.resolveFromHeldView(stampedCaseId: nil)
+        XCTAssertNil(candidateVM.resolution)
+    }
+
+    @MainActor
     func testInterviewerNeverGetsCandidateResolution() async {
         let resolved = makeView(role: "interviewer", whoseTurn: nil, roundUsed: 2, pick: pick, counter: counter, state: "lobby")
         let service = StubSessionFlowService(view: resolved)

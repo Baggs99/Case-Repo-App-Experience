@@ -67,6 +67,8 @@ final class DebriefViewModel {
     var rating = 0
     /// Set from recapClose's result — the gate is now clear for future entries.
     var gateCleared = false
+    /// True while a `recapClose` is in flight (guards concurrent rating taps).
+    var closingRecap = false
     var rateError: String?
 
     /// The interviewer's swap invite state (canvas: "Swap roles" → "invite sent").
@@ -93,11 +95,21 @@ final class DebriefViewModel {
     /// candidate has none (interviewer-authored only, per B3).
     func rate(_ n: Int) async {
         guard DebriefPresentation.isValidRating(n) else { return }
+        // Mirror RecapCloseOutViewModel's close guard: never fire a second
+        // recapClose while one is in flight or once the gate is already cleared.
+        guard !closingRecap, !gateCleared else { return }
+        closingRecap = true
+        defer { closingRecap = false }
         rateError = nil
         rating = n
         do {
             let result = try await flow.recapClose(id: sessionId, caseRating: n, thumbs: nil)
             gateCleared = result.gateCleared
+        } catch APIError.server(409) {
+            // Re-close: the recap is already closed → the gate is already clear.
+            // Keep the rating (don't roll back) and surface no error, matching
+            // RecapCloseOutViewModel's 409-as-cleared parity.
+            gateCleared = true
         } catch {
             rating = 0
             rateError = "Couldn't save your rating. Try again."

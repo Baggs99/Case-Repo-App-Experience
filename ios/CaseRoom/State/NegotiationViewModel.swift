@@ -140,6 +140,20 @@ final class NegotiationViewModel {
         }
     }
 
+    /// Synchronously derive the candidate's resolution from the ALREADY-HELD
+    /// negotiation `view` (it already carries currentPick + candidateCounter)
+    /// the moment a case is stamped — NO network. This engages SessionView's
+    /// hold (resolution != nil) BEFORE refresh()'s GET round-trip, so the
+    /// candidate never flashes the lobby between the negotiating→lobby flip and
+    /// the resolution card. refresh() still runs after for completeness, but the
+    /// hold must not depend on it. No-op until a view is held / off the candidate
+    /// side / once already resolved (never clears an existing resolution).
+    func resolveFromHeldView(stampedCaseId: Int?) {
+        self.stampedCaseId = stampedCaseId
+        guard let view, view.yourRole == "candidate", resolution == nil else { return }
+        resolution = NegotiationLogic.resolution(view: view, stampedCaseId: stampedCaseId)
+    }
+
     private func apply(_ fetched: NegotiationView) {
         view = fetched
         errorMessage = nil

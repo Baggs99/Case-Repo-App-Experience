@@ -70,6 +70,12 @@ struct SessionView: View {
             // that would otherwise unmount NegotiationView).
             .onChange(of: viewModel.negotiationTick) { _, _ in
                 setUpNegotiationIfNeeded()
+                // Synchronously derive the candidate's resolution from the
+                // already-held negotiation view the instant the case is stamped
+                // (caseId non-nil), so the hold engages BEFORE the async
+                // refresh's network round-trip — otherwise state=="lobby" falls
+                // through to LobbyView and flashes before the resolution card.
+                negotiationViewModel?.resolveFromHeldView(stampedCaseId: viewModel.caseId)
                 Task { await negotiationViewModel?.refresh(stampedCaseId: viewModel.caseId) }
             }
             .onChange(of: viewModel.finalized) { _, finalized in
