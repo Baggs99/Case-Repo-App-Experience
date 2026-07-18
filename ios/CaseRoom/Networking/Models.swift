@@ -69,13 +69,61 @@ struct Proposal: Codable, Identifiable, Equatable {
     let id: Int
     let fromName: String
     let fromRole: String
-    let caseId: Int
-    let caseTitle: String
+    // Nil for case-less (negotiating) proposals — B3 allows scheduling before
+    // a case is picked. See CaseGateError/negotiation flow (F3).
+    let caseId: Int?
+    let caseTitle: String?
     let caseType: String?
     let difficulty: String?
     let message: String?
     let proposedTimes: [Date]
     let createdAt: Date
+    // F3 additions (Case-Tab contract sheet): direction/state drive the
+    // pendingReceived/sentAwaiting buckets; claimToken/counter* only ever
+    // populated on the relevant proposal shapes. Defaulted here (and
+    // caseId/caseTitle re-defaulted nil) so pre-F3 construction call sites
+    // keep compiling unchanged — mirrors DashboardStats's explicit init above.
+    let direction: String
+    let state: String
+    let claimToken: String?
+    let counterTimes: [Date]?
+    let counterBy: Int?
+    let counteredAt: Date?
+
+    init(
+        id: Int, fromName: String, fromRole: String, caseId: Int? = nil, caseTitle: String? = nil,
+        caseType: String?, difficulty: String?, message: String?, proposedTimes: [Date], createdAt: Date,
+        direction: String = "received", state: String = "pending", claimToken: String? = nil,
+        counterTimes: [Date]? = nil, counterBy: Int? = nil, counteredAt: Date? = nil
+    ) {
+        self.id = id
+        self.fromName = fromName
+        self.fromRole = fromRole
+        self.caseId = caseId
+        self.caseTitle = caseTitle
+        self.caseType = caseType
+        self.difficulty = difficulty
+        self.message = message
+        self.proposedTimes = proposedTimes
+        self.createdAt = createdAt
+        self.direction = direction
+        self.state = state
+        self.claimToken = claimToken
+        self.counterTimes = counterTimes
+        self.counterBy = counterBy
+        self.counteredAt = counteredAt
+    }
+}
+
+// POST /api/proposals/claim/{token} response (F3). convertFromSnakeCase maps
+// proposal_id/session_id/needs_negotiation/from_user_id.
+struct ClaimResult: Decodable, Equatable {
+    let proposalId: Int
+    let state: String
+    let sessionId: Int?
+    let accepted: Bool
+    let needsNegotiation: Bool
+    let fromUserId: Int
 }
 
 struct SessionSummary: Codable, Identifiable, Equatable {
@@ -128,8 +176,24 @@ struct DashboardStats: Codable, Equatable {
 struct AcceptedSession: Codable, Equatable {
     let accepted: Bool
     let sessionId: Int
-    let sessionUrl: String
-    let icsUrl: String
+    // Omitted by the case-less/negotiating accept shape (B3, contract sheet
+    // lines 176-184) — no session_url/ics_url until a case is stamped.
+    let sessionUrl: String?
+    let icsUrl: String?
+}
+
+// GET /api/v1/recaps row (F3, B3 recap gate) — oldest-first, unread-only.
+// Identifiable by sessionId: one recap per finalized candidate-seat session.
+struct RecapItem: Codable, Equatable, Identifiable {
+    let sessionId: Int
+    let caseId: Int
+    let caseTitle: String
+    let interviewerName: String
+    let grade: Double?
+    let finalizedAt: Date
+    let viewedAt: Date?
+
+    var id: Int { sessionId }
 }
 
 // Free-now availability (Task 9) — AvailabilityStatus/FreeUser moved to

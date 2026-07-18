@@ -16,7 +16,7 @@ import XCTest
 
 final class StubPairService: PairService {
     var pairCreateResult: Result<PairToken, Error> = .success(
-        PairToken(token: "stub-token", expiresAt: Date().addingTimeInterval(600))
+        PairToken(token: "stub-token", expiresAt: Date().addingTimeInterval(600), shortCode: "STUB01")
     )
     var pairStatusResults: [Result<Int?, Error>] = [.success(nil)]
     var pairClaimResult: Result<Int, Error> = .success(42)
@@ -50,7 +50,7 @@ final class PairViewModelTests: XCTestCase {
 
     func testCreateStoresTokenAndProducesAQRImage() async {
         let stub = StubPairService()
-        stub.pairCreateResult = .success(PairToken(token: "abc123", expiresAt: Date().addingTimeInterval(600)))
+        stub.pairCreateResult = .success(PairToken(token: "abc123", expiresAt: Date().addingTimeInterval(600), shortCode: "ABC123"))
         stub.pairStatusResults = [.success(nil)]
         let viewModel = PairViewModel(service: stub, pollInterval: .milliseconds(1))
 

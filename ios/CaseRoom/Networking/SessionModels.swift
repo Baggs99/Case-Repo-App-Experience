@@ -63,10 +63,12 @@ struct Finalized: Codable, Equatable {
     let finalizedAt: Date
 }
 
-// POST /api/practice/pair/create response (Task 14).
+// POST /api/practice/pair/create response (Task 14). shortCode added B1 (F3
+// contract sheet) — the 6-char QR-scan fallback code.
 struct PairToken: Codable, Equatable {
     let token: String
     let expiresAt: Date
+    let shortCode: String
 }
 
 // GET /api/practice/{id}/join-config response (Task 4). SessionDetail.mode

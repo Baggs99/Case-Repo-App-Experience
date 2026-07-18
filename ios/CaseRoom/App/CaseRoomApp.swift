@@ -6,8 +6,8 @@
  *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills (+ optional
  *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
- *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures — see the
- *         #if DEBUG blocks).
+ *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
+ *         -CaseFixtures (F3) — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -151,6 +151,12 @@ struct CaseRoomApp: App {
     //  -startCaseDetail <id>  push .caseDetail(id) onto libraryPath (Task 4
     //                    screenshot hatch) — apply AFTER fake-auth so the
     //                    push lands on an already-authenticated shell.
+    //  -CaseFixtures (F3)  fake auth + selects the Case tab; RootShell's
+    //                    caseTabRoot swaps in a fixture-backed
+    //                    CaseTabViewModel — see CaseFixtures.swift.
+    //  -CaseSheet <name> (F3-T3, DEBUG)  under -CaseFixtures, CaseTabView opens
+    //                    a verb-bar sheet on appear (getCased) so the OPEN sheet
+    //                    can be screenshotted with no dev server. Release-inert.
     @MainActor
     private func applyDebugLaunchHatches() async {
         let args = ProcessInfo.processInfo.arguments
@@ -182,6 +188,15 @@ struct CaseRoomApp: App {
             // hatch to select the tab on its own).
             sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
             AppRouter.shared.selection = .community
+        }
+        if args.contains("-CaseFixtures") {
+            // MARK: F3 — fake auth, no network. RootShell's caseTabRoot reads
+            // the same arg and swaps in a fixture-backed CaseTabViewModel
+            // (CaseFixtures.swift), so the Case tab screenshot path needs no
+            // dev server. Also selects the tab (mirrors -CommunityFixtures);
+            // -startTab caseTab (already wired above) does the same thing.
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.selection = .caseTab
         }
         if args.contains("-GroupPageFixtures") {
             // Fake auth (same fixture user as -CommunityFixtures) + push

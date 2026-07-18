@@ -136,7 +136,8 @@ final class APIClientTests: XCTestCase {
           "case_id": 5, "case_title": "Widget Co", "case_type": "Profitability",
           "difficulty": "Medium", "message": "Let's practice",
           "proposed_times": ["2026-07-20T14:30:00.123456+00:00"],
-          "created_at": "2026-07-14T10:00:00+00:00"}]}
+          "created_at": "2026-07-14T10:00:00+00:00", "direction": "received", "state": "pending",
+          "claim_token": null, "counter_times": null, "counter_by": null, "countered_at": null}]}
         """#)
 
         let proposals = try await client.proposals()
@@ -144,6 +145,8 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(proposals.count, 1)
         XCTAssertEqual(proposals[0].fromName, "Bob Dev")
         XCTAssertEqual(proposals[0].proposedTimes.count, 1)
+        XCTAssertEqual(proposals[0].direction, "received")
+        XCTAssertEqual(proposals[0].state, "pending")
 
         let request = StubURLProtocol.recordedRequests.first!
         XCTAssertEqual(request.url?.path, "/api/v1/proposals")

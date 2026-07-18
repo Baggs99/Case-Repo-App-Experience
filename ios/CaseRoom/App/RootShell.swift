@@ -71,7 +71,8 @@ struct RootShell: View {
             // screenshot-only paths.
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
-                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
+                || args.contains("-CaseFixtures") { return }
             #endif
             await sessionStore.bootstrap()
         }
@@ -128,7 +129,8 @@ struct RootShell: View {
             // Normal launches (and Release) always request as before.
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
-                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
+                || args.contains("-CaseFixtures") { return }
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
@@ -221,6 +223,28 @@ struct RootShell: View {
         #endif
     }
 
+    // MARK: F3 — `-CaseFixtures` (mirrors `-GroupPageFixtures`) injects a
+    // fixture-backed CaseTabViewModel (CaseFixtures.makeViewModel(), no dev
+    // server) so the Case tab screenshot path needs no live server; the live
+    // path uses CaseTabView's default (live APIClient-backed) init.
+    // F3 T6: on `.regular` (iPad), swap in the July-17 tablet persona
+    // (CaseFixtures.makeTabletViewModel(), Decisions §7 day-advance) instead
+    // of the phone's July-16 set — picked by size class (this shell already
+    // reads `hSize` for the rest of its tablet chrome), so `-CaseFixtures`
+    // needs no separate launch arg per platform.
+    @ViewBuilder
+    private var caseTabRoot: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-CaseFixtures") {
+            CaseTabView(viewModel: hSize == .regular ? CaseFixtures.makeTabletViewModel() : CaseFixtures.makeViewModel())
+        } else {
+            CaseTabView()
+        }
+        #else
+        CaseTabView()
+        #endif
+    }
+
     // The live server-gauntlet run VM. When router.gauntletResult is set (Drills
     // "See today's result"), it opens straight into the result phase — no re-run.
     private func makeGauntletRun() -> GauntletRunViewModel {
@@ -241,8 +265,16 @@ struct RootShell: View {
             }
         case .library:
             CasesListView()
+        // MARK: F3 — Case tab (canvas 3b). caseTabRoot below is fixture-or-live;
+        // .recap is F3's own interim stub (F5 replaces at merge). Push/deep-link
+        // steering onto .recap stays AppRouter.go(to:)'s (F5's), untouched here.
         case .caseTab:
-            SessionsView()
+            NavigationStack(path: $router.casePath) {
+                caseTabRoot
+                    .navigationDestination(for: AppRoute.self) { route in
+                        if case .recap(let id) = route { RecapGateStub(sessionID: id) }
+                    }
+            }
         case .community:
             NavigationStack(path: $router.communityPath) {
                 CommunityView()

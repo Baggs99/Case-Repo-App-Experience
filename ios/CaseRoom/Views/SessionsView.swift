@@ -102,7 +102,7 @@ private struct ProposalRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(proposal.fromName)
                 .font(.headline)
-            Text(proposal.caseTitle)
+            Text(proposal.caseTitle ?? "Untitled case")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             if let message = proposal.message {

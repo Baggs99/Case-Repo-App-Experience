@@ -291,9 +291,17 @@ struct CaseDetailContent: View {
     private var ctaSection: some View {
         VStack(spacing: 8) {
             Button {
-                // F4→F3 seam: F3 owns the Case-tab case-prefill; this interim
-                // just selects the Case tab bare (plan resolution — no new
-                // AppRoute this phase).
+                // F4→F3 seam (now live): set the Case-tab case-prefill, then
+                // select the Case tab. A done case pre-fills the "Case someone
+                // with this" verb (carries the title for its context line); an
+                // open case pre-fills "Get cased on this". CaseTabView consumes
+                // the router field and opens the matching sheet.
+                if libraryCase.done {
+                    AppRouter.shared.caseSomeonePrefillCaseID = libraryCase.id
+                    AppRouter.shared.caseSomeonePrefillTitle = libraryCase.title
+                } else {
+                    AppRouter.shared.caseGetCasedPrefillCaseID = libraryCase.id
+                }
                 AppRouter.shared.go(to: .caseTab)
             } label: {
                 Text(LibraryDetailCopy.cta(done: libraryCase.done))
@@ -321,7 +329,9 @@ struct CaseDetailContent: View {
     private var recasedSection: some View {
         VStack(spacing: 2) {
             Button {
-                // Same F4→F3 interim seam as the primary CTA.
+                // Same F4→F3 seam (now live): a re-case always pre-fills the
+                // candidate "Get cased on this" verb, even for a done case.
+                AppRouter.shared.caseGetCasedPrefillCaseID = libraryCase.id
                 AppRouter.shared.go(to: .caseTab)
             } label: {
                 Text("Get re-cased anyway")

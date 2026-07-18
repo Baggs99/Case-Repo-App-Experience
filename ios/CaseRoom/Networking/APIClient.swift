@@ -25,6 +25,15 @@ enum GauntletError: Error, Equatable {
     case alreadySubmitted
 }
 
+// Thrown by acceptProposal/claimProposal/pairClaim when the server returns
+// 409 {"detail": {"blocked_by_recap": session_id}} (B3) — the caller is a
+// gated candidate who must close an unread recap before scheduling further.
+// Never returned for interviewer seats, drills, or browsing (contract sheet
+// "409 Conflict Responses"). Swap/accept is F5's territory — not wired here.
+enum CaseGateError: Error, Equatable {
+    case blockedByRecap(Int)
+}
+
 // Thrown by uploadRecordingChunk when the server rejects a chunk with
 // 409 {"detail": "expected seq N"} — the client is out of sync and must
 // resend starting at N (RecordingUploader does this resync).
@@ -273,11 +282,34 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
     func acceptProposal(id: Int, scheduledAt: Date) async throws -> AcceptedSession {
         struct AcceptBody: Encodable { let scheduledAt: Date }
         let body = AcceptBody(scheduledAt: scheduledAt)
-        return try await send(path: "/api/proposals/\(id)/accept", method: "POST", body: body)
+        return try await send(
+            path: "/api/proposals/\(id)/accept", method: "POST", body: body, allowRecapGate: true
+        )
     }
 
     func declineProposal(id: Int) async throws {
         try await sendNoContent(path: "/api/proposals/\(id)/decline", method: "POST")
+    }
+
+    // Recipient-only counter (F3, contract sheet POST /api/proposals/{id}/counter).
+    // Response body ({countered, proposal_id, counter_times}) isn't needed by
+    // the caller — a 2xx is success, matching createProposal's discard-body style.
+    func counterProposal(id: Int, times: [Date]) async throws {
+        struct CounterBody: Encodable { let times: [Date] }
+        try await sendNoContent(path: "/api/proposals/\(id)/counter", method: "POST", body: CounterBody(times: times))
+    }
+
+    // POST /api/proposals/claim/{token} (F3) — empty body; may 409 with the
+    // recap gate for a gated candidate.
+    func claimProposal(token: String) async throws -> ClaimResult {
+        try await send(path: "/api/proposals/claim/\(token)", method: "POST", allowRecapGate: true)
+    }
+
+    // GET /api/v1/recaps (F3) — oldest-first, unread-only recap gate feed.
+    func recaps() async throws -> [RecapItem] {
+        struct RecapsResponse: Decodable { let recaps: [RecapItem] }
+        let response: RecapsResponse = try await send(path: "/api/v1/recaps", method: "GET")
+        return response.recaps
     }
 
     // Creates a proposal from the free-now propose flow (Task 9). Hits the
@@ -300,6 +332,49 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         let body = ProposalBody(
             toUserId: toUserId, caseId: caseId, fromRole: fromRole,
             message: message, proposedTimes: [Date()]
+        )
+        var request = try makeRequest(path: "/api/proposals", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        _ = try await performRaw(request)
+    }
+
+    // MARK: F3 — Scheduled proposal (Schedule composer, canvas sheetLater3).
+    // Sibling to createProposal: the composer proposes one-or-more times and a
+    // case_id that may be EXPLICITLY null ("Interviewer decides"). Swift's
+    // JSONEncoder drops nil optionals, so ScheduledProposalBody hand-encodes to
+    // ALWAYS emit `case_id` (the server distinguishes "no case chosen" from an
+    // absent key). from_role is "candidate" here (Amara proposes to be cased).
+    // Discard-body: a 2xx is success, matching createProposal (the bare row
+    // shape doesn't decode into the enriched Proposal model).
+    func sendScheduledProposal(toUserId: Int, caseId: Int?, fromRole: String, proposedTimes: [Date]) async throws {
+        struct ScheduledProposalBody: Encodable {
+            let toUserId: Int
+            let caseId: Int?
+            let fromRole: String
+            let proposedTimes: [Date]
+
+            // Explicit snake_case keys — this body hand-encodes, so it doesn't
+            // rely on the encoder's .convertToSnakeCase strategy.
+            enum CodingKeys: String, CodingKey {
+                case toUserId = "to_user_id"
+                case caseId = "case_id"
+                case fromRole = "from_role"
+                case proposedTimes = "proposed_times"
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(toUserId, forKey: .toUserId)
+                // Plain encode (NOT encodeIfPresent) emits `case_id: null` when
+                // nil — the server needs the key present for "Interviewer decides".
+                try container.encode(caseId, forKey: .caseId)
+                try container.encode(fromRole, forKey: .fromRole)
+                try container.encode(proposedTimes, forKey: .proposedTimes)
+            }
+        }
+        let body = ScheduledProposalBody(
+            toUserId: toUserId, caseId: caseId, fromRole: fromRole, proposedTimes: proposedTimes
         )
         var request = try makeRequest(path: "/api/proposals", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -664,9 +739,78 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         struct PairClaimBody: Encodable { let token: String }
         struct ClaimResponse: Decodable { let sessionId: Int }
         let response: ClaimResponse = try await send(
-            path: "/api/practice/pair/claim", method: "POST", body: PairClaimBody(token: token)
+            path: "/api/practice/pair/claim", method: "POST", body: PairClaimBody(token: token),
+            allowRecapGate: true
         )
         return response.sessionId
+    }
+
+    // Short-code claim (F3-T4): the Case-someone sheet scans a QR that encodes
+    // caseroom://pair?code=<short_code> (and the manual fallback is the same
+    // 6-char short code). The claim contract's body is
+    // {"token": string|null, "short_code": string|null}; a short code MUST go
+    // under `short_code` (the token column wouldn't match it). Sibling of the
+    // token version above — the legacy full-token scan (PairViewModel) keeps
+    // using pairClaim(token:). B3 guarantees a session_id for short-code claims.
+    func pairClaim(shortCode: String) async throws -> Int {
+        struct PairClaimBody: Encodable { let shortCode: String }   // → {"short_code": ...}
+        struct ClaimResponse: Decodable { let sessionId: Int }
+        let response: ClaimResponse = try await send(
+            path: "/api/practice/pair/claim", method: "POST", body: PairClaimBody(shortCode: shortCode),
+            allowRecapGate: true
+        )
+        return response.sessionId
+    }
+
+    // MARK: - Get-cased-now (GetCasedService, F3-T3)
+
+    // Case-less-capable pairing for the "Get cased now" sheet: nil mints a
+    // general pairing code (candidate hasn't chosen a case yet); a concrete id
+    // scopes it to a case (T4). The existing PairService.pairCreate takes a
+    // non-optional Int (interviewer-flow, always case-scoped), so this is a
+    // sibling overload rather than a change to that contract. Forces `case_id`
+    // to explicit null when nil so the server distinguishes case-less from a
+    // malformed/absent field.
+    func pairCreate(caseId: Int?) async throws -> PairToken {
+        struct FlexPairBody: Encodable {
+            let caseId: Int?
+            enum CodingKeys: String, CodingKey { case caseId }
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(caseId, forKey: .caseId)   // null when nil
+            }
+        }
+        return try await send(
+            path: "/api/practice/pair/create", method: "POST", body: FlexPairBody(caseId: caseId)
+        )
+    }
+
+    // A "ping" from the Get-cased-now board — a now-invite to a free classmate.
+    // POST /api/proposals with case_id:null, from_role:"candidate", one "now"
+    // proposed time. Mirrors createProposal's discard-body style (the endpoint
+    // returns the bare proposals row, which doesn't decode into Proposal).
+    func createNowInvite(toUserId: Int) async throws {
+        struct NowInviteBody: Encodable {
+            let toUserId: Int
+            let caseId: Int?
+            let fromRole: String
+            let proposedTimes: [Date]
+            enum CodingKeys: String, CodingKey { case toUserId, caseId, fromRole, proposedTimes }
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(toUserId, forKey: .toUserId)
+                try container.encode(caseId, forKey: .caseId)   // explicit null
+                try container.encode(fromRole, forKey: .fromRole)
+                try container.encode(proposedTimes, forKey: .proposedTimes)
+            }
+        }
+        let body = NowInviteBody(
+            toUserId: toUserId, caseId: nil, fromRole: "candidate", proposedTimes: [Date()]
+        )
+        var request = try makeRequest(path: "/api/proposals", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        _ = try await performRaw(request)
     }
 
     private static func multipartRecordingBody(boundary: String, seq: Int, mime: String, blob: Data) -> Data {
@@ -704,19 +848,19 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
     }
 
     private func send<Response: Decodable>(
-        path: String, method: String, queryItems: [URLQueryItem] = []
+        path: String, method: String, queryItems: [URLQueryItem] = [], allowRecapGate: Bool = false
     ) async throws -> Response {
         let request = try makeRequest(path: path, method: method, queryItems: queryItems)
-        return try await perform(request)
+        return try await perform(request, allowRecapGate: allowRecapGate)
     }
 
     private func send<Body: Encodable, Response: Decodable>(
-        path: String, method: String, body: Body, queryItems: [URLQueryItem] = []
+        path: String, method: String, body: Body, queryItems: [URLQueryItem] = [], allowRecapGate: Bool = false
     ) async throws -> Response {
         var request = try makeRequest(path: path, method: method, queryItems: queryItems)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
-        return try await perform(request)
+        return try await perform(request, allowRecapGate: allowRecapGate)
     }
 
     private func sendNoContent(
@@ -735,8 +879,8 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         _ = try await performRaw(request)
     }
 
-    private func perform<Response: Decodable>(_ request: URLRequest) async throws -> Response {
-        let data = try await performRaw(request)
+    private func perform<Response: Decodable>(_ request: URLRequest, allowRecapGate: Bool = false) async throws -> Response {
+        let data = try await performRaw(request, allowRecapGate: allowRecapGate)
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
@@ -744,7 +888,9 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         }
     }
 
-    private func performRaw(_ request: URLRequest, allowConflictDetail: Bool = false) async throws -> Data {
+    private func performRaw(
+        _ request: URLRequest, allowConflictDetail: Bool = false, allowRecapGate: Bool = false
+    ) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
@@ -762,6 +908,9 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
            let expected = Self.expectedSeq(from: data) {
             throw RecordingChunkError.seqMismatch(expected: expected)
         }
+        if allowRecapGate, let sessionId = Self.decodeRecapGate(status: httpResponse.statusCode, data: data) {
+            throw CaseGateError.blockedByRecap(sessionId)
+        }
         guard (200...299).contains(httpResponse.statusCode) else {
             throw APIError.server(httpResponse.statusCode)
         }
@@ -777,5 +926,18 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         }
         let numberString = detail[match].split(separator: " ").last.map(String.init) ?? ""
         return Int(numberString)
+    }
+
+    // Parses {"detail": {"blocked_by_recap": session_id}} from a 409 recap-gate
+    // response (B3 contract sheet). Only relevant on 409 — other statuses
+    // return nil so performRaw falls through to its normal APIError.server path.
+    private static func decodeRecapGate(status: Int, data: Data) -> Int? {
+        guard status == 409,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = object["detail"] as? [String: Any],
+              let sessionId = detail["blocked_by_recap"] as? Int else {
+            return nil
+        }
+        return sessionId
     }
 }

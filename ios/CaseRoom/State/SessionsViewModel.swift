@@ -57,7 +57,7 @@ final class SessionsViewModel {
             upcoming = (try? await service.sessions(scope: "upcoming")) ?? upcoming
             do {
                 try await calendar.add(
-                    title: proposal.caseTitle, startDate: chosenTime, notes: "with \(proposal.fromName)"
+                    title: proposal.caseTitle ?? "Untitled case", startDate: chosenTime, notes: "with \(proposal.fromName)"
                 )
                 calendarError = nil
             } catch {
