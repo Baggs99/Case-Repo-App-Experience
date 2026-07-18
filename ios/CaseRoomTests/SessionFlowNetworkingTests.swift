@@ -212,7 +212,9 @@ final class SessionFlowNetworkingTests: XCTestCase {
         ]}
         """#)
 
-        let recaps = try await client.recaps()
+        // Explicitly typed: APIClient also has F3's recaps() -> [RecapItem]
+        // overload for the same endpoint (merge residual — unify later).
+        let recaps: [RecapListItem] = try await client.recaps()
 
         XCTAssertEqual(recaps.count, 3)
         XCTAssertEqual(recaps[0].sessionId, 30)
