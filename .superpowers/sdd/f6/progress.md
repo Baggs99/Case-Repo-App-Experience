@@ -9,9 +9,17 @@ Updated: 2026-07-18 · Branch: fe/f6-console · Worktree: /Users/thomaskgould/de
 - Sims: iPhone 17 942222D4 booted + mic granted (app/tests/xctest); iPad 653F37B8 idle (boot+grant per task); stray F4 iPhone shut.
 
 ## Now
-T1+T2 done + approved. Dispatching T3 (tablet hero 1a — chrome + left pane).
+T1–T3 done + approved. Dispatching T4 (tablet hero 1a — right rail).
 
 ## Done
+- T3 tablet hero chrome + LEFT pane (4ffd565 15194bc 8a5640a d038adb): top bar (mark/wordmark | case |
+  CANDIDATE | tap-run master-clock chip MM:SS+N LEFT green<5 | Finalize & send), 2px cap bar, 7 stage
+  chips, READ ALOUD, exhibit rows, GUIDANCE, SCORE THIS STAGE stacked dims (name+desc+{pts}/{max}+24pt
+  cells+evidence), footer; right rail = T4 placeholder. Fixed T2 nit#1 (STAGE OF %02d from
+  stages.count). 12-dim/max-10 tablet shot fixture (A3 mock). iOS **696**/0. Shots PORTRAIT (landscape
+  can't be forced headless — accepted constraint; top-bar/chip truncation is portrait-only, resolves
+  at hero width). Opus review APPROVE-WITH-NITS. Open nit → fold into T4: unscored dim readout "0/{max}"
+  → "— / {max}" on BOTH tablet(:752) and phone(:318).
 - T2 phone console 8b (d53fe1c a6ecd82 3d50f18 2511478): InterviewerConsoleView (phone `.compact`
   full; `.regular` interim=phone until T3) + SessionView repoint at liveContent level (rv#3, candidate
   branch byte-identical, no 300h video wrapper) + `-startTakeover console-phone[-scored]` hatches +
