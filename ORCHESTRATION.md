@@ -209,6 +209,23 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   sonnet. §6 contract in play: F3 routes blocked_by_recap 409 → .recap
   (F5's screens). Watchdog re-armed.
 
+- 2026-07-18 F3 → feature/backend-gap @ 2ad852b (phase head 2d170fb). ZERO
+  conflicts (F3 kept MARK-bounded shared-file edits; F5 still unmerged —
+  its RootShell .recap destination conflict is EXPECTED at F5 merge: keep
+  F5's real RecapView over F3's RecapGateStub, and F5 owns go(.recap)
+  steering). Fresh integration DB: backend 655; iOS FULL **581/0**
+  (500 + 81, exact). §7 smoke PASS 4/4 live (Case tab verb bar + unified
+  serif empty-state on sparse seed; Home/Drills/Library regressions
+  clean); F3's three glass sheets are fixture-only by design (no live
+  launch arg) — phase shots + VM tests cover them. Crash sweep clean.
+  Contract fidelity: 409 blocked_by_recap → .recap(id) wired on accept/
+  claim/pairClaim; QR payload pinned caseroom://pair?code=<short_code>.
+  **OWNER-GATE (Thomas, before/at FW5 demo):** F3 T5 Schedule composer
+  CASE segmented control uses canvas radius-999 rounded rows — brushes the
+  §5 "no outlined box" rule; eyeball .superpowers/sdd/f3/shots/
+  t5-schedule.png. Deferred: orphan legacy PairViewModel/SessionsView
+  gate-catch (inert, unmounted). FW5 remains open until F5 merges.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
