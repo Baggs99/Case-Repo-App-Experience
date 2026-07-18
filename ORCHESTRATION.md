@@ -275,6 +275,21 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   Opus leads; F9 style-retrofit JUDGMENT, F10 mostly sonnet. Watchdog
   re-armed.
 
+- 2026-07-18 F10 → feature/backend-gap @ 1305df4 (phase head 6ffcddf).
+  ZERO conflicts (web-only phase). Fresh integration DB: backend **673/0**
+  (655 + 18 F10); iOS 699/0 unchanged (no ios/ files). Live curl smoke on
+  the integration server: bad claim-token 404, unauth console 401, login
+  200, port freed. No new migration. Whole-branch adversarial security
+  review: no Critical/Important (CSRF/same-origin, require_session_
+  participant, IDOR guest-A→B 403, no-orphan guest mint all pytest-
+  pinned). OWNER PRODUCT CALLS from F10 (report DV-F10-*): (1) read-aloud
+  has no backing column — console uses case framing + case-pack PDF;
+  (2) upgrade requires whitelisted school-domain email (canvas's "school
+  optional" not implemented backend-side); (3) guest finalize records one
+  explicit 1–5 and BURNS the case for the candidate. Deferred per Design
+  §6: bespoke logged-in gate variant, QR/short-code web pairing. FW7
+  remains open until F9 merges.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
