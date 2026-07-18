@@ -5,10 +5,15 @@
  *          percentile), the 16-bar trend (I2 deviation: rendered from raw
  *          daily SCORE, not a daily-percentile series — see plan), the week
  *          labels, and the C-14 board note (I3: derived from
- *          `result.group.pointsBehindNext`, never fabricated).
+ *          `result.group.pointsBehindNext`, never fabricated). Task 3 adds
+ *          the 4-scope board switcher (C-14/WHARTON/GLOBAL/SCHOOLS):
+ *          `boardScope` + `selectBoard(_:)` lazily loads + caches
+ *          school/global/schools boards (C-14 stays eager from `load()`) and
+ *          exposes the per-scope head/note/foot copy + percentile/decimal
+ *          formatting `GauntletBoard` reads.
  * Inputs: GauntletService/BoardService (default APIClient.shared).
- * Outputs: POST-free reads only (Task 2 never submits the gauntlet).
- * Run: owned by DrillsView; call load() from .task.
+ * Outputs: POST-free reads only (Task 2/3 never submit the gauntlet).
+ * Run: owned by DrillsView (via GauntletBoard); call load() from .task.
  */
 
 import Foundation
@@ -45,8 +50,17 @@ final class DrillsViewModel {
     #if DEBUG
     /// Screenshot-only: injects fixture data instead of hitting the network
     /// (mirrors HomeViewModel's fixture init). `load()` is a deliberate no-op
-    /// on this instance.
-    init(fixtureGauntlet: Gauntlet, fixtureTrends: GauntletTrends, fixtureBoard: GroupBoard) {
+    /// on this instance. `boardScope` presets the active scope chip (Task 3
+    /// `-F7Board` hatch); the three optional board fixtures pre-populate the
+    /// scope caches so `GauntletBoard` never triggers `selectBoard(_:)`'s
+    /// network path on a fixture-backed VM (which would `fatalError` via
+    /// `NeverCalledDrillsService`) — a tap on any chip just reads an
+    /// already-cached scope.
+    init(fixtureGauntlet: Gauntlet, fixtureTrends: GauntletTrends, fixtureBoard: GroupBoard,
+         boardScope: BoardScope = .c14,
+         fixtureSchoolBoard: SchoolBoard? = nil,
+         fixtureGlobalBoard: GlobalBoard? = nil,
+         fixtureSchoolsBoard: SchoolsBoard? = nil) {
         let never = NeverCalledDrillsService()
         self.gauntletService = never
         self.boardService = never
@@ -54,6 +68,10 @@ final class DrillsViewModel {
         self.gauntlet = fixtureGauntlet
         self.trends = fixtureTrends
         self.board = fixtureBoard
+        self.boardScope = boardScope
+        self.schoolBoard = fixtureSchoolBoard
+        self.globalBoard = fixtureGlobalBoard
+        self.schoolsBoard = fixtureSchoolsBoard
     }
     #endif
 
@@ -179,6 +197,113 @@ final class DrillsViewModel {
     func isYourRow(_ entry: BoardEntry) -> Bool {
         guard let group = gauntlet?.result?.group else { return false }
         return entry.rank == group.rank && entry.points == group.points
+    }
+
+    // MARK: - Board scope switcher (Task 3 — C-14/WHARTON/GLOBAL/SCHOOLS)
+
+    /// The four board scopes (canvas 5b chips `C-14` `WHARTON` `GLOBAL`
+    /// `SCHOOLS`). C-14 = `scope=group` (loaded eagerly by `load()`); the
+    /// other three are lazily fetched + cached on first `selectBoard(_:)`.
+    enum BoardScope: CaseIterable {
+        case c14, wharton, global, schools
+
+        var chipLabel: String {
+            switch self {
+            case .c14: return "C-14"
+            case .wharton: return "WHARTON"
+            case .global: return "GLOBAL"
+            case .schools: return "SCHOOLS"
+            }
+        }
+    }
+
+    private(set) var boardScope: BoardScope = .c14
+    private(set) var schoolBoard: SchoolBoard?
+    private(set) var globalBoard: GlobalBoard?
+    private(set) var schoolsBoard: SchoolsBoard?
+    var boardErrorMessage: String?
+
+    /// Switches the active scope and lazily loads + caches that scope's
+    /// payload (a repeat select of an already-cached scope makes no network
+    /// call — the "loader called once per scope" invariant tests assert).
+    /// SCHOOLS also ensures `schoolBoard` is cached: B8's schools-vs-schools
+    /// list carries no per-row "is this yours" flag, so identifying "yours"
+    /// needs the caller's own school id, which only `scope=school` exposes
+    /// (that IS "your school" per the B8 Interfaces contract) — an honest
+    /// dependency, not a fabrication, and idempotent like every other cache.
+    func selectBoard(_ scope: BoardScope) async {
+        boardScope = scope
+        boardErrorMessage = nil
+        do {
+            switch scope {
+            case .c14:
+                break
+            case .wharton:
+                if schoolBoard == nil { schoolBoard = try await boardService.schoolBoard() }
+            case .global:
+                if globalBoard == nil { globalBoard = try await boardService.globalBoard() }
+            case .schools:
+                if schoolBoard == nil { schoolBoard = try await boardService.schoolBoard() }
+                if schoolsBoard == nil { schoolsBoard = try await boardService.schoolsBoard() }
+            }
+        } catch {
+            boardErrorMessage = "Couldn't load board."
+        }
+    }
+
+    /// Graceful ordinal for a possibly-nil percentile (WHARTON's "YOUR
+    /// STANDING" row, GLOBAL's percentile hero) — nil → "—", never a crash
+    /// or a fabricated number.
+    func percentileLabel(_ percentile: Double?) -> String {
+        guard let percentile else { return "—" }
+        return Self.ordinal(Int(percentile.rounded()))
+    }
+
+    /// 1dp average — SCHOOLS/WHARTON's `avgMemberPercentile` is a population
+    /// average, not a personal rank, so it renders as a plain decimal
+    /// ("69.8"), never run through `ordinal(_:)`.
+    static func decimal1(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
+
+    /// SCHOOLS-list "yours" highlight — matched by school id against the
+    /// caller's own school (from the cached `scope=school` board, per the
+    /// selectBoard(.schools) dependency documented above).
+    func isYourSchool(_ card: SchoolCard) -> Bool {
+        guard let mine = schoolBoard?.school?.schoolId else { return false }
+        return card.schoolId == mine
+    }
+
+    // MARK: - Per-scope head/note/foot copy (canvas tablet DC dScope logic,
+    // verbatim; WEEK numbers are computed via `isoWeek`, not hardcoded, so
+    // they never go stale — the rendered text matches the canvas literal for
+    // any date the canvas's "WEEK 29" applies to).
+
+    var currentBoardHead: String {
+        switch boardScope {
+        case .c14: return boardHead
+        case .wharton: return "THE WHARTON SCHOOL — WEEK \(Self.isoWeek(for: Date()))"
+        case .global: return "ALL PLAYERS — TODAY"
+        case .schools: return "SCHOOL VS SCHOOL — WEEK \(Self.isoWeek(for: Date()))"
+        }
+    }
+
+    var currentBoardNote: String? {
+        switch boardScope {
+        case .c14: return boardNote
+        case .wharton: return "BY WEEKLY PERCENTILE"
+        case .global: return "BY PERCENTILE"
+        case .schools: return "AVG MEMBER PERCENTILE"
+        }
+    }
+
+    var currentBoardFoot: String {
+        switch boardScope {
+        case .c14: return "Drill percentiles are public. Session grades stay private."
+        case .wharton: return "Standing among verified Wharton members, by percentile. Head-counts stay private."
+        case .global: return "Everyone who ran today's gauntlet, placed by percentile — never a head-count."
+        case .schools: return "The average of member percentiles — never a head-count. Carry your school."
+        }
     }
 
     // MARK: - Ordinal helper ("1ST".."66TH", shared with the board rows)

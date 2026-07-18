@@ -2,8 +2,13 @@
  * Purpose: Unit tests for DrillsViewModel — streakDay/submitted/beginLabel/
  *          hubPercentileLabel for submitted vs not-submitted gauntlets,
  *          16-bar trend derivation (left-pad when <16 points, last bar
- *          green), week-label suffix gating, the ordinal helper, and the
- *          C-14 board note derivation from group.pointsBehindNext.
+ *          green), week-label suffix gating, the ordinal helper, the C-14
+ *          board note derivation from group.pointsBehindNext, and (Task 3)
+ *          the scope switcher: selectBoard(_:) lazily loads + caches each of
+ *          WHARTON/GLOBAL/SCHOOLS exactly once, WHARTON exposes the school
+ *          card + ordinal yourPercentile, GLOBAL's nil yourPercentile → "—",
+ *          SCHOOLS marks the caller's own school "yours", and percentile/
+ *          decimal copy formatting (66.0 → "66TH"; avg 69.8 → "69.8").
  * Inputs: fake Gauntlet/Board services (no live network).
  * Outputs: none.
  * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
@@ -126,6 +131,122 @@ final class DrillsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.board?.entries.count, 10)
         XCTAssertEqual(vm.board?.group?.name, "C-14")
     }
+
+    // MARK: - Board scope switcher (Task 3 — C-14/WHARTON/GLOBAL/SCHOOLS)
+
+    private func makeScopeVM(boardService: FakeCountingBoardService = FakeCountingBoardService()) async -> DrillsViewModel {
+        let vm = DrillsViewModel(
+            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
+            boardService: boardService)
+        await vm.load()
+        return vm
+    }
+
+    func testSelectBoardSwitchesScope() async {
+        let vm = await makeScopeVM()
+        XCTAssertEqual(vm.boardScope, .c14)
+        await vm.selectBoard(.wharton)
+        XCTAssertEqual(vm.boardScope, .wharton)
+        await vm.selectBoard(.global)
+        XCTAssertEqual(vm.boardScope, .global)
+        await vm.selectBoard(.schools)
+        XCTAssertEqual(vm.boardScope, .schools)
+        await vm.selectBoard(.c14)
+        XCTAssertEqual(vm.boardScope, .c14)
+    }
+
+    func testSelectBoardCachesWhartonLoaderCalledOnce() async {
+        let boardService = FakeCountingBoardService()
+        let vm = await makeScopeVM(boardService: boardService)
+        await vm.selectBoard(.wharton)
+        await vm.selectBoard(.wharton)
+        await vm.selectBoard(.c14)
+        await vm.selectBoard(.wharton)
+        XCTAssertEqual(boardService.schoolBoardCallCount, 1)
+    }
+
+    func testSelectBoardCachesGlobalLoaderCalledOnce() async {
+        let boardService = FakeCountingBoardService()
+        let vm = await makeScopeVM(boardService: boardService)
+        await vm.selectBoard(.global)
+        await vm.selectBoard(.global)
+        XCTAssertEqual(boardService.globalBoardCallCount, 1)
+    }
+
+    func testSelectBoardCachesSchoolsLoaderCalledOnce() async {
+        let boardService = FakeCountingBoardService()
+        let vm = await makeScopeVM(boardService: boardService)
+        await vm.selectBoard(.schools)
+        await vm.selectBoard(.schools)
+        // SCHOOLS also needs the caller's own school (to mark "yours"), an
+        // honest dependency on scope=school — also cached, called once.
+        XCTAssertEqual(boardService.schoolsBoardCallCount, 1)
+        XCTAssertEqual(boardService.schoolBoardCallCount, 1)
+    }
+
+    func testWhartonExposesSchoolCardAndYourStandingOrdinal() async {
+        let vm = await makeScopeVM()
+        await vm.selectBoard(.wharton)
+        XCTAssertEqual(vm.schoolBoard?.school?.name, "Wharton")
+        XCTAssertEqual(vm.schoolBoard?.school?.campusCity, "Philadelphia")
+        XCTAssertEqual(vm.schoolBoard?.school?.rank, 2)
+        XCTAssertEqual(vm.percentileLabel(vm.schoolBoard?.yourPercentile), "88TH")
+    }
+
+    func testGlobalYourPercentileOrdinal() async {
+        let vm = await makeScopeVM()
+        await vm.selectBoard(.global)
+        XCTAssertEqual(vm.percentileLabel(vm.globalBoard?.yourPercentile), "66TH")
+    }
+
+    func testGlobalNilYourPercentileRendersEmDash() async {
+        let boardService = FakeCountingBoardService(globalYourPercentile: nil)
+        let vm = await makeScopeVM(boardService: boardService)
+        await vm.selectBoard(.global)
+        XCTAssertNil(vm.globalBoard?.yourPercentile)
+        XCTAssertEqual(vm.percentileLabel(vm.globalBoard?.yourPercentile), "—")
+    }
+
+    func testSchoolsMarksYourSchool() async {
+        let vm = await makeScopeVM()
+        await vm.selectBoard(.schools)
+        let schools = vm.schoolsBoard?.schools ?? []
+        XCTAssertEqual(schools.count, 4)
+        let wharton = try! XCTUnwrap(schools.first { $0.name == "Wharton" })
+        let insead = try! XCTUnwrap(schools.first { $0.name == "INSEAD" })
+        XCTAssertTrue(vm.isYourSchool(wharton))
+        XCTAssertFalse(vm.isYourSchool(insead))
+    }
+
+    func testPercentileAndDecimalFormatting() async {
+        let vm = await makeScopeVM()
+        XCTAssertEqual(vm.percentileLabel(66.0), "66TH")
+        XCTAssertEqual(vm.percentileLabel(nil), "—")
+        XCTAssertEqual(DrillsViewModel.decimal1(69.8), "69.8")
+        XCTAssertEqual(DrillsViewModel.decimal1(71.4), "71.4")
+    }
+
+    func testCurrentBoardCopyPerScope() async {
+        let vm = await makeScopeVM()
+        // GLOBAL's head/note/foot carry no date, so assert exact equality.
+        await vm.selectBoard(.global)
+        XCTAssertEqual(vm.currentBoardHead, "ALL PLAYERS — TODAY")
+        XCTAssertEqual(vm.currentBoardNote, "BY PERCENTILE")
+        XCTAssertEqual(vm.currentBoardFoot, "Everyone who ran today's gauntlet, placed by percentile — never a head-count.")
+
+        // WHARTON/SCHOOLS heads carry a live ISO week number (matches C-14's
+        // existing `boardHead` pattern) — assert the fixed prefix, not the
+        // week number, so this test doesn't go stale after week 29.
+        await vm.selectBoard(.wharton)
+        XCTAssertTrue(vm.currentBoardHead.hasPrefix("THE WHARTON SCHOOL — WEEK "))
+        XCTAssertEqual(vm.currentBoardNote, "BY WEEKLY PERCENTILE")
+        XCTAssertEqual(vm.currentBoardFoot, "Standing among verified Wharton members, by percentile. Head-counts stay private.")
+
+        await vm.selectBoard(.schools)
+        XCTAssertTrue(vm.currentBoardHead.hasPrefix("SCHOOL VS SCHOOL — WEEK "))
+        XCTAssertEqual(vm.currentBoardNote, "AVG MEMBER PERCENTILE")
+        XCTAssertEqual(vm.currentBoardFoot, "The average of member percentiles — never a head-count. Carry your school.")
+    }
 }
 
 // MARK: - Fixtures + fakes
@@ -215,4 +336,49 @@ private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
     func schoolBoard() async throws -> SchoolBoard { fatalError("Task 2 doesn't call schoolBoard()") }
     func globalBoard() async throws -> GlobalBoard { fatalError("Task 2 doesn't call globalBoard()") }
     func schoolsBoard() async throws -> SchoolsBoard { fatalError("Task 2 doesn't call schoolsBoard()") }
+}
+
+// Task 3 — call-counting fake so `selectBoard(_:)`'s per-scope caching
+// (loader called once per scope, even across repeat selects) is directly
+// verifiable. `schoolBoardCallCount` also covers SCHOOLS' documented
+// dependency on scope=school (to know the caller's own school id). Fixture
+// values are the canvas tablet DC board literals: WHARTON Wharton/
+// Philadelphia/avg 69.8/rank 2/yourPercentile 88; SCHOOLS INSEAD 71.4 r1,
+// Wharton 69.8 r2 (schoolId 1, matches `schoolBoard.school` → "yours"),
+// LBS 68.9 r3, HBS 67.2 r4.
+private final class FakeCountingBoardService: BoardService, @unchecked Sendable {
+    private(set) var schoolBoardCallCount = 0
+    private(set) var globalBoardCallCount = 0
+    private(set) var schoolsBoardCallCount = 0
+
+    private let globalYourPercentile: Double?
+
+    init(globalYourPercentile: Double? = 66) {
+        self.globalYourPercentile = globalYourPercentile
+    }
+
+    func groupBoard() async throws -> GroupBoard { .fixture }
+
+    func schoolBoard() async throws -> SchoolBoard {
+        schoolBoardCallCount += 1
+        return SchoolBoard(
+            scope: "school",
+            school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+            yourPercentile: 88)
+    }
+
+    func globalBoard() async throws -> GlobalBoard {
+        globalBoardCallCount += 1
+        return GlobalBoard(scope: "global", yourPercentile: globalYourPercentile)
+    }
+
+    func schoolsBoard() async throws -> SchoolsBoard {
+        schoolsBoardCallCount += 1
+        return SchoolsBoard(scope: "schools", schools: [
+            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
+            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
+            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
+        ])
+    }
 }

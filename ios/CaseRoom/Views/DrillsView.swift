@@ -3,8 +3,9 @@
  *          the ONE glass gauntlet hero (six-types grid, DAY N, begin/see-result,
  *          RESETS footer + submitted percentile), the 16-bar 4-week trend (I2
  *          deviation: rendered from raw daily score, not a daily-percentile
- *          series — see DrillsViewModel), and the C-14 group board (Task 3
- *          adds the WHARTON/GLOBAL/SCHOOLS scope switcher over `boardsSection`).
+ *          series — see DrillsViewModel), and the scoped board (Task 3:
+ *          `boardsSection` mounts `GauntletBoard`, the C-14/WHARTON/GLOBAL/
+ *          SCHOOLS scope switcher).
  * Inputs: DrillsViewModel (injectable; DEBUG fixture init for shots).
  * Outputs: none (navigation via AppRouter.shared).
  * Run: mounted by RootShell for DSTab.drills.
@@ -173,70 +174,11 @@ struct DrillsView: View {
         }
     }
 
-    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 2 ships
-    // the complete C-14 group scope; `boardsSection` is the structural seam
-    // Task 3 replaces with the 4-scope switcher.
+    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 3: the
+    // 4-scope switcher (C-14/WHARTON/GLOBAL/SCHOOLS) lives in GauntletBoard.
 
     private var boardsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(viewModel.boardHead).dsText(.kicker).foregroundStyle(palette.muted)
-                Spacer()
-                if let note = viewModel.boardNote {
-                    Text(note).font(.archivo(9, weight: 600)).tracking(0.1 * 9)
-                        .tabularNumbers().foregroundStyle(palette.muted)
-                }
-            }
-            boardRows
-            Text("Drill percentiles are public. Session grades stay private.")
-                .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
-                .padding(.top, 10)
-        }
-        .padding(.top, 13)
-        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
-    }
-
-    private var boardRows: some View {
-        VStack(spacing: 0) {
-            ForEach(viewModel.board?.entries ?? []) { entry in
-                if entry.rank == 6 {
-                    topFiveDivider
-                }
-                boardRow(entry)
-            }
-        }
-        .padding(.top, 8)
-    }
-
-    private var topFiveDivider: some View {
-        HStack(spacing: 8) {
-            Rectangle().fill(palette.hairline).frame(height: 1)
-            Text("TOP FIVE ADVANCE").font(.archivo(8, weight: 600)).tracking(0.15 * 8)
-                .foregroundStyle(palette.muted)
-            Rectangle().fill(palette.hairline).frame(height: 1)
-        }
-        .padding(.vertical, 5)
-    }
-
-    private func boardRow(_ entry: BoardEntry) -> some View {
-        let isYou = viewModel.isYourRow(entry)
-        return HStack(spacing: 8) {
-            Text("\(entry.rank)")
-                .font(.archivo(12.5, weight: 800)).tabularNumbers()
-                .foregroundStyle(palette.ink)
-                .frame(width: 28, alignment: .leading)
-            Text(entry.displayName)
-                .font(.archivo(13, weight: isYou ? 700 : 400))
-                .foregroundStyle(palette.ink)
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text("\(entry.points)")
-                .font(.archivo(13, weight: 700)).tabularNumbers()
-                .foregroundStyle(palette.ink)
-        }
-        .padding(.horizontal, 4).padding(.vertical, 11)
-        .background(isYou ? palette.surface.opacity(0.55) : Color.clear)
-        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
+        GauntletBoard(viewModel: viewModel)
     }
 }
 
@@ -289,6 +231,36 @@ enum PreviewDrillsFixture {
             BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
             BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
         ])
+
+    // Task 3 scope fixtures (the canvas tablet DC board literals, §"Board
+    // reality vs canvas" — schoolId 1 shared between `schoolBoard` and the
+    // `schoolsBoard` Wharton row so `isYourSchool(_:)` highlights it).
+    static let schoolBoard = SchoolBoard(
+        scope: "school",
+        school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+        yourPercentile: 88)
+
+    static let globalBoard = GlobalBoard(scope: "global", yourPercentile: 66)
+
+    static let schoolsBoard = SchoolsBoard(
+        scope: "schools",
+        schools: [
+            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
+            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
+            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
+        ])
+
+    /// `-F7Board <c14|wharton|global|schools>` → the matching scope; any
+    /// other/absent value defaults to `.c14` (the existing screenshot).
+    static func scope(for raw: String?) -> DrillsViewModel.BoardScope {
+        switch raw {
+        case "wharton": return .wharton
+        case "global": return .global
+        case "schools": return .schools
+        default: return .c14
+        }
+    }
 }
 
 #Preview {
