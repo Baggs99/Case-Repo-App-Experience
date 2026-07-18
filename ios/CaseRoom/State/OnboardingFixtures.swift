@@ -60,10 +60,14 @@ final class StubOnboardingBackend: OnboardingService, ProfileService, OAuthStart
                              bio: bio, linkedinUrl: linkedinUrl, school: nil, photoUrl: nil)
     }
 
-    func profile() async throws -> ProfileDetail { fatalError("onboarding never reads the profile") }
-    func uploadProfilePhoto(data: Data, mime: String) async throws -> String { fatalError("onboarding never uploads a photo") }
-    func notificationSettings() async throws -> NotificationSettings { fatalError("onboarding never reads settings") }
-    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { fatalError("onboarding never writes settings") }
+    // Unused ProfileService reads — onboarding only ever calls updateProfile.
+    // Throw (matching SessionFixtures' StubError.unused convention) rather than
+    // fatalError, so a stray call surfaces catchably instead of crashing.
+    enum StubError: Error { case unused }
+    func profile() async throws -> ProfileDetail { throw StubError.unused }
+    func uploadProfilePhoto(data: Data, mime: String) async throws -> String { throw StubError.unused }
+    func notificationSettings() async throws -> NotificationSettings { throw StubError.unused }
+    func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { throw StubError.unused }
 }
 
 enum OnboardingFixtures {
