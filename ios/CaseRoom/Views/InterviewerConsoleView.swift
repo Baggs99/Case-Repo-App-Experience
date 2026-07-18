@@ -315,7 +315,7 @@ private struct PhoneConsole: View {
                         .font(.archivo(9.5, weight: 600)).tracking(9.5 * 0.15)
                         .foregroundStyle(palette.green)
                     Spacer()
-                    Text("\(model.points(dimId: item.id)) / \(item.maxPoints)")
+                    Text(model.points(dimId: item.id) > 0 ? "\(model.points(dimId: item.id)) / \(item.maxPoints)" : "— / \(item.maxPoints)")
                         .font(.archivo(9, weight: 600)).tracking(9 * 0.1).tabularNumbers()
                         .foregroundStyle(palette.faint)
                 }
@@ -550,7 +550,7 @@ private struct TabletConsole: View {
     private var bodyGrid: some View {
         HStack(spacing: 0) {
             leftPane.frame(maxWidth: .infinity, maxHeight: .infinity)
-            rightRailPlaceholder
+            rightRail
         }
     }
 
@@ -830,20 +830,179 @@ private struct TabletConsole: View {
         .overlay(alignment: .top) { Rectangle().fill(palette.hairline).frame(height: 1) }
     }
 
-    // MARK: RIGHT rail placeholder (T4 builds the real feed / timer / rubric)
+    // MARK: RIGHT rail (T4) — candidate feed / segment timer / segments / rubric
 
-    private var rightRailPlaceholder: some View {
-        ZStack {
-            Text("// T4 rail")
-                .font(.archivo(11, weight: 600)).tracking(11 * 0.08)
-                .foregroundStyle(palette.faint)
+    // Top→bottom: 224h candidate feed, SEGMENT TIMER, SEGMENTS LOGGED, then the
+    // RUBRIC — LIVE (fills the remaining height, scrolls). Border-left hairline.
+    private var rightRail: some View {
+        VStack(spacing: 0) {
+            CandidateFeedPane(candidateName: candidateName).dsTheme(.dark)   // dark pane inside the light console (A7)
+            segmentTimerBlock
+            segmentsLoggedBlock
+            rubricLiveHeader
+            rubricLiveList
         }
         .frame(width: 380)
-        .frame(maxHeight: .infinity)
+        .frame(maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .leading) { Rectangle().fill(palette.hairline).frame(width: 1) }
     }
 
-    // MARK: PDF placeholder (T5 stub — graceful back-to-script until the overlay lands)
+    // SEGMENT TIMER — 34px tabular clock + Start/Pause + "Stop · log" (A6).
+    private var segmentTimerBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("SEGMENT TIMER")
+                    .font(.archivo(10, weight: 600)).tracking(10 * 0.15)
+                    .foregroundStyle(palette.muted)
+                Spacer(minLength: 8)
+                if model.isSegmentRunning {
+                    HStack(spacing: 6) {
+                        BlinkDot(diameter: 6)
+                        Text("RUNNING")
+                            .font(.archivo(9.5, weight: 600)).tracking(9.5 * 0.12)
+                            .foregroundStyle(palette.green)
+                    }
+                }
+            }
+            .padding(.bottom, 6)
+
+            HStack(spacing: 12) {
+                Text(model.segmentMmss)
+                    .font(.archivo(34, weight: 800)).tracking(-34 * 0.02).tabularNumbers()
+                    .foregroundStyle(palette.ink)
+                Spacer(minLength: 8)
+                Button { model.toggleSegment() } label: {
+                    Text(model.isSegmentRunning ? "Pause" : "Start")
+                        .font(.archivo(12, weight: 600))
+                        .foregroundStyle(palette.onInk)
+                        .padding(.horizontal, 15)
+                        .frame(height: 38)
+                        .background(Capsule().fill(palette.ink))
+                }
+                .buttonStyle(DSPressStyle())
+                Button { model.stopAndLogSegment() } label: {
+                    Text("Stop · log")
+                        .font(.archivo(12, weight: 600))
+                        .foregroundStyle(palette.muted)
+                        .underline(true, pattern: .solid)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 13)
+        .padding(.bottom, 11)
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.hairline).frame(height: 1) }
+    }
+
+    // SEGMENTS LOGGED — "Segment 0N" laps (scrollable) or the empty serif line.
+    private var segmentsLoggedBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("SEGMENTS LOGGED")
+                .font(.archivo(10, weight: 600)).tracking(10 * 0.15)
+                .foregroundStyle(palette.muted)
+                .padding(.bottom, 3)
+
+            if model.laps.isEmpty {
+                Text("Nothing logged yet — stop the clock to keep a segment.")
+                    .font(.serifVoice(12, italic: true))
+                    .foregroundStyle(palette.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 3)
+            } else {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(Array(model.laps.enumerated()), id: \.offset) { _, lap in
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(lap.label)
+                                    .font(.archivo(12, weight: 600))
+                                    .foregroundStyle(palette.ink)
+                                Spacer(minLength: 8)
+                                Text(ConsoleScript.mmss(lap.seconds))
+                                    .font(.archivo(12)).tabularNumbers()
+                                    .foregroundStyle(palette.muted)
+                            }
+                            .padding(.vertical, 5)
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(palette.hairlineSoft).frame(height: 1)
+                            }
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: 84)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.hairline).frame(height: 1) }
+    }
+
+    // RUBRIC — LIVE header: label + the LOCAL running-avg (A3, overallAvgText).
+    private var rubricLiveHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("RUBRIC — LIVE")
+                .font(.archivo(10, weight: 600)).tracking(10 * 0.15)
+                .foregroundStyle(palette.muted)
+            Spacer(minLength: 8)
+            Text(model.overallAvgText)
+                .font(.archivo(11, weight: 600)).tracking(11 * 0.08).tabularNumbers()
+                .foregroundStyle(palette.green)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 11)
+        .padding(.bottom, 4)
+    }
+
+    // RUBRIC — LIVE list: ALL template dims (current-stage ink / others slate),
+    // 16px mini-cells sharing the SAME score handler as the left pane (A2).
+    private var rubricLiveList: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(model.rubric.templateItems, id: \.id) { item in
+                    rubricRow(item)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 2)
+            .padding(.bottom, 14)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func rubricRow(_ item: RubricTemplateItem) -> some View {
+        let name = ConsoleScript.dims[item.id]?.name ?? item.label
+        let points = model.points(dimId: item.id)
+        // Current-stage dims read ink; everything else slate (canvas nameColor).
+        let isCurrent = stageDims.contains { $0.id == item.id }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(name)
+                    .font(.archivo(12.5, weight: 600))
+                    .foregroundStyle(isCurrent ? palette.ink : palette.muted)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(points > 0 ? "\(points) / \(item.maxPoints)" : "— / \(item.maxPoints)")
+                    .font(.archivo(11)).tabularNumbers()
+                    .foregroundStyle(palette.muted)
+            }
+            .padding(.bottom, 6)
+
+            ScoreCells(
+                count: item.maxPoints,
+                value: points,
+                size: .small,
+                interactive: true
+            ) { model.score(dimId: item.id, points: $0) }
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.hairlineSoft).frame(height: 1) }
+    }
+
+    // MARK: PDF placeholder (T5 stub — graceful back-to-script until the overlay lands, tablet)
 
     private var pdfPlaceholder: some View {
         ZStack {
@@ -865,5 +1024,95 @@ private struct TabletConsole: View {
             }
             .padding(24)
         }
+    }
+}
+
+// MARK: - Candidate feed (canvas 1a rail top, A7)
+
+/// The 224h candidate video surface at the top of the tablet rail. A dark pane
+/// INSIDE the light console — the call site wraps it in `.dsTheme(.dark)` so
+/// every token read here resolves to the F0 dark palette (candidate-feed navy,
+/// chalk chips, green LIVE dot), never a raw hex. On a real remote session the
+/// live candidate video (VideoCallView / RemoteMediaSlot) mounts in place of the
+/// striped placeholder — display-only, transport untouched (A7). The placeholder
+/// stands in otherwise and in the shots.
+private struct CandidateFeedPane: View {
+    let candidateName: String
+    @Environment(\.dsPalette) private var palette
+
+    /// The candidate's short name for the bottom-left tag ("Amara Osei · Wharton
+    /// MBA" → "Amara Osei"); empty/unknown falls back to "Candidate".
+    private var shortName: String {
+        let first = candidateName.split(separator: "·").first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        return first.isEmpty ? "Candidate" : first
+    }
+
+    var body: some View {
+        ZStack {
+            // Feed backdrop: candidate-feed navy (#0D1C31, theme-independent) +
+            // faint chalk stripes — the striped placeholder until video mounts.
+            Color.dsShadowInk
+            DiagonalStripes(color: palette.ink.opacity(0.045))
+
+            // Centered faint "CANDIDATE FEED" watermark.
+            Text("CANDIDATE FEED")
+                .font(.archivo(9, weight: 600)).tracking(9 * 0.2)
+                .foregroundStyle(palette.ink.opacity(0.32))
+
+            // Top-left LIVE chip (dark pill + green blink dot).
+            VStack {
+                HStack {
+                    HStack(spacing: 6) {
+                        BlinkDot(diameter: 6)
+                        Text("LIVE")
+                            .font(.archivo(9, weight: 600)).tracking(9 * 0.14)
+                            .foregroundStyle(palette.ink)
+                    }
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(Capsule().fill(palette.page.opacity(0.55)))
+                    Spacer()
+                }
+                Spacer()
+            }
+
+            // Bottom-left candidate name tag + bottom-right self-view.
+            VStack {
+                Spacer()
+                HStack(alignment: .bottom) {
+                    Text(shortName)
+                        .font(.archivo(11, weight: 600))
+                        .foregroundStyle(palette.ink)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(palette.page.opacity(0.55)))
+                    Spacer()
+                    selfView
+                }
+            }
+            .padding(10)
+        }
+        .frame(height: 224)
+        .frame(maxWidth: .infinity)
+        .clipped()
+    }
+
+    // 118×66 self-view inset — darker navy + tighter stripes + "You" tag.
+    private var selfView: some View {
+        ZStack(alignment: .bottomLeading) {
+            palette.page                                   // #081222 self-view navy
+            DiagonalStripes(color: palette.ink.opacity(0.06))
+            Text("You")
+                .font(.archivo(9, weight: 600))
+                .foregroundStyle(palette.ink)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: 6).fill(palette.page.opacity(0.55)))
+                .padding(.leading, 7).padding(.bottom, 5)
+        }
+        .frame(width: 118, height: 66)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(palette.ink.opacity(0.16), lineWidth: 1)
+        )
     }
 }

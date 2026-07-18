@@ -487,6 +487,16 @@ enum SessionFixtures {
         model.pickStage(4)                          // QUANT — exhibits e1/e2 + quant/judgment
         model.elapsedSeconds = scored ? 2460 : 754  // 41:00 (near cap, green) / 12:34
         model.isMasterRunning = true
+        if scored {
+            // Seed two logged segments + a running segment clock so SEGMENTS
+            // LOGGED renders laps and the SEGMENT TIMER shows the RUNNING chip.
+            // Uses only public API (stopAndLog appends a "Segment 0N" lap): set
+            // the elapsed, log it, repeat, then start a fresh running segment.
+            model.segmentElapsed = 372; model.stopAndLogSegment()   // Segment 01 · 06:12
+            model.segmentElapsed = 508; model.stopAndLogSegment()   // Segment 02 · 08:28
+            model.segmentElapsed = 145                              // 02:25 running
+            model.isSegmentRunning = true
+        }
         return ConsoleTabletStandalone(model: model, releaseE1: scored)
     }
 }
