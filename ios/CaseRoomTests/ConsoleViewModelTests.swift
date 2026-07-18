@@ -11,6 +11,7 @@
  */
 
 import XCTest
+import SwiftUI
 @testable import CaseRoom
 
 /// Records the plumbing calls the console forwards (reveal exhibit ids, the
@@ -452,5 +453,45 @@ final class ConsoleViewModelTests: XCTestCase {
         let (vm, svc) = tabletVM(template: realTemplate())
         await vm.finalizeAndSend()
         XCTAssertEqual(svc.recordedTransitionTargets, ["debrief"])
+    }
+
+    // MARK: T2 — evidence note accessors (bound by the console's serif input)
+
+    func testNoteAccessorsRoundTripThroughRubric() {
+        let (vm, _) = phoneVM(template: realTemplate())
+        XCTAssertEqual(vm.note(dimId: "quant"), "")
+        vm.setNote(dimId: "quant", note: "Sizing slipped")
+        XCTAssertEqual(vm.note(dimId: "quant"), "Sizing slipped")
+        XCTAssertEqual(vm.rubric.items["quant"]?.note, "Sizing slipped")   // through the shared VM
+        // A note edit preserves the dim's points, and vice-versa.
+        vm.score(dimId: "quant", points: 4)
+        XCTAssertEqual(vm.note(dimId: "quant"), "Sizing slipped")
+        vm.setNote(dimId: "quant", note: "Recovered")
+        XCTAssertEqual(vm.points(dimId: "quant"), 4)
+        XCTAssertEqual(vm.note(dimId: "quant"), "Recovered")
+    }
+
+    // MARK: T2 — size-class dispatch (SessionView/console selection)
+
+    func testTabletSizeClassDispatch() {
+        XCTAssertTrue(CaseTabLayout.isTablet(.regular))
+        XCTAssertFalse(CaseTabLayout.isTablet(.compact))
+        XCTAssertFalse(CaseTabLayout.isTablet(nil))
+    }
+
+    // MARK: T2 — the phone-console shot fixture wires a real-shaped, fully-covered rubric
+
+    func testConsolePhoneFixtureRubricCoversEveryDim() {
+        let template = SessionFixtures.consoleRubric.templateItems
+        XCTAssertEqual(template.count, 5)                                    // A4 phone ≤6 dims
+        XCTAssertTrue(template.allSatisfy { $0.maxPoints == 5 })            // real-shaped, not the 12/max-10 tablet fixture
+        let (rvm, _) = makeRubric(template: template)
+        let vm = ConsoleViewModel(stages: ConsoleScript.phone, isPhone: true, rubric: rvm)
+        assertFullCoverageNoDrops(vm, template: template)
+        // The QUANT fixture stage (the shot's stage) surfaces exactly the quant dim.
+        vm.pickStage(3)
+        XCTAssertEqual(vm.stageItems(template).map(\.id), ["quant"])
+        // The QUANT stage carries the two exhibit rows the shot renders.
+        XCTAssertEqual(vm.currentStage.exhibitRefs.map(\.scriptId), ["e1", "e2"])
     }
 }
