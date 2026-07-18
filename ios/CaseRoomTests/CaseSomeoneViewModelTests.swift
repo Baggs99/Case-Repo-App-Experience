@@ -18,7 +18,9 @@ final class StubCaseSomeoneService: CaseSomeoneService {
     var recentResult: Result<[SessionSummary], Error> = .success([])
     var pairClaimResult: Result<Int, Error> = .success(999)
 
-    private(set) var recordedPairClaimTokens: [String] = []
+    // Records the SHORT CODES claimed (proves the short-code wire path is used,
+    // not the token path — a plain string check wouldn't catch the wrong key).
+    private(set) var recordedShortCodes: [String] = []
 
     func proposals() async throws -> [Proposal] { try proposalsResult.get() }
 
@@ -26,8 +28,8 @@ final class StubCaseSomeoneService: CaseSomeoneService {
         scope == "recent" ? try recentResult.get() : []
     }
 
-    func pairClaim(token: String) async throws -> Int {
-        recordedPairClaimTokens.append(token)
+    func pairClaim(shortCode: String) async throws -> Int {
+        recordedShortCodes.append(shortCode)
         return try pairClaimResult.get()
     }
 }
@@ -183,26 +185,27 @@ final class CaseSomeoneViewModelTests: XCTestCase {
 
     // MARK: - scanResult
 
-    func testScanResultParsesDeepLinkAndClaimsWithCode() async {
+    func testScanResultParsesDeepLinkAndClaimsWithShortCode() async {
         let stub = StubCaseSomeoneService()
         stub.pairClaimResult = .success(555)
         let viewModel = makeViewModel(service: stub)
 
         await viewModel.scanResult("caseroom://pair?code=ABC123")
 
-        XCTAssertEqual(stub.recordedPairClaimTokens, ["ABC123"])
+        // The parsed code goes through the SHORT-CODE claim path, not token.
+        XCTAssertEqual(stub.recordedShortCodes, ["ABC123"])
         XCTAssertEqual(viewModel.claimedSessionID, 555)
         XCTAssertNil(viewModel.errorMessage)
     }
 
-    func testScanResultParsesBareCodeAndClaims() async {
+    func testScanResultParsesBareCodeAndClaimsWithShortCode() async {
         let stub = StubCaseSomeoneService()
         stub.pairClaimResult = .success(777)
         let viewModel = makeViewModel(service: stub)
 
         await viewModel.scanResult("ABC123")
 
-        XCTAssertEqual(stub.recordedPairClaimTokens, ["ABC123"])
+        XCTAssertEqual(stub.recordedShortCodes, ["ABC123"])
         XCTAssertEqual(viewModel.claimedSessionID, 777)
     }
 
@@ -234,7 +237,7 @@ final class CaseSomeoneViewModelTests: XCTestCase {
 
         await viewModel.scanResult("   ")
 
-        XCTAssertTrue(stub.recordedPairClaimTokens.isEmpty)
+        XCTAssertTrue(stub.recordedShortCodes.isEmpty)
         XCTAssertNotNil(viewModel.errorMessage)
     }
 

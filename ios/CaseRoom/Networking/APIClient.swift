@@ -702,6 +702,23 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         return response.sessionId
     }
 
+    // Short-code claim (F3-T4): the Case-someone sheet scans a QR that encodes
+    // caseroom://pair?code=<short_code> (and the manual fallback is the same
+    // 6-char short code). The claim contract's body is
+    // {"token": string|null, "short_code": string|null}; a short code MUST go
+    // under `short_code` (the token column wouldn't match it). Sibling of the
+    // token version above — the legacy full-token scan (PairViewModel) keeps
+    // using pairClaim(token:). B3 guarantees a session_id for short-code claims.
+    func pairClaim(shortCode: String) async throws -> Int {
+        struct PairClaimBody: Encodable { let shortCode: String }   // → {"short_code": ...}
+        struct ClaimResponse: Decodable { let sessionId: Int }
+        let response: ClaimResponse = try await send(
+            path: "/api/practice/pair/claim", method: "POST", body: PairClaimBody(shortCode: shortCode),
+            allowRecapGate: true
+        )
+        return response.sessionId
+    }
+
     // MARK: - Get-cased-now (GetCasedService, F3-T3)
 
     // Case-less-capable pairing for the "Get cased now" sheet: nil mints a

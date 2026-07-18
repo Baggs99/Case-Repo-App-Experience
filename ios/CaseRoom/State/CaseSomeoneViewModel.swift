@@ -24,7 +24,10 @@ import Observation
 protocol CaseSomeoneService {
     func proposals() async throws -> [Proposal]
     func sessions(scope: String) async throws -> [SessionSummary]
-    func pairClaim(token: String) async throws -> Int
+    // Short-code claim: every scan input here is a 6-char short code (the QR
+    // encodes caseroom://pair?code=<short_code>; the manual fallback is the same
+    // code), so the claim body must carry `short_code`, not `token`.
+    func pairClaim(shortCode: String) async throws -> Int
 }
 
 extension APIClient: CaseSomeoneService {}
@@ -110,7 +113,7 @@ final class CaseSomeoneViewModel {
             return
         }
         do {
-            claimedSessionID = try await service.pairClaim(token: code)
+            claimedSessionID = try await service.pairClaim(shortCode: code)
         } catch CaseGateError.blockedByRecap(let sessionId) {
             gatedRecapSessionID = sessionId
         } catch {
@@ -216,6 +219,6 @@ final class FixtureCaseSomeoneService: CaseSomeoneService {
         ]
     }
 
-    func pairClaim(token: String) async throws -> Int { 999 }
+    func pairClaim(shortCode: String) async throws -> Int { 999 }
 }
 #endif
