@@ -9,10 +9,15 @@ Updated: 2026-07-18 · Branch: fe/f6-console · Worktree: /Users/thomaskgould/de
 - Sims: iPhone 17 942222D4 booted + mic granted (app/tests/xctest); iPad 653F37B8 idle (boot+grant per task); stray F4 iPhone shut.
 
 ## Now
-Plan written (`docs/superpowers/plans/2026-07-17-fe-f6-plan.md`) → dispatching Opus plan-review.
-Next: T1 console foundation (VM + ConsoleScript + integration seam).
+T1 done + approved. Dispatching T2 (phone console 8b).
 
 ## Done
+- Plan (f0b5e5e): Opus plan-review REQUEST_CHANGES (2 blocking + 4 important + 5 nits) all folded.
+- T1 console foundation (fff3396, c15308d, +fix 3dcce80): ConsoleScript (7 tablet / 6 phone stages +
+  dims name/desc map + 3 authored PDF pages, verbatim) + pure ConsoleViewModel (clocks, laps,
+  release/recall, toggle-clear, stage→dim resolution tablet-union-catchall / phone-1:1, finalize→
+  moveToDebrief) + 23 tests. iOS **691**/0. Opus review: APPROVE-WITH-NITS (coverage guarantee
+  adversarially proven) → 3 nits fixed. Additive-only, no transport/SessionView touch.
 - Deep investigation: canvas 8b (phone) + Tablet 1a (STAGES/DIMS/PDF verbatim), backend surface
   (reveal=one-way no recall; finalize; RubricTemplateItem has dimension; real template = 5 dims/max 5
   vs canvas 12/1–10), F5 seams (SessionView interviewer-live branch, shared RubricViewModel,
