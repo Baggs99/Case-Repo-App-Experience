@@ -26,6 +26,9 @@ struct SessionView: View {
     @State private var negotiationViewModel: NegotiationViewModel?
 
     @Environment(\.dismiss) private var dismiss
+    // F6 (A1) — picks the interviewer console layout: tablet hero (1a) on
+    // .regular, phone console (8b) on .compact.
+    @Environment(\.horizontalSizeClass) private var hSize
 
     private let service: SessionService
     private let flowService: SessionFlowService   // F5-T3 additive (negotiation endpoints)
@@ -160,6 +163,33 @@ struct SessionView: View {
     // the role view's own striped pane stands in for the peer feed.
     @ViewBuilder
     private var liveContent: some View {
+        // MARK: - F6 (A1/A2, rv-finding #3) — the interviewer's live seat IS the
+        // console. Short-circuit HERE, at the liveContent level, BEFORE the outer
+        // VideoCallView (height 300) wrapper: the console has no video pane (phone
+        // 8b) and owns its own media surface (tablet 1a, T4) — audio flows via the
+        // untouched transport. The candidate branch keeps the F5 wrapper below,
+        // byte-identical.
+        if viewModel.role == "interviewer", let rubricViewModel {
+            InterviewerConsoleView(
+                rubric: rubricViewModel,
+                caseKicker: consoleKicker,
+                caseTitle: viewModel.caseTitle ?? "Session",
+                candidateName: viewModel.candidateName ?? "",
+                isTablet: CaseTabLayout.isTablet(hSize),
+                // Display-only feed handles (A7) — the SAME already-published
+                // track/capture VideoCallView consumes; the console renders them
+                // read-only in its 224h feed and never touches transport.
+                remoteTrack: viewModel.remoteTrack,
+                localCapture: viewModel.localCapture,
+                videoEnabled: viewModel.videoEnabled
+            )
+        } else {
+            candidateLiveContent
+        }
+    }
+
+    @ViewBuilder
+    private var candidateLiveContent: some View {
         let remoteVideoActive = viewModel.mode == "remote" && viewModel.localCapture != nil
         VStack(spacing: 0) {
             if remoteVideoActive, let localCapture = viewModel.localCapture {
@@ -179,8 +209,20 @@ struct SessionView: View {
         }
     }
 
+    /// The console header kicker. No production case-type/number source exists
+    /// yet (not on SessionDetail), so the real live path derives a minimal kicker
+    /// from the candidate name; the canvas-verbatim kicker is supplied directly by
+    /// the DEBUG standalone fixture shot (SessionFixtures.consolePhoneStandalone).
+    private var consoleKicker: String {
+        "CASE · \((viewModel.candidateName ?? "Candidate").uppercased())"
+    }
+
     @ViewBuilder
     private func roleLiveContent(showsInterviewerPane: Bool) -> some View {
+        // Reached only for the candidate now — F6 short-circuits the interviewer
+        // to InterviewerConsoleView in liveContent. The interviewer branch below
+        // is retained (F5 artifact; InterviewerLiveView also stays live via its
+        // liveInterviewerStandalone fixture) but is unreachable through this path.
         if viewModel.role == "interviewer", let rubricViewModel {
             InterviewerLiveView(
                 viewModel: rubricViewModel,

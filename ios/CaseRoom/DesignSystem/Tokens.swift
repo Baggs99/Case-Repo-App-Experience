@@ -21,6 +21,7 @@ struct DSPalette: Equatable {
     let hairline: Color
     let hairlineSoft: Color
     let surface: Color
+    let pdfBackdrop: Color  // PDF-mode paper-grey behind the white page (T5) — a shade darker than `page`, not covered by page/surface/hairline
     let green: Color        // scarce accent
     let link: Color         // cobalt
     let isDark: Bool
@@ -34,6 +35,7 @@ struct DSPalette: Equatable {
         hairline: Color(hex: 0xC9D2DF),
         hairlineSoft: Color(hex: 0xDDE3EB),
         surface: Color(hex: 0xFFFFFF),
+        pdfBackdrop: Color(hex: 0xE7EBF1),   // canvas PDF-mode paper-grey (Tablet 1a §7-1a)
         green: Color(hex: 0x1B9A5F),
         link: Color(hex: 0x2E56C0),
         isDark: false
@@ -48,6 +50,7 @@ struct DSPalette: Equatable {
         hairline: Color(hex: 0x24365A),
         hairlineSoft: Color(hex: 0x24365A),
         surface: Color(hex: 0x101E36),
+        pdfBackdrop: Color(hex: 0x0C1729),   // dark-takeover analog (a step off `page`); the console overrides to .light so it seldom shows
         green: Color(hex: 0x2FC07E),
         link: Color(hex: 0x2E56C0),
         isDark: true
