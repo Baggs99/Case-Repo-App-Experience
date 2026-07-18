@@ -176,6 +176,28 @@ final class ConsoleViewModel {
         rubric.score(itemId: dimId, points: next)
     }
 
+    // MARK: Per-dim score readouts (pure — shared by the view + guarded by tests)
+
+    /// The SPACED readout for the phone/tablet SCORE blocks (canvas left pane
+    /// l.1179): "P / N" scored, "— / N" unscored (T3 nit #1 — never "0 / N").
+    static func spacedReadout(points: Int, maxPoints: Int) -> String {
+        points > 0 ? "\(points) / \(maxPoints)" : "— / \(maxPoints)"
+    }
+
+    /// The COMPACT rail readout (canvas 1a l.1195): "P/N" scored, bare "—"
+    /// unscored — deliberately distinct from the spaced left-pane form.
+    static func compactReadout(points: Int, maxPoints: Int) -> String {
+        points > 0 ? "\(points)/\(maxPoints)" : "—"
+    }
+
+    /// Instance conveniences reading the live point value for a dim.
+    func spacedReadout(_ item: RubricTemplateItem) -> String {
+        Self.spacedReadout(points: points(dimId: item.id), maxPoints: item.maxPoints)
+    }
+    func compactReadout(_ item: RubricTemplateItem) -> String {
+        Self.compactReadout(points: points(dimId: item.id), maxPoints: item.maxPoints)
+    }
+
     // MARK: Evidence note (bound by the phone/tablet score block's serif input)
 
     /// The current evidence note for a dim (absent → empty).

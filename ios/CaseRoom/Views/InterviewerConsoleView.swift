@@ -315,7 +315,7 @@ private struct PhoneConsole: View {
                         .font(.archivo(9.5, weight: 600)).tracking(9.5 * 0.15)
                         .foregroundStyle(palette.green)
                     Spacer()
-                    Text(model.points(dimId: item.id) > 0 ? "\(model.points(dimId: item.id)) / \(item.maxPoints)" : "— / \(item.maxPoints)")
+                    Text(model.spacedReadout(item))
                         .font(.archivo(9, weight: 600)).tracking(9 * 0.1).tabularNumbers()
                         .foregroundStyle(palette.faint)
                 }
@@ -749,7 +749,7 @@ private struct TabletConsole: View {
                     .font(.archivo(13.5, weight: 600))
                     .foregroundStyle(palette.ink)
                 Spacer(minLength: 8)
-                Text("\(model.points(dimId: item.id)) / \(item.maxPoints)")
+                Text(model.spacedReadout(item))
                     .font(.archivo(11.5)).tabularNumbers()
                     .foregroundStyle(palette.muted)
             }
@@ -984,7 +984,9 @@ private struct TabletConsole: View {
                     .foregroundStyle(isCurrent ? palette.ink : palette.muted)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                Text(points > 0 ? "\(points) / \(item.maxPoints)" : "— / \(item.maxPoints)")
+                // Rail readout is COMPACT (canvas 1a line 1195: "8/10" / bare
+                // "—"), distinct from the left pane's spaced "8 / 10" / "— / 10".
+                Text(model.compactReadout(item))
                     .font(.archivo(11)).tabularNumbers()
                     .foregroundStyle(palette.muted)
             }
@@ -994,7 +996,8 @@ private struct TabletConsole: View {
                 count: item.maxPoints,
                 value: points,
                 size: .small,
-                interactive: true
+                interactive: true,
+                showsNumbers: false           // canvas rail = blank heat-strip (Tablet 1a l.805)
             ) { model.score(dimId: item.id, points: $0) }
         }
         .padding(.vertical, 8)

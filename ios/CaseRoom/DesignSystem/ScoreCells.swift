@@ -30,6 +30,10 @@ struct ScoreCells: View {
     let value: Int
     var size: ScoreCellSize = .medium
     var interactive: Bool = false
+    /// Whether each cell prints its digit. Default `true` preserves every F5
+    /// call site (debrief/recap/left-pane) byte-for-byte; the F6 tablet rail
+    /// passes `false` for the canvas's blank 16px heat-strip (Tablet 1a l.805).
+    var showsNumbers: Bool = true
     var onSelect: ((Int) -> Void)? = nil
     @Environment(\.dsPalette) private var palette
 
@@ -42,7 +46,9 @@ struct ScoreCells: View {
     @ViewBuilder private func cell(_ n: Int) -> some View {
         let filled = n <= value
         let shape = RoundedRectangle(cornerRadius: size.corner, style: .continuous)
-        let label = Text("\(n)")
+        // Blank when showsNumbers is false (canvas rail heat-strip); the empty
+        // string keeps the frame/tap target identical to the numbered cell.
+        let label = Text(showsNumbers ? "\(n)" : "")
             .font(size.font)
             .monospacedDigit()
             .foregroundStyle(filled ? palette.onInk : palette.muted)

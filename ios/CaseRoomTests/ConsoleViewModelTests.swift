@@ -348,6 +348,27 @@ final class ConsoleViewModelTests: XCTestCase {
         XCTAssertEqual(vm.points(dimId: "quant"), 5)     // new value sets
     }
 
+    // Guards T3 nit #1 + the T4 rail form: the SCORE-block readout is SPACED
+    // ("— / N" unscored, never "0 / N"); the rail readout is COMPACT (bare "—",
+    // "P/N"). A silent regression here reintroduces the "0 / 10" canvas miss.
+    func testScoreReadoutFormats() {
+        // Pure statics.
+        XCTAssertEqual(ConsoleViewModel.spacedReadout(points: 0, maxPoints: 10), "— / 10")
+        XCTAssertEqual(ConsoleViewModel.spacedReadout(points: 8, maxPoints: 10), "8 / 10")
+        XCTAssertEqual(ConsoleViewModel.spacedReadout(points: 0, maxPoints: 5), "— / 5")
+        XCTAssertEqual(ConsoleViewModel.compactReadout(points: 0, maxPoints: 10), "—")
+        XCTAssertEqual(ConsoleViewModel.compactReadout(points: 8, maxPoints: 10), "8/10")
+
+        // Instance conveniences read the live point value.
+        let (vm, _) = tabletVM(template: realTemplate())
+        let quant = realTemplate().first { $0.id == "quant" }!
+        XCTAssertEqual(vm.spacedReadout(quant), "— / \(quant.maxPoints)")   // unscored
+        XCTAssertEqual(vm.compactReadout(quant), "—")
+        vm.score(dimId: "quant", points: 6)
+        XCTAssertEqual(vm.spacedReadout(quant), "6 / \(quant.maxPoints)")
+        XCTAssertEqual(vm.compactReadout(quant), "6/\(quant.maxPoints)")
+    }
+
     func testRunningAvgExcludesZeroAndAvgText() {
         let (vm, _) = tabletVM(template: realTemplate())
         let items = realTemplate()
