@@ -158,6 +158,11 @@ final class ConsoleViewModel {
     var pdfPages: [ConsolePDFPage] { ConsoleScript.pdfPages }
     var pdfPageText: String { ConsoleScript.pdfPageText(pdfPage) }
 
+    /// At the first page → "‹ Previous page" is greyed (canvas `pdfPrevColor`).
+    var isFirstPDFPage: Bool { pdfPage == 0 }
+    /// At the last page → "Next page ›" is greyed (canvas `pdfNextColor`).
+    var isLastPDFPage: Bool { pdfPage == ConsoleScript.pdfPages.count - 1 }
+
     func openPDF() { isPDFOpen = true }
     func closePDF() { isPDFOpen = false }
     func pdfNext() { pdfPage = min(ConsoleScript.pdfPages.count - 1, pdfPage + 1) }
