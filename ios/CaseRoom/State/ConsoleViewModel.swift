@@ -176,6 +176,15 @@ final class ConsoleViewModel {
         rubric.score(itemId: dimId, points: next)
     }
 
+    // MARK: Evidence note (bound by the phone/tablet score block's serif input)
+
+    /// The current evidence note for a dim (absent → empty).
+    func note(dimId: String) -> String { rubric.items[dimId]?.note ?? "" }
+
+    /// Writes the evidence note through the shared plumbing (debounced autosave,
+    /// A2). Preserves the dim's existing points.
+    func setNote(dimId: String, note: String) { rubric.setNote(itemId: dimId, note: note) }
+
     // MARK: Stage → template-item resolution (A4)
 
     /// Whether a stage's dimKeys claim a template item (id OR dimension match).
