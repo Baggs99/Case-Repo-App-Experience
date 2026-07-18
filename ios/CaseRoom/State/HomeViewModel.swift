@@ -369,7 +369,12 @@ private struct NeverCalledHomeService: DashboardService, GauntletService, BoardS
     func dashboard() async throws -> DashboardStats { fatalError("fixture-backed HomeViewModel must not call the network") }
     func sessions(scope: String) async throws -> [SessionSummary] { fatalError("fixture-backed HomeViewModel must not call the network") }
     func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed HomeViewModel must not call the network") }
+    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult { fatalError("fixture-backed HomeViewModel must not call the network") }
+    func trends() async throws -> GauntletTrends { fatalError("fixture-backed HomeViewModel must not call the network") }
     func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
+    func schoolBoard() async throws -> SchoolBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
+    func globalBoard() async throws -> GlobalBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
+    func schoolsBoard() async throws -> SchoolsBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
     func profile() async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
     func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
     func uploadProfilePhoto(data: Data, mime: String) async throws -> String { fatalError("fixture-backed HomeViewModel must not call the network") }

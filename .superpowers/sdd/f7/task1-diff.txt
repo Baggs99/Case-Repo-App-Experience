@@ -1,0 +1,624 @@
+diff --git a/ios/CaseRoom/App/AppRoute.swift b/ios/CaseRoom/App/AppRoute.swift
+index 22b455f..4781e96 100644
+--- a/ios/CaseRoom/App/AppRoute.swift
++++ b/ios/CaseRoom/App/AppRoute.swift
+@@ -12,25 +12,30 @@ import Foundation
+ // Contract §6 — later phases add cases ONLY via their brief.
+ enum AppRoute: Hashable {
+     case home, library, caseTab, community, drills
+     case avatarSheet
+     case timelineDetail
+     case caseDetail(Int)
+     case recap(Int)
+     case sessionTakeover(Int)
+     case groupPage(Int)
+     case drillRun
++    // F7 Task 1: the server-scored gauntlet run, launched from Home's hero and
++    // the Drills hub Begin button. Presented as a shell fullScreenCover (Task
++    // 4 wires the cover); orchestrator-blessed per contract §6 — nothing
++    // external (deep link / intent) targets it.
++    case gauntletRun
+ 
+     /// The tab that owns this route's surface, or nil for routes presented
+     /// modally / over the whole shell (avatar sheet, session takeover). Detail
+     /// routes resolve to the tab whose NavigationStack hosts them.
+     var owningTab: DSTab? {
+         switch self {
+         case .home, .timelineDetail, .drillRun: return .home
+         case .library, .caseDetail: return .library
+         case .caseTab, .recap: return .caseTab
+         case .community, .groupPage: return .community
+-        case .drills: return .drills
++        case .drills, .gauntletRun: return .drills
+         case .avatarSheet, .sessionTakeover: return nil
+         }
+     }
+ }
+diff --git a/ios/CaseRoom/Intents/CaseRoomIntents.swift b/ios/CaseRoom/Intents/CaseRoomIntents.swift
+index 74cd7b5..1683794 100644
+--- a/ios/CaseRoom/Intents/CaseRoomIntents.swift
++++ b/ios/CaseRoom/Intents/CaseRoomIntents.swift
+@@ -49,20 +49,21 @@ enum DeepLink: Equatable {
+ @MainActor
+ final class AppRouter {
+     static let shared = AppRouter()
+ 
+     // Tab + navigation state observed by RootShell.
+     var selection: DSTab = .home
+     var avatarSheet = false
+     var proposeToUserID: Int?
+     var sessionTakeoverID: Int?
+     var drillRun = false          // the shell owns the drill sheet, keyed off this
++    var gauntletRun = false       // shell owns the gauntlet fullScreenCover, keyed off this (F7 Task 4)
+     var homePath: [AppRoute] = []
+     var libraryPath: [AppRoute] = []
+     var casePath: [AppRoute] = []
+     var communityPath: [AppRoute] = []
+ 
+     /// Intent inbox: an App Intent (which can't reach the SwiftUI environment)
+     /// sets this; RootShell drains it via go(to:) then clears it back to nil.
+     var pending: AppRoute?
+ 
+     private init() {}
+@@ -74,20 +75,22 @@ final class AppRouter {
+         switch route {
+         case .home, .library, .caseTab, .community, .drills:
+             if let tab = route.owningTab { selection = tab }
+         case .avatarSheet:
+             avatarSheet = true
+         case .sessionTakeover(let id):
+             sessionTakeoverID = id
+         case .drillRun:
+             selection = .home
+             drillRun = true       // RootShell observes this and presents DrillView
++        case .gauntletRun:
++            gauntletRun = true    // RootShell observes this and presents GauntletRunView (Task 4)
+         case .caseDetail(let id):
+             selection = .library
+             libraryPath.append(.caseDetail(id))
+         case .timelineDetail:
+             selection = .home
+             homePath.append(.timelineDetail)
+         case .recap:
+             selection = .caseTab // F5 wires the recap presentation
+         case .groupPage:
+             selection = .community // F8 wires the group-page push onto communityPath
+diff --git a/ios/CaseRoom/Networking/APIClient.swift b/ios/CaseRoom/Networking/APIClient.swift
+index 4640fdd..0adbbfe 100644
+--- a/ios/CaseRoom/Networking/APIClient.swift
++++ b/ios/CaseRoom/Networking/APIClient.swift
+@@ -10,20 +10,28 @@
+ 
+ import Foundation
+ 
+ enum APIError: Error {
+     case unauthorized
+     case server(Int)
+     case decoding(Error)
+     case transport(Error)
+ }
+ 
++// Thrown by submitGauntlet when the server returns 409 {"error":
++// "already_submitted", ...} — B8 allows one gauntlet submission per user per
++// day. The VM recovers by re-fetching gauntlet() and showing its embedded
++// (already-scored) `result`.
++enum GauntletError: Error, Equatable {
++    case alreadySubmitted
++}
++
+ // Thrown by uploadRecordingChunk when the server rejects a chunk with
+ // 409 {"detail": "expected seq N"} — the client is out of sync and must
+ // resend starting at N (RecordingUploader does this resync).
+ enum RecordingChunkError: Error, Equatable {
+     case seqMismatch(expected: Int)
+     /// Server repeated the same `expected` seq with no forward progress —
+     /// resuming would loop forever, so RecordingUploader gives up.
+     case stalled(seq: Int)
+     /// Server's `expected` seq is past the end of the chunk list — a
+     /// malformed resync that would otherwise silently truncate the upload.
+@@ -65,29 +73,36 @@ protocol TimelineService {
+     func trackFirm(firmId: Int) async throws
+     func untrackFirm(firmId: Int) async throws
+     func firmResult(firmId: Int, outcome: String) async throws -> FirmResult
+ }
+ 
+ // "Next up for you" (B4 §7, Task 2). Swap re-calls with the shown id excluded.
+ protocol RecommendationService {
+     func recommendations(exclude: [Int]) async throws -> [Recommendation]
+ }
+ 
+-// Today's global gauntlet set + percentile-first results (B8, Task 2).
++// Today's global gauntlet set + percentile-first results (B8, Task 2); the
++// scored submission + trends (B8, F7 Task 1).
+ protocol GauntletService {
+     func gauntlet() async throws -> Gauntlet
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult
++    func trends() async throws -> GauntletTrends
+ }
+ 
+ // Scoped leaderboards; Home's cohort footer only ever asks for scope=group,
+-// the one scope with literal rank/points (B8, Task 2).
++// the one scope with literal rank/points (B8, Task 2). F7 Task 1 adds the
++// remaining three scopes for the Drills hub's board switcher.
+ protocol BoardService {
+     func groupBoard() async throws -> GroupBoard
++    func schoolBoard() async throws -> SchoolBoard
++    func globalBoard() async throws -> GlobalBoard
++    func schoolsBoard() async throws -> SchoolsBoard
+ }
+ 
+ struct CaseQuery {
+     var q: String?
+     var difficulty: String?
+     var industry: String?
+     var caseType: String?
+     var school: String?
+     var limit: Int?
+ }
+@@ -361,20 +376,61 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
+         try await send(path: "/api/v1/drills/gauntlet", method: "GET")
+     }
+ 
+     func groupBoard() async throws -> GroupBoard {
+         try await send(
+             path: "/api/v1/drills/boards", method: "GET",
+             queryItems: [URLQueryItem(name: "scope", value: "group")]
+         )
+     }
+ 
++    func schoolBoard() async throws -> SchoolBoard {
++        try await send(
++            path: "/api/v1/drills/boards", method: "GET",
++            queryItems: [URLQueryItem(name: "scope", value: "school")]
++        )
++    }
++
++    func globalBoard() async throws -> GlobalBoard {
++        try await send(
++            path: "/api/v1/drills/boards", method: "GET",
++            queryItems: [URLQueryItem(name: "scope", value: "global")]
++        )
++    }
++
++    func schoolsBoard() async throws -> SchoolsBoard {
++        try await send(
++            path: "/api/v1/drills/boards", method: "GET",
++            queryItems: [URLQueryItem(name: "scope", value: "schools")]
++        )
++    }
++
++    // POST .../gauntlet/attempts — server re-scores against the regenerated
++    // set (client `value`/`choiceIndex` never trusted for grading). One
++    // submission/user/day: a repeat -> 409, rethrown as the typed
++    // GauntletError.alreadySubmitted so the VM can recover via gauntlet().result.
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        struct SubmitBody: Encodable { let answers: [GauntletAttempt] }
++        do {
++            return try await send(
++                path: "/api/v1/drills/gauntlet/attempts", method: "POST",
++                body: SubmitBody(answers: answers)
++            )
++        } catch APIError.server(409) {
++            throw GauntletError.alreadySubmitted
++        }
++    }
++
++    func trends() async throws -> GauntletTrends {
++        try await send(path: "/api/v1/drills/trends", method: "GET")
++    }
++
+     // MARK: - Devices
+ 
+     func registerDevice(token: String) async throws {
+         struct DeviceBody: Encodable { let token: String; let platform: String = "ios" }
+         try await sendNoContent(path: "/api/v1/devices", method: "POST", body: DeviceBody(token: token))
+     }
+ 
+     // MARK: - Profile & settings (B5)
+ 
+     func profile() async throws -> ProfileDetail {
+diff --git a/ios/CaseRoom/Networking/HomeModels.swift b/ios/CaseRoom/Networking/HomeModels.swift
+index d7bba1f..8846082 100644
+--- a/ios/CaseRoom/Networking/HomeModels.swift
++++ b/ios/CaseRoom/Networking/HomeModels.swift
+@@ -226,10 +226,80 @@ struct BoardEntry: Codable, Equatable, Identifiable {
+     let streak: Int
+ 
+     var id: Int { userId }
+ }
+ 
+ struct GroupBoard: Codable, Equatable {
+     let scope: String
+     let group: GroupRef?
+     let entries: [BoardEntry]
+ }
++
++// scope=school/schools row shape (webapp/routes/drills.py boards) — a
++// school-vs-school avg-percentile card, reused for both the single "your
++// school" card (SchoolBoard) and the schools-vs-schools list (SchoolsBoard).
++struct SchoolCard: Codable, Equatable, Identifiable {
++    let schoolId: Int
++    let name: String
++    let campusCity: String
++    let avgMemberPercentile: Double
++    let rank: Int
++
++    var id: Int { schoolId }
++}
++
++// scope=school: your own school's card + your own (global) percentile.
++// `school` nil when the user has no school on file; `yourPercentile` nil
++// pre-submission / no scored history (B8 pinned shape).
++struct SchoolBoard: Codable, Equatable {
++    let scope: String
++    let school: SchoolCard?
++    let yourPercentile: Double?
++}
++
++// scope=global: no per-member list (percentile-not-headcount, delta §0.2) —
++// just the caller's own percentile, nil pre-submission.
++struct GlobalBoard: Codable, Equatable {
++    let scope: String
++    let yourPercentile: Double?
++}
++
++// scope=schools: school-vs-school avg-percentile leaderboard.
++struct SchoolsBoard: Codable, Equatable {
++    let scope: String
++    let schools: [SchoolCard]
++}
++
++// POST /api/v1/drills/gauntlet/attempts request-body item. Encodable only
++// (never decoded). Optional stored properties use the compiler's synthesized
++// encodeIfPresent, so a nil `value`/`choiceIndex`/`durationMs` omits that key
++// entirely rather than encoding `null` — a numeric slot sends {slot, value,
++// duration_ms}, a choice slot sends {slot, choice_index, duration_ms}.
++struct GauntletAttempt: Encodable, Equatable {
++    let slot: Int
++    let value: Double?
++    let choiceIndex: Int?
++    let durationMs: Int?
++}
++
++// GET /api/v1/drills/trends daily[] row: {date, score} — score 0-6 raw count
++// correct, NOT a percentile (see F7 plan I2 deviation note).
++struct TrendPoint: Codable, Equatable {
++    let date: String
++    let score: Double
++}
++
++// GET /api/v1/drills/trends by_type[] row.
++struct TrendByType: Codable, Equatable, Identifiable {
++    let drillType: String
++    let attempts: Int
++    let correct: Int
++    let accuracy: Double
++
++    var id: String { drillType }
++}
++
++struct GauntletTrends: Codable, Equatable {
++    let daily: [TrendPoint]
++    let byType: [TrendByType]
++    let weakest: String?
++}
+diff --git a/ios/CaseRoom/State/HomeViewModel.swift b/ios/CaseRoom/State/HomeViewModel.swift
+index db7f491..a14d5d6 100644
+--- a/ios/CaseRoom/State/HomeViewModel.swift
++++ b/ios/CaseRoom/State/HomeViewModel.swift
+@@ -362,21 +362,26 @@ final class HomeViewModel {
+ 
+ #if DEBUG
+ /// Backs the fixture-init VM. The screenshot hatch is documented non-
+ /// interactive (simctl can't tap/type), so any call here is a misuse — fail
+ /// loudly instead of silently hitting the network.
+ private struct NeverCalledHomeService: DashboardService, GauntletService, BoardService,
+     ProfileService, RecommendationService, TimelineService, RecentSessionsService {
+     func dashboard() async throws -> DashboardStats { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func sessions(scope: String) async throws -> [SessionSummary] { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func trends() async throws -> GauntletTrends { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func schoolBoard() async throws -> SchoolBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func globalBoard() async throws -> GlobalBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func schoolsBoard() async throws -> SchoolsBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func profile() async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func uploadProfilePhoto(data: Data, mime: String) async throws -> String { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func notificationSettings() async throws -> NotificationSettings { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func recommendations(exclude: [Int]) async throws -> [Recommendation] { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func timeline() async throws -> TimelineDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func timelineFirms() async throws -> [FirmCatalogEntry] { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func trackFirm(firmId: Int) async throws { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func untrackFirm(firmId: Int) async throws { fatalError("fixture-backed HomeViewModel must not call the network") }
+diff --git a/ios/CaseRoomTests/AppRouterTests.swift b/ios/CaseRoomTests/AppRouterTests.swift
+index 3f837e8..eec35b0 100644
+--- a/ios/CaseRoomTests/AppRouterTests.swift
++++ b/ios/CaseRoomTests/AppRouterTests.swift
+@@ -11,31 +11,33 @@ import XCTest
+ 
+ @MainActor
+ final class AppRouterTests: XCTestCase {
+     private func freshRouter() -> AppRouter {
+         let r = AppRouter.shared
+         r.selection = .home
+         r.avatarSheet = false
+         r.proposeToUserID = nil
+         r.sessionTakeoverID = nil
+         r.drillRun = false
++        r.gauntletRun = false
+         r.pending = nil
+         return r
+     }
+ 
+     // owningTab
+     func testOwningTabForTabRoutes() {
+         XCTAssertEqual(AppRoute.home.owningTab, .home)
+         XCTAssertEqual(AppRoute.library.owningTab, .library)
+         XCTAssertEqual(AppRoute.caseTab.owningTab, .caseTab)
+         XCTAssertEqual(AppRoute.community.owningTab, .community)
+         XCTAssertEqual(AppRoute.drills.owningTab, .drills)
++        XCTAssertEqual(AppRoute.gauntletRun.owningTab, .drills)
+     }
+     func testOwningTabForDetailRoutes() {
+         XCTAssertEqual(AppRoute.caseDetail(1).owningTab, .library)
+         XCTAssertEqual(AppRoute.timelineDetail.owningTab, .home)
+         XCTAssertEqual(AppRoute.recap(9).owningTab, .caseTab)
+         XCTAssertEqual(AppRoute.groupPage(3).owningTab, .community)
+         XCTAssertEqual(AppRoute.drillRun.owningTab, .home)
+     }
+     func testOwningTabNilForModals() {
+         XCTAssertNil(AppRoute.avatarSheet.owningTab)
+@@ -52,20 +54,25 @@ final class AppRouterTests: XCTestCase {
+         let r = freshRouter()
+         r.go(to: .avatarSheet)
+         XCTAssertTrue(r.avatarSheet)
+     }
+     func testGoToDrillRunSelectsHomeAndFlagsDrill() {
+         let r = freshRouter()
+         r.go(to: .drillRun)
+         XCTAssertEqual(r.selection, .home)
+         XCTAssertTrue(r.drillRun)
+     }
++    func testGoToGauntletRunFlagsGauntlet() {
++        let r = freshRouter()
++        r.go(to: .gauntletRun)
++        XCTAssertTrue(r.gauntletRun)
++    }
+     func testGoToSessionTakeoverSetsCover() {
+         let r = freshRouter()
+         r.go(to: .sessionTakeover(42))
+         XCTAssertEqual(r.sessionTakeoverID, 42)
+     }
+     func testGoToCaseDetailSelectsLibraryAndPushes() {
+         let r = freshRouter()
+         r.libraryPath = []
+         r.go(to: .caseDetail(7))
+         XCTAssertEqual(r.selection, .library)
+diff --git a/ios/CaseRoomTests/GauntletNetworkingTests.swift b/ios/CaseRoomTests/GauntletNetworkingTests.swift
+new file mode 100644
+index 0000000..2d22b1b
+--- /dev/null
++++ b/ios/CaseRoomTests/GauntletNetworkingTests.swift
+@@ -0,0 +1,173 @@
++/*
++ * Purpose: Unit tests for the F7 Task 1 gauntlet-submit/boards/trends
++ *          Codables added to HomeModels.swift — pure decode/encode against
++ *          literal JSON matching the B8-pinned payloads (bgap-b8-report.md
++ *          "Interfaces delivered"). No live network: a local decoder/encoder
++ *          mirrors APIClient's private configuration exactly (see
++ *          APIClientTests.fixtureDecoder for the same pattern).
++ * Inputs: literal JSON strings.
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++final class GauntletNetworkingTests: XCTestCase {
++
++    // Mirrors APIClient's private decoder/encoder configuration exactly.
++    private func decoder() -> JSONDecoder {
++        let decoder = JSONDecoder()
++        decoder.keyDecodingStrategy = .convertFromSnakeCase
++        return decoder
++    }
++
++    private func encoder() -> JSONEncoder {
++        let encoder = JSONEncoder()
++        encoder.keyEncodingStrategy = .convertToSnakeCase
++        return encoder
++    }
++
++    // MARK: - GauntletResult (nulls)
++
++    func testGauntletResultDecodesWithNullPercentileAndNullGroup() throws {
++        let json = #"""
++        {"score": 0.5, "slots_correct": 3, "slots": 6, "points_awarded": 0,
++         "daily_percentile": null, "group": null, "school_percentile": null,
++         "vs_peers_delta": null, "weak_section": null, "streak": 1, "set_key": "2026-07-17"}
++        """#
++        let result = try decoder().decode(GauntletResult.self, from: Data(json.utf8))
++
++        XCTAssertEqual(result.score, 0.5)
++        XCTAssertEqual(result.slotsCorrect, 3)
++        XCTAssertEqual(result.slots, 6)
++        XCTAssertEqual(result.pointsAwarded, 0)
++        XCTAssertNil(result.dailyPercentile)
++        XCTAssertNil(result.group)
++        XCTAssertNil(result.schoolPercentile)
++        XCTAssertNil(result.vsPeersDelta)
++        XCTAssertNil(result.weakSection)
++        XCTAssertEqual(result.streak, 1)
++        XCTAssertEqual(result.setKey, "2026-07-17")
++    }
++
++    // MARK: - SchoolBoard (scope=school)
++
++    func testSchoolBoardDecodesPopulated() throws {
++        let json = #"""
++        {"scope": "school", "school": {"school_id": 1, "name": "Wharton",
++          "campus_city": "Philadelphia", "avg_member_percentile": 72.5, "rank": 3},
++         "your_percentile": 60.0}
++        """#
++        let board = try decoder().decode(SchoolBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "school")
++        XCTAssertEqual(board.school?.schoolId, 1)
++        XCTAssertEqual(board.school?.name, "Wharton")
++        XCTAssertEqual(board.school?.campusCity, "Philadelphia")
++        XCTAssertEqual(board.school?.avgMemberPercentile, 72.5)
++        XCTAssertEqual(board.school?.rank, 3)
++        XCTAssertEqual(board.yourPercentile, 60.0)
++    }
++
++    func testSchoolBoardDecodesNullSchoolAndNullPercentile() throws {
++        let json = #"{"scope": "school", "school": null, "your_percentile": null}"#
++        let board = try decoder().decode(SchoolBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "school")
++        XCTAssertNil(board.school)
++        XCTAssertNil(board.yourPercentile)
++    }
++
++    // MARK: - GlobalBoard (scope=global)
++
++    func testGlobalBoardDecodesPopulated() throws {
++        let json = #"{"scope": "global", "your_percentile": 88.0}"#
++        let board = try decoder().decode(GlobalBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "global")
++        XCTAssertEqual(board.yourPercentile, 88.0)
++    }
++
++    func testGlobalBoardDecodesNullPercentile() throws {
++        let json = #"{"scope": "global", "your_percentile": null}"#
++        let board = try decoder().decode(GlobalBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "global")
++        XCTAssertNil(board.yourPercentile)
++    }
++
++    // MARK: - SchoolsBoard (scope=schools)
++
++    func testSchoolsBoardDecodesList() throws {
++        let json = #"""
++        {"scope": "schools", "schools": [
++          {"school_id": 1, "name": "Wharton", "campus_city": "Philadelphia",
++           "avg_member_percentile": 72.5, "rank": 1},
++          {"school_id": 2, "name": "Yale SOM", "campus_city": "New Haven",
++           "avg_member_percentile": 65.0, "rank": 2}]}
++        """#
++        let board = try decoder().decode(SchoolsBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "schools")
++        XCTAssertEqual(board.schools.count, 2)
++        XCTAssertEqual(board.schools[0].name, "Wharton")
++        XCTAssertEqual(board.schools[0].id, 1)
++        XCTAssertEqual(board.schools[1].campusCity, "New Haven")
++    }
++
++    // MARK: - GauntletTrends
++
++    func testGauntletTrendsDecodesWithNullWeakest() throws {
++        let json = #"""
++        {"daily": [{"date": "2026-07-16", "score": 4.0}, {"date": "2026-07-17", "score": 6.0}],
++         "by_type": [{"drill_type": "mental_math", "attempts": 10, "correct": 8, "accuracy": 0.8}],
++         "weakest": null}
++        """#
++        let trends = try decoder().decode(GauntletTrends.self, from: Data(json.utf8))
++
++        XCTAssertEqual(trends.daily.count, 2)
++        XCTAssertEqual(trends.daily[1].date, "2026-07-17")
++        XCTAssertEqual(trends.daily[1].score, 6.0)
++        XCTAssertEqual(trends.byType.count, 1)
++        XCTAssertEqual(trends.byType[0].drillType, "mental_math")
++        XCTAssertEqual(trends.byType[0].id, "mental_math")
++        XCTAssertEqual(trends.byType[0].accuracy, 0.8)
++        XCTAssertNil(trends.weakest)
++    }
++
++    func testGauntletTrendsDecodesWithWeakest() throws {
++        let json = #"""
++        {"daily": [], "by_type": [], "weakest": "market_sizing"}
++        """#
++        let trends = try decoder().decode(GauntletTrends.self, from: Data(json.utf8))
++
++        XCTAssertEqual(trends.weakest, "market_sizing")
++    }
++
++    // MARK: - GauntletAttempt encoding (per-slot SUBSET, snake_case)
++
++    func testNumericAttemptEncodesValueAndDurationOmitsChoiceIndex() throws {
++        let attempt = GauntletAttempt(slot: 0, value: 42.5, choiceIndex: nil, durationMs: 1200)
++        let data = try encoder().encode(attempt)
++        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
++
++        XCTAssertEqual(Set(object.keys), ["slot", "value", "duration_ms"])
++        XCTAssertEqual(object["slot"] as? Int, 0)
++        XCTAssertEqual(object["value"] as? Double, 42.5)
++        XCTAssertEqual(object["duration_ms"] as? Int, 1200)
++        XCTAssertNil(object["choice_index"])
++    }
++
++    func testChoiceAttemptEncodesChoiceIndexAndDurationOmitsValue() throws {
++        let attempt = GauntletAttempt(slot: 1, value: nil, choiceIndex: 2, durationMs: 800)
++        let data = try encoder().encode(attempt)
++        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
++
++        XCTAssertEqual(Set(object.keys), ["slot", "choice_index", "duration_ms"])
++        XCTAssertEqual(object["slot"] as? Int, 1)
++        XCTAssertEqual(object["choice_index"] as? Int, 2)
++        XCTAssertEqual(object["duration_ms"] as? Int, 800)
++        XCTAssertNil(object["value"])
++    }
++}
+diff --git a/ios/CaseRoomTests/HomeViewModelTests.swift b/ios/CaseRoomTests/HomeViewModelTests.swift
+index a83c1ef..9fbe422 100644
+--- a/ios/CaseRoomTests/HomeViewModelTests.swift
++++ b/ios/CaseRoomTests/HomeViewModelTests.swift
+@@ -404,26 +404,41 @@ private extension TimelineDetail {
+ private final class FakeDashboardService: DashboardService, @unchecked Sendable {
+     var value: DashboardStats
+     init(_ value: DashboardStats) { self.value = value }
+     func dashboard() async throws -> DashboardStats { value }
+ }
+ 
+ private final class FakeGauntletService: GauntletService, @unchecked Sendable {
+     var value: Gauntlet
+     init(_ value: Gauntlet) { self.value = value }
+     func gauntlet() async throws -> Gauntlet { value }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        fatalError("HomeViewModel never submits the gauntlet")
++    }
++    func trends() async throws -> GauntletTrends {
++        fatalError("HomeViewModel never calls trends()")
++    }
+ }
+ 
+ private final class FakeBoardService: BoardService, @unchecked Sendable {
+     var value: GroupBoard
+     init(_ value: GroupBoard) { self.value = value }
+     func groupBoard() async throws -> GroupBoard { value }
++    func schoolBoard() async throws -> SchoolBoard {
++        fatalError("HomeViewModel never calls schoolBoard()")
++    }
++    func globalBoard() async throws -> GlobalBoard {
++        fatalError("HomeViewModel never calls globalBoard()")
++    }
++    func schoolsBoard() async throws -> SchoolsBoard {
++        fatalError("HomeViewModel never calls schoolsBoard()")
++    }
+ }
+ 
+ private final class FakeProfileService: ProfileService, @unchecked Sendable {
+     var value: ProfileDetail
+     init(_ value: ProfileDetail) { self.value = value }
+     func profile() async throws -> ProfileDetail { value }
+     func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail { value }
+     func uploadProfilePhoto(data: Data, mime: String) async throws -> String { "" }
+     func notificationSettings() async throws -> NotificationSettings {
+         NotificationSettings(proposals: true, sessionReminders: true, feedback: true, freeNow: true, community: true)

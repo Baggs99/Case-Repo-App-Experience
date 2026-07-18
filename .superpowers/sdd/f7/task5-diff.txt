@@ -1,0 +1,162 @@
+diff --git a/ios/CaseRoom/Views/DrillsView.swift b/ios/CaseRoom/Views/DrillsView.swift
+index a886491..9c44cdf 100644
+--- a/ios/CaseRoom/Views/DrillsView.swift
++++ b/ios/CaseRoom/Views/DrillsView.swift
+@@ -1,64 +1,103 @@
+ /*
+  * Purpose: Drills hub — canvas 5b `dIsHub` (phone, .compact CANON for Task 2):
+  *          the ONE glass gauntlet hero (six-types grid, DAY N, begin/see-result,
+  *          RESETS footer + submitted percentile), the 16-bar 4-week trend (I2
+  *          deviation: rendered from raw daily score, not a daily-percentile
+  *          series — see DrillsViewModel), and the scoped board (Task 3:
+  *          `boardsSection` mounts `GauntletBoard`, the C-14/WHARTON/GLOBAL/
+- *          SCHOOLS scope switcher).
++ *          SCHOOLS scope switcher). Canvas 2b (iPad, .regular) reuses the SAME
++ *          hero/trend/board subviews in a two-column grid (hero+trend left,
++ *          board right) — mirrors HomeView's `.regular` pattern; RootShell
++ *          renders the iPad H1 "Drills", not this view. Only the trend bar
++ *          height changes (72px vs the phone's 56px, canvas 2b line 244); no
++ *          VM fork — the same size-class-agnostic fixtures drive both.
+  * Inputs: DrillsViewModel (injectable; DEBUG fixture init for shots).
+  * Outputs: none (navigation via AppRouter.shared).
+  * Run: mounted by RootShell for DSTab.drills.
+  */
+ 
+ import SwiftUI
+ 
+ struct DrillsView: View {
+     @Environment(\.dsPalette) private var palette
++    @Environment(\.horizontalSizeClass) private var hSize
+     @State private var viewModel: DrillsViewModel
+ 
+     // Injectable VM (default = live). The DEBUG -F7Drills hatch injects a
+     // fixture-backed VM so simctl can capture a populated screen.
+     @MainActor
+     init(viewModel: DrillsViewModel? = nil) {
+         _viewModel = State(initialValue: viewModel ?? DrillsViewModel())
+     }
+ 
+     var body: some View {
+         ZStack {
+             DSBackground()
+             if viewModel.gauntlet == nil {
+                 Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
++            } else if hSize == .regular {
++                regularContent
+             } else {
+                 content
+             }
+         }
+         .task { await viewModel.load() }
+     }
+ 
+     private var content: some View {
+         ScrollView {
+             VStack(alignment: .leading, spacing: 22) {
+                 header
+                 if let errorMessage = viewModel.errorMessage {
+                     errorBanner(errorMessage)
+                 }
+                 heroSection
+-                trendSection
++                trendSection()
+                 boardsSection
+                 Color.clear.frame(height: 120)   // room behind the tab bar
+             }
+             .padding(22)
+         }
+         .scrollIndicators(.hidden)
+         .dsHeaderFade()
+     }
+ 
++    // MARK: - .regular (iPad, canvas 2b) — two-column grid, top-aligned.
++    // RootShell renders the "Drills" H1 for .regular, so this content starts
++    // directly with the grid (no repeated `header`). LEFT = heroSection + the
++    // trend at the canvas's 72px bars; RIGHT = the scoped board. Same
++    // subviews as `content` above — no copy fork (mirrors HomeView.regularContent).
++
++    private var regularContent: some View {
++        ScrollView {
++            VStack(alignment: .leading, spacing: 14) {
++                if let errorMessage = viewModel.errorMessage {
++                    errorBanner(errorMessage)
++                }
++                HStack(alignment: .top, spacing: 36) {
++                    VStack(alignment: .leading, spacing: 22) {
++                        heroSection
++                        trendSection(barHeight: 72)
++                    }
++                    .frame(maxWidth: .infinity, alignment: .leading)
++                    VStack(alignment: .leading, spacing: 22) {
++                        boardsSection
++                    }
++                    .frame(maxWidth: .infinity, alignment: .leading)
++                }
++                Color.clear.frame(height: 120)   // room behind the tab bar
++            }
++            .padding(.horizontal, 28).padding(.vertical, 22)
++        }
++        .scrollIndicators(.hidden)
++        .dsHeaderFade()
++    }
++
+     private var header: some View {
+         Text("Drills").dsText(.h1Tab).foregroundStyle(palette.ink)
+     }
+ 
+     private func errorBanner(_ message: String) -> some View {
+         HStack(spacing: 12) {
+             Text(message).dsText(.meta).foregroundStyle(palette.muted)
+             Button { Task { await viewModel.load() } } label: {
+@@ -132,43 +171,45 @@ struct DrillsView: View {
+                 .foregroundStyle(palette.onInk)
+                 .frame(maxWidth: .infinity)
+                 .frame(height: 50)
+         }
+         .buttonStyle(DSPressStyle())
+         .background(Capsule().fill(palette.ink))
+     }
+ 
+-    // MARK: - 2. TREND — flat, hairline-top (canvas 5b 933-947)
++    // MARK: - 2. TREND — flat, hairline-top (canvas 5b 933-947; canvas 2b line
++    // 244 raises the bars to 72px on .regular — `barHeight` parameterizes it,
++    // no VM change, same `trendBars` fixtures drive both size classes).
+ 
+-    private var trendSection: some View {
++    private func trendSection(barHeight: CGFloat = 56) -> some View {
+         VStack(alignment: .leading, spacing: 12) {
+             HStack(alignment: .firstTextBaseline) {
+                 Text("TREND — DAILY PERCENTILE, 4 WEEKS").dsText(.kicker).foregroundStyle(palette.muted)
+                 Spacer()
+                 Text("MOSTLY UP").dsText(.kicker).foregroundStyle(palette.muted)
+             }
+-            trendBarsRow
++            trendBarsRow(barHeight: barHeight)
+             weekLabelsRow
+         }
+         .padding(.top, 13)
+         .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+     }
+ 
+     /// Square content only (reject-list: no rounded content corners).
+-    private var trendBarsRow: some View {
++    private func trendBarsRow(barHeight: CGFloat) -> some View {
+         HStack(alignment: .bottom, spacing: 5) {
+             ForEach(viewModel.trendBars) { bar in
+                 Rectangle()
+                     .fill(bar.isGreen ? palette.green : palette.ink.opacity(bar.opacity))
+                     .frame(maxWidth: .infinity)
+-                    .frame(height: max(56 * bar.height, 4))
++                    .frame(height: max(barHeight * bar.height, 4))
+             }
+         }
+-        .frame(height: 56)
++        .frame(height: barHeight)
+     }
+ 
+     private var weekLabelsRow: some View {
+         HStack {
+             ForEach(Array(viewModel.weekLabels.enumerated()), id: \.offset) { index, label in
+                 Text(label)
+                     .font(.archivo(8.5, weight: 600))
+                     .tracking(0.12 * 8.5)

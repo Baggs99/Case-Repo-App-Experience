@@ -233,3 +233,73 @@ struct GroupBoard: Codable, Equatable {
     let group: GroupRef?
     let entries: [BoardEntry]
 }
+
+// scope=school/schools row shape (webapp/routes/drills.py boards) — a
+// school-vs-school avg-percentile card, reused for both the single "your
+// school" card (SchoolBoard) and the schools-vs-schools list (SchoolsBoard).
+struct SchoolCard: Codable, Equatable, Identifiable {
+    let schoolId: Int
+    let name: String
+    let campusCity: String
+    let avgMemberPercentile: Double
+    let rank: Int
+
+    var id: Int { schoolId }
+}
+
+// scope=school: your own school's card + your own (global) percentile.
+// `school` nil when the user has no school on file; `yourPercentile` nil
+// pre-submission / no scored history (B8 pinned shape).
+struct SchoolBoard: Codable, Equatable {
+    let scope: String
+    let school: SchoolCard?
+    let yourPercentile: Double?
+}
+
+// scope=global: no per-member list (percentile-not-headcount, delta §0.2) —
+// just the caller's own percentile, nil pre-submission.
+struct GlobalBoard: Codable, Equatable {
+    let scope: String
+    let yourPercentile: Double?
+}
+
+// scope=schools: school-vs-school avg-percentile leaderboard.
+struct SchoolsBoard: Codable, Equatable {
+    let scope: String
+    let schools: [SchoolCard]
+}
+
+// POST /api/v1/drills/gauntlet/attempts request-body item. Encodable only
+// (never decoded). Optional stored properties use the compiler's synthesized
+// encodeIfPresent, so a nil `value`/`choiceIndex`/`durationMs` omits that key
+// entirely rather than encoding `null` — a numeric slot sends {slot, value,
+// duration_ms}, a choice slot sends {slot, choice_index, duration_ms}.
+struct GauntletAttempt: Encodable, Equatable {
+    let slot: Int
+    let value: Double?
+    let choiceIndex: Int?
+    let durationMs: Int?
+}
+
+// GET /api/v1/drills/trends daily[] row: {date, score} — score 0-6 raw count
+// correct, NOT a percentile (see F7 plan I2 deviation note).
+struct TrendPoint: Codable, Equatable {
+    let date: String
+    let score: Double
+}
+
+// GET /api/v1/drills/trends by_type[] row.
+struct TrendByType: Codable, Equatable, Identifiable {
+    let drillType: String
+    let attempts: Int
+    let correct: Int
+    let accuracy: Double
+
+    var id: String { drillType }
+}
+
+struct GauntletTrends: Codable, Equatable {
+    let daily: [TrendPoint]
+    let byType: [TrendByType]
+    let weakest: String?
+}

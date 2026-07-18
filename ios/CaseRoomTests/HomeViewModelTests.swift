@@ -411,12 +411,27 @@ private final class FakeGauntletService: GauntletService, @unchecked Sendable {
     var value: Gauntlet
     init(_ value: Gauntlet) { self.value = value }
     func gauntlet() async throws -> Gauntlet { value }
+    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
+        fatalError("HomeViewModel never submits the gauntlet")
+    }
+    func trends() async throws -> GauntletTrends {
+        fatalError("HomeViewModel never calls trends()")
+    }
 }
 
 private final class FakeBoardService: BoardService, @unchecked Sendable {
     var value: GroupBoard
     init(_ value: GroupBoard) { self.value = value }
     func groupBoard() async throws -> GroupBoard { value }
+    func schoolBoard() async throws -> SchoolBoard {
+        fatalError("HomeViewModel never calls schoolBoard()")
+    }
+    func globalBoard() async throws -> GlobalBoard {
+        fatalError("HomeViewModel never calls globalBoard()")
+    }
+    func schoolsBoard() async throws -> SchoolsBoard {
+        fatalError("HomeViewModel never calls schoolsBoard()")
+    }
 }
 
 private final class FakeProfileService: ProfileService, @unchecked Sendable {

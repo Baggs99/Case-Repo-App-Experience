@@ -223,7 +223,7 @@ struct HomeView: View {
 
     private var beginButton: some View {
         Button {
-            AppRouter.shared.go(to: .drillRun)
+            AppRouter.shared.go(to: .gauntletRun)
         } label: {
             Text("Begin today's set")
                 .dsText(.rowTitle)

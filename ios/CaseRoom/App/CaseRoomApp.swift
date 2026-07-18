@@ -3,9 +3,11 @@
  *          shell) and wires the UIKit app delegate needed for APNs device-token
  *          registration.
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
- *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
- *         -startTab <tab>, -avatarOpen, -LibraryFixtures, -CommunityFixtures,
- *         -GroupPageFixtures, -GroupCreateFixtures — see the #if DEBUG blocks).
+ *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills (+ optional
+ *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
+ *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
+ *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures — see the
+ *         #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -68,6 +70,33 @@ struct CaseRoomApp: App {
             } else if ProcessInfo.processInfo.arguments.contains("-F2HomeTablet") {
                 // Tablet Home (canvas 2a) fixture hatch: the July-17 persona.
                 F2HomeTabletHatch()
+            } else if ProcessInfo.processInfo.arguments.contains("-F7Drills") {
+                // Drills hub (canvas 5b) fixture hatch: the July-16 persona, submitted.
+                // Optional `-F7Board <c14|wharton|global|schools>` (Task 3) presets
+                // the active scope chip; all 4 scope fixtures are always injected so
+                // simctl (which can't tap) can capture any of the 4 board shots
+                // without a dev server.
+                NavigationStack {
+                    DrillsView(viewModel: .init(
+                        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
+                        fixtureTrends: PreviewDrillsFixture.trends,
+                        fixtureBoard: PreviewDrillsFixture.board,
+                        boardScope: PreviewDrillsFixture.scope(for: Self.launchArgValue(after: "-F7Board")),
+                        fixtureSchoolBoard: PreviewDrillsFixture.schoolBoard,
+                        fixtureGlobalBoard: PreviewDrillsFixture.globalBoard,
+                        fixtureSchoolsBoard: PreviewDrillsFixture.schoolsBoard))
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("-F7Run") {
+                // Gauntlet run frame (canvas 5b run) fixture hatch: `-F7Run
+                // numeric` shows the keypad slot; `-F7Run choice` shows the 2×2
+                // choice grid. Constant-clock, autoTick off → deterministic 00:00.
+                GauntletRunView(viewModel: PreviewGauntletRunFixture.runVM(
+                    mode: Self.launchArgValue(after: "-F7Run")))
+            } else if ProcessInfo.processInfo.arguments.contains("-F7Result") {
+                // Gauntlet result frame (canvas 5b result) fixture hatch:
+                // percentile 66, +40 PTS, 5/6 correct, 3RD IN C-14, weak = market
+                // sizing, elapsed 04:12.
+                GauntletRunView(viewModel: PreviewGauntletRunFixture.resultVM)
             } else {
                 rootView
             }
@@ -190,6 +219,16 @@ struct CaseRoomApp: App {
     private static var apiHost: String {
         APIClient.shared.baseURL.host ?? "127.0.0.1"
     }
+
+    #if DEBUG
+    /// The token immediately following a launch-arg flag, e.g. `-F7Board
+    /// wharton` → `"wharton"`. nil when the flag is absent or has no value.
+    private static func launchArgValue(after flag: String) -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: flag), idx + 1 < args.count else { return nil }
+        return args[idx + 1]
+    }
+    #endif
 }
 
 #if DEBUG

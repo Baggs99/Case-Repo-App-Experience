@@ -1,0 +1,3125 @@
+diff --git a/ios/CaseRoom/App/AppRoute.swift b/ios/CaseRoom/App/AppRoute.swift
+index 22b455f..4781e96 100644
+--- a/ios/CaseRoom/App/AppRoute.swift
++++ b/ios/CaseRoom/App/AppRoute.swift
+@@ -16,21 +16,26 @@ enum AppRoute: Hashable {
+     case timelineDetail
+     case caseDetail(Int)
+     case recap(Int)
+     case sessionTakeover(Int)
+     case groupPage(Int)
+     case drillRun
++    // F7 Task 1: the server-scored gauntlet run, launched from Home's hero and
++    // the Drills hub Begin button. Presented as a shell fullScreenCover (Task
++    // 4 wires the cover); orchestrator-blessed per contract §6 — nothing
++    // external (deep link / intent) targets it.
++    case gauntletRun
+ 
+     /// The tab that owns this route's surface, or nil for routes presented
+     /// modally / over the whole shell (avatar sheet, session takeover). Detail
+     /// routes resolve to the tab whose NavigationStack hosts them.
+     var owningTab: DSTab? {
+         switch self {
+         case .home, .timelineDetail, .drillRun: return .home
+         case .library, .caseDetail: return .library
+         case .caseTab, .recap: return .caseTab
+         case .community, .groupPage: return .community
+-        case .drills: return .drills
++        case .drills, .gauntletRun: return .drills
+         case .avatarSheet, .sessionTakeover: return nil
+         }
+     }
+ }
+diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
+index ff08b70..3e02a6a 100644
+--- a/ios/CaseRoom/App/CaseRoomApp.swift
++++ b/ios/CaseRoom/App/CaseRoomApp.swift
+@@ -1,13 +1,15 @@
+ /*
+  * Purpose: App entry point; launches RootShell (the 5-slot floating-glass tab
+  *          shell) and wires the UIKit app delegate needed for APNs device-token
+  *          registration.
+  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
+- *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
+- *         -startTab <tab>, -avatarOpen — see the #if DEBUG blocks).
++ *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills (+ optional
++ *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
++ *         -F7Result, -DevLogin, -startTab <tab>,
++ *         -avatarOpen — see the #if DEBUG blocks).
+  * Outputs: none.
+  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
+  */
+ 
+ import SwiftUI
+ import UIKit
+@@ -64,12 +66,39 @@ struct CaseRoomApp: App {
+                         fixtureBoard: PreviewHomeFixture.board, fixtureProfile: PreviewHomeFixture.profile,
+                         fixtureTimeline: PreviewHomeFixture.timelineDetail))
+                 }
+             } else if ProcessInfo.processInfo.arguments.contains("-F2HomeTablet") {
+                 // Tablet Home (canvas 2a) fixture hatch: the July-17 persona.
+                 F2HomeTabletHatch()
++            } else if ProcessInfo.processInfo.arguments.contains("-F7Drills") {
++                // Drills hub (canvas 5b) fixture hatch: the July-16 persona, submitted.
++                // Optional `-F7Board <c14|wharton|global|schools>` (Task 3) presets
++                // the active scope chip; all 4 scope fixtures are always injected so
++                // simctl (which can't tap) can capture any of the 4 board shots
++                // without a dev server.
++                NavigationStack {
++                    DrillsView(viewModel: .init(
++                        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
++                        fixtureTrends: PreviewDrillsFixture.trends,
++                        fixtureBoard: PreviewDrillsFixture.board,
++                        boardScope: PreviewDrillsFixture.scope(for: Self.launchArgValue(after: "-F7Board")),
++                        fixtureSchoolBoard: PreviewDrillsFixture.schoolBoard,
++                        fixtureGlobalBoard: PreviewDrillsFixture.globalBoard,
++                        fixtureSchoolsBoard: PreviewDrillsFixture.schoolsBoard))
++                }
++            } else if ProcessInfo.processInfo.arguments.contains("-F7Run") {
++                // Gauntlet run frame (canvas 5b run) fixture hatch: `-F7Run
++                // numeric` shows the keypad slot; `-F7Run choice` shows the 2×2
++                // choice grid. Constant-clock, autoTick off → deterministic 00:00.
++                GauntletRunView(viewModel: PreviewGauntletRunFixture.runVM(
++                    mode: Self.launchArgValue(after: "-F7Run")))
++            } else if ProcessInfo.processInfo.arguments.contains("-F7Result") {
++                // Gauntlet result frame (canvas 5b result) fixture hatch:
++                // percentile 66, +40 PTS, 5/6 correct, 3RD IN C-14, weak = market
++                // sizing, elapsed 04:12.
++                GauntletRunView(viewModel: PreviewGauntletRunFixture.resultVM)
+             } else {
+                 rootView
+             }
+             #else
+             rootView
+             #endif
+@@ -143,12 +172,22 @@ struct CaseRoomApp: App {
+     }
+     #endif
+ 
+     private static var apiHost: String {
+         APIClient.shared.baseURL.host ?? "127.0.0.1"
+     }
++
++    #if DEBUG
++    /// The token immediately following a launch-arg flag, e.g. `-F7Board
++    /// wharton` → `"wharton"`. nil when the flag is absent or has no value.
++    private static func launchArgValue(after flag: String) -> String? {
++        let args = ProcessInfo.processInfo.arguments
++        guard let idx = args.firstIndex(of: flag), idx + 1 < args.count else { return nil }
++        return args[idx + 1]
++    }
++    #endif
+ }
+ 
+ #if DEBUG
+ /// Standalone scaffold for the `-F2HomeTablet` shot: replicates RootShell's
+ /// `.regular` Home header (wordmark | date+greeting | avatar) above the
+ /// two-column tablet HomeView, so the shot is a faithful canvas-2a frame
+diff --git a/ios/CaseRoom/App/RootShell.swift b/ios/CaseRoom/App/RootShell.swift
+index 0c296b1..980d364 100644
+--- a/ios/CaseRoom/App/RootShell.swift
++++ b/ios/CaseRoom/App/RootShell.swift
+@@ -18,12 +18,15 @@ struct RootShell: View {
+     @Environment(\.horizontalSizeClass) private var hSize
+     @Environment(\.dsPalette) private var palette
+     @State private var router = AppRouter.shared
+     // The shell owns the drill sheet so the caseroom://drill widget + StartDrillIntent
+     // open it reliably regardless of which tab (or a cold launch) is mounted.
+     @State private var presentedDrill: DrillViewModel?
++    // The shell also owns the gauntlet run cover (mirrors presentedDrill) so the
++    // Home hero + Drills Begin both launch it identically, surviving tab switches.
++    @State private var presentedGauntlet: GauntletRunViewModel?
+ 
+     // F4 Task 3, minimal additive (F1 deferred tab-stack mounting to F4):
+     // canvas 5a's pushed case detail shows only a plain `‹ Library` back +
+     // tag, no top pills, no tab bar. True only while Library owns the tab AND
+     // has a pushed route — every other tab (and the Library list itself) is
+     // unaffected.
+@@ -140,22 +143,41 @@ struct RootShell: View {
+         .onChange(of: router.drillRun, initial: true) { _, on in
+             if on, presentedDrill == nil { presentedDrill = makeDrill() }
+         }
+         .sheet(item: $presentedDrill, onDismiss: { router.drillRun = false }) { drill in
+             DrillView(viewModel: drill)
+         }
++        // Gauntlet run — the immersive server-scored cover (deliberately a
++        // fullScreenCover, not a sheet). FLAG wiring mirrors .drillRun above:
++        // onChange(initial:true) covers cold launch, onDismiss clears the flag
++        // (and the "See today's result" preview) so it can't stick true.
++        .onChange(of: router.gauntletRun, initial: true) { _, on in
++            if on, presentedGauntlet == nil { presentedGauntlet = makeGauntletRun() }
++        }
++        .fullScreenCover(item: $presentedGauntlet, onDismiss: {
++            router.gauntletRun = false
++            router.gauntletResult = nil
++        }) { runViewModel in
++            GauntletRunView(viewModel: runViewModel)
++        }
+     }
+ 
+     // Mirrors the legacy TodayView.startDrill() wiring (FM/on-device engine path).
+     private func makeDrill() -> DrillViewModel {
+         DrillViewModel(
+             engine: DrillEngineProvider.make(service: APIClient.shared, userId: sessionStore.user?.id ?? 0),
+             recorder: AttemptRecorder(service: APIClient.shared)
+         )
+     }
+ 
++    // The live server-gauntlet run VM. When router.gauntletResult is set (Drills
++    // "See today's result"), it opens straight into the result phase — no re-run.
++    private func makeGauntletRun() -> GauntletRunViewModel {
++        GauntletRunViewModel(service: APIClient.shared, preloadedResult: router.gauntletResult)
++    }
++
+     @ViewBuilder
+     private var selectedTab: some View {
+         switch router.selection {
+         case .home:
+             NavigationStack(path: $router.homePath) {
+                 HomeView()
+@@ -169,13 +191,13 @@ struct RootShell: View {
+             CasesListView()
+         case .caseTab:
+             SessionsView()
+         case .community:
+             CommunityTabStub()
+         case .drills:
+-            DrillsTabStub()
++            DrillsView()
+         }
+     }
+ 
+     private var avatarButton: some View {
+         Button { router.avatarSheet = true } label: { AvatarPill(initials: initials) }
+             .buttonStyle(.plain)
+diff --git a/ios/CaseRoom/DesignSystem/GauntletKeypad.swift b/ios/CaseRoom/DesignSystem/GauntletKeypad.swift
+new file mode 100644
+index 0000000..84c35ea
+--- /dev/null
++++ b/ios/CaseRoom/DesignSystem/GauntletKeypad.swift
+@@ -0,0 +1,140 @@
++/*
++ * Purpose: The gauntlet run's numeric keypad (canvas 5b run, numeric slot) — a
++ *          glass keypad (0-9, `.`, `±` sign toggle, `⌫` delete) + a value
++ *          display + a "Next" advance capsule. Reproduces DrillViewModel's
++ *          numeric-input semantics: a raw input String parsed via `Double(_:)`
++ *          with an out-of-band `isNegative` sign toggle (the decimal pad has no
++ *          minus key), applied at read time — never mutating parseability.
++ * Inputs: bindings to the owning VM's `input`/`isNegative` (single source of
++ *         truth so the VM captures the value on advance); a `canAdvance` gate +
++ *         an `onAdvance` callback.
++ * Outputs: mutates the bound input/sign; the signed Double is read via the
++ *          static `signedValue(input:isNegative:)` helper (VM + display share it).
++ * Run: GauntletKeypad(input: $vm.numericInput, isNegative: $vm.isNegative,
++ *                     canAdvance: vm.canAdvance, onAdvance: { ... })
++ */
++
++import SwiftUI
++
++struct GauntletKeypad: View {
++    @Environment(\.dsPalette) private var palette
++    @Binding var input: String
++    @Binding var isNegative: Bool
++    let canAdvance: Bool
++    let onAdvance: () -> Void
++
++    // 3-col digit grid; the sign toggle rides beside the value display (the
++    // DrillView numeric pattern: ± is a distinct sign toggle, not a digit key).
++    private let rows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], [".", "0", "⌫"]]
++
++    /// The single parse — DrillViewModel's `Double(input).map { isNegative ? -$0 : $0 }`
++    /// reproduced verbatim. The VM and the display read the value through here.
++    static func signedValue(input: String, isNegative: Bool) -> Double? {
++        Double(input).map { isNegative ? -$0 : $0 }
++    }
++
++    var body: some View {
++        VStack(spacing: 12) {
++            displayRow
++            ForEach(rows, id: \.self) { row in
++                HStack(spacing: 9) {
++                    ForEach(row, id: \.self) { key in keyButton(key) }
++                }
++            }
++            nextButton
++        }
++    }
++
++    // MARK: - Value display + sign toggle
++
++    private var displayRow: some View {
++        HStack(spacing: 12) {
++            Button { isNegative.toggle() } label: {
++                Text("±")
++                    .font(.archivo(21, weight: 700))
++                    .foregroundStyle(isNegative ? palette.onInk : palette.ink)
++                    .frame(width: 54, height: 54)
++            }
++            .buttonStyle(DSPressStyle())
++            .accessibilityLabel("Toggle negative")
++            // The ink capsule (active) sits in front of the glass (inactive) —
++            // later `.background`s stack further back, so glass is the base.
++            .background(Capsule().fill(isNegative ? palette.ink : Color.clear))
++            .glassChipFlat()
++
++            Text(displayText)
++                .font(.archivo(30, weight: 800)).tracking(-0.02 * 30).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(maxWidth: .infinity, alignment: .trailing)
++                .lineLimit(1).minimumScaleFactor(0.5)
++        }
++    }
++
++    private var displayText: String {
++        let base = input.isEmpty ? "0" : input
++        return (isNegative ? "−" : "") + base
++    }
++
++    // MARK: - Keys
++
++    private func keyButton(_ key: String) -> some View {
++        Button { press(key) } label: {
++            Text(key)
++                // The ⌫ glyph isn't in Archivo — let it resolve via the system
++                // font so it renders (a sanctioned key per the run spec, not a
++                // decorative icon).
++                .font(key == "⌫" ? .system(size: 22, weight: .semibold) : .archivo(22, weight: 700))
++                .tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(maxWidth: .infinity)
++                .frame(height: 52)
++                .glassKey()
++        }
++        .buttonStyle(DSPressStyle())
++        .accessibilityLabel(key == "⌫" ? "Delete" : key)
++    }
++
++    private func press(_ key: String) {
++        switch key {
++        case "⌫":
++            if !input.isEmpty { input.removeLast() }
++        case ".":
++            if input.isEmpty { input = "0." } else if !input.contains(".") { input.append(".") }
++        default:                                  // a digit
++            if input == "0" { input = key } else { input.append(key) }   // no "007"
++        }
++    }
++
++    // MARK: - Next
++
++    private var nextButton: some View {
++        Button { onAdvance() } label: {
++            Text("Next")
++                .dsText(.rowTitle)
++                .foregroundStyle(palette.onInk)
++                .frame(maxWidth: .infinity)
++                .frame(height: 50)
++        }
++        .buttonStyle(DSPressStyle())
++        .background(Capsule().fill(palette.ink))
++        .opacity(canAdvance ? 1 : 0.4)
++        .disabled(!canAdvance)
++    }
++}
++
++#if DEBUG
++private struct GauntletKeypadPreview: View {
++    @State private var input = "17"
++    @State private var isNegative = false
++    var body: some View {
++        ZStack {
++            DSBackground()
++            GauntletKeypad(input: $input, isNegative: $isNegative,
++                           canAdvance: Double(input) != nil, onAdvance: {})
++                .padding(24)
++        }
++    }
++}
++
++#Preview { GauntletKeypadPreview() }
++#endif
+diff --git a/ios/CaseRoom/Intents/CaseRoomIntents.swift b/ios/CaseRoom/Intents/CaseRoomIntents.swift
+index 74cd7b5..1d8ad28 100644
+--- a/ios/CaseRoom/Intents/CaseRoomIntents.swift
++++ b/ios/CaseRoom/Intents/CaseRoomIntents.swift
+@@ -53,12 +53,17 @@ final class AppRouter {
+     // Tab + navigation state observed by RootShell.
+     var selection: DSTab = .home
+     var avatarSheet = false
+     var proposeToUserID: Int?
+     var sessionTakeoverID: Int?
+     var drillRun = false          // the shell owns the drill sheet, keyed off this
++    var gauntletRun = false       // shell owns the gauntlet fullScreenCover, keyed off this (F7 Task 4)
++    // "See today's result" seam (F7 Task 4): DrillsView sets the already-scored
++    // result before flagging gauntletRun so the cover opens straight into the
++    // result phase (B8 blocks a re-run). Cleared with the flag on dismiss.
++    var gauntletResult: GauntletResult?
+     var homePath: [AppRoute] = []
+     var libraryPath: [AppRoute] = []
+     var casePath: [AppRoute] = []
+     var communityPath: [AppRoute] = []
+ 
+     /// Intent inbox: an App Intent (which can't reach the SwiftUI environment)
+@@ -78,12 +83,14 @@ final class AppRouter {
+             avatarSheet = true
+         case .sessionTakeover(let id):
+             sessionTakeoverID = id
+         case .drillRun:
+             selection = .home
+             drillRun = true       // RootShell observes this and presents DrillView
++        case .gauntletRun:
++            gauntletRun = true    // RootShell observes this and presents GauntletRunView (Task 4)
+         case .caseDetail(let id):
+             selection = .library
+             libraryPath.append(.caseDetail(id))
+         case .timelineDetail:
+             selection = .home
+             homePath.append(.timelineDetail)
+diff --git a/ios/CaseRoom/Networking/APIClient.swift b/ios/CaseRoom/Networking/APIClient.swift
+index 4640fdd..0adbbfe 100644
+--- a/ios/CaseRoom/Networking/APIClient.swift
++++ b/ios/CaseRoom/Networking/APIClient.swift
+@@ -14,12 +14,20 @@ enum APIError: Error {
+     case unauthorized
+     case server(Int)
+     case decoding(Error)
+     case transport(Error)
+ }
+ 
++// Thrown by submitGauntlet when the server returns 409 {"error":
++// "already_submitted", ...} — B8 allows one gauntlet submission per user per
++// day. The VM recovers by re-fetching gauntlet() and showing its embedded
++// (already-scored) `result`.
++enum GauntletError: Error, Equatable {
++    case alreadySubmitted
++}
++
+ // Thrown by uploadRecordingChunk when the server rejects a chunk with
+ // 409 {"detail": "expected seq N"} — the client is out of sync and must
+ // resend starting at N (RecordingUploader does this resync).
+ enum RecordingChunkError: Error, Equatable {
+     case seqMismatch(expected: Int)
+     /// Server repeated the same `expected` seq with no forward progress —
+@@ -69,21 +77,28 @@ protocol TimelineService {
+ 
+ // "Next up for you" (B4 §7, Task 2). Swap re-calls with the shown id excluded.
+ protocol RecommendationService {
+     func recommendations(exclude: [Int]) async throws -> [Recommendation]
+ }
+ 
+-// Today's global gauntlet set + percentile-first results (B8, Task 2).
++// Today's global gauntlet set + percentile-first results (B8, Task 2); the
++// scored submission + trends (B8, F7 Task 1).
+ protocol GauntletService {
+     func gauntlet() async throws -> Gauntlet
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult
++    func trends() async throws -> GauntletTrends
+ }
+ 
+ // Scoped leaderboards; Home's cohort footer only ever asks for scope=group,
+-// the one scope with literal rank/points (B8, Task 2).
++// the one scope with literal rank/points (B8, Task 2). F7 Task 1 adds the
++// remaining three scopes for the Drills hub's board switcher.
+ protocol BoardService {
+     func groupBoard() async throws -> GroupBoard
++    func schoolBoard() async throws -> SchoolBoard
++    func globalBoard() async throws -> GlobalBoard
++    func schoolsBoard() async throws -> SchoolsBoard
+ }
+ 
+ struct CaseQuery {
+     var q: String?
+     var difficulty: String?
+     var industry: String?
+@@ -365,12 +380,53 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
+         try await send(
+             path: "/api/v1/drills/boards", method: "GET",
+             queryItems: [URLQueryItem(name: "scope", value: "group")]
+         )
+     }
+ 
++    func schoolBoard() async throws -> SchoolBoard {
++        try await send(
++            path: "/api/v1/drills/boards", method: "GET",
++            queryItems: [URLQueryItem(name: "scope", value: "school")]
++        )
++    }
++
++    func globalBoard() async throws -> GlobalBoard {
++        try await send(
++            path: "/api/v1/drills/boards", method: "GET",
++            queryItems: [URLQueryItem(name: "scope", value: "global")]
++        )
++    }
++
++    func schoolsBoard() async throws -> SchoolsBoard {
++        try await send(
++            path: "/api/v1/drills/boards", method: "GET",
++            queryItems: [URLQueryItem(name: "scope", value: "schools")]
++        )
++    }
++
++    // POST .../gauntlet/attempts — server re-scores against the regenerated
++    // set (client `value`/`choiceIndex` never trusted for grading). One
++    // submission/user/day: a repeat -> 409, rethrown as the typed
++    // GauntletError.alreadySubmitted so the VM can recover via gauntlet().result.
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        struct SubmitBody: Encodable { let answers: [GauntletAttempt] }
++        do {
++            return try await send(
++                path: "/api/v1/drills/gauntlet/attempts", method: "POST",
++                body: SubmitBody(answers: answers)
++            )
++        } catch APIError.server(409) {
++            throw GauntletError.alreadySubmitted
++        }
++    }
++
++    func trends() async throws -> GauntletTrends {
++        try await send(path: "/api/v1/drills/trends", method: "GET")
++    }
++
+     // MARK: - Devices
+ 
+     func registerDevice(token: String) async throws {
+         struct DeviceBody: Encodable { let token: String; let platform: String = "ios" }
+         try await sendNoContent(path: "/api/v1/devices", method: "POST", body: DeviceBody(token: token))
+     }
+diff --git a/ios/CaseRoom/Networking/HomeModels.swift b/ios/CaseRoom/Networking/HomeModels.swift
+index d7bba1f..8846082 100644
+--- a/ios/CaseRoom/Networking/HomeModels.swift
++++ b/ios/CaseRoom/Networking/HomeModels.swift
+@@ -230,6 +230,76 @@ struct BoardEntry: Codable, Equatable, Identifiable {
+ 
+ struct GroupBoard: Codable, Equatable {
+     let scope: String
+     let group: GroupRef?
+     let entries: [BoardEntry]
+ }
++
++// scope=school/schools row shape (webapp/routes/drills.py boards) — a
++// school-vs-school avg-percentile card, reused for both the single "your
++// school" card (SchoolBoard) and the schools-vs-schools list (SchoolsBoard).
++struct SchoolCard: Codable, Equatable, Identifiable {
++    let schoolId: Int
++    let name: String
++    let campusCity: String
++    let avgMemberPercentile: Double
++    let rank: Int
++
++    var id: Int { schoolId }
++}
++
++// scope=school: your own school's card + your own (global) percentile.
++// `school` nil when the user has no school on file; `yourPercentile` nil
++// pre-submission / no scored history (B8 pinned shape).
++struct SchoolBoard: Codable, Equatable {
++    let scope: String
++    let school: SchoolCard?
++    let yourPercentile: Double?
++}
++
++// scope=global: no per-member list (percentile-not-headcount, delta §0.2) —
++// just the caller's own percentile, nil pre-submission.
++struct GlobalBoard: Codable, Equatable {
++    let scope: String
++    let yourPercentile: Double?
++}
++
++// scope=schools: school-vs-school avg-percentile leaderboard.
++struct SchoolsBoard: Codable, Equatable {
++    let scope: String
++    let schools: [SchoolCard]
++}
++
++// POST /api/v1/drills/gauntlet/attempts request-body item. Encodable only
++// (never decoded). Optional stored properties use the compiler's synthesized
++// encodeIfPresent, so a nil `value`/`choiceIndex`/`durationMs` omits that key
++// entirely rather than encoding `null` — a numeric slot sends {slot, value,
++// duration_ms}, a choice slot sends {slot, choice_index, duration_ms}.
++struct GauntletAttempt: Encodable, Equatable {
++    let slot: Int
++    let value: Double?
++    let choiceIndex: Int?
++    let durationMs: Int?
++}
++
++// GET /api/v1/drills/trends daily[] row: {date, score} — score 0-6 raw count
++// correct, NOT a percentile (see F7 plan I2 deviation note).
++struct TrendPoint: Codable, Equatable {
++    let date: String
++    let score: Double
++}
++
++// GET /api/v1/drills/trends by_type[] row.
++struct TrendByType: Codable, Equatable, Identifiable {
++    let drillType: String
++    let attempts: Int
++    let correct: Int
++    let accuracy: Double
++
++    var id: String { drillType }
++}
++
++struct GauntletTrends: Codable, Equatable {
++    let daily: [TrendPoint]
++    let byType: [TrendByType]
++    let weakest: String?
++}
+diff --git a/ios/CaseRoom/State/DrillsViewModel.swift b/ios/CaseRoom/State/DrillsViewModel.swift
+new file mode 100644
+index 0000000..d928f5a
+--- /dev/null
++++ b/ios/CaseRoom/State/DrillsViewModel.swift
+@@ -0,0 +1,341 @@
++/*
++ * Purpose: Backing state for the Drills hub (canvas 5b `dIsHub`) — concurrently
++ *          loads the gauntlet, the 4-week trend series, and the C-14 group
++ *          board, and derives the hero (streak/submitted/begin label/hub
++ *          percentile), the 16-bar trend (I2 deviation: rendered from raw
++ *          daily SCORE, not a daily-percentile series — see plan), the week
++ *          labels, and the C-14 board note (I3: derived from
++ *          `result.group.pointsBehindNext`, never fabricated). Task 3 adds
++ *          the 4-scope board switcher (C-14/WHARTON/GLOBAL/SCHOOLS):
++ *          `boardScope` + `selectBoard(_:)` lazily loads + caches
++ *          school/global/schools boards (C-14 stays eager from `load()`) and
++ *          exposes the per-scope head/note/foot copy + percentile/decimal
++ *          formatting `GauntletBoard` reads.
++ * Inputs: GauntletService/BoardService (default APIClient.shared).
++ * Outputs: POST-free reads only (Task 2/3 never submit the gauntlet).
++ * Run: owned by DrillsView (via GauntletBoard); call load() from .task.
++ */
++
++import Foundation
++import Observation
++
++@Observable
++@MainActor
++final class DrillsViewModel {
++    /// One trend bar (canvas 5b lines 936: 16 bars, opacity ramp, last green).
++    struct TrendBar: Identifiable {
++        let id = UUID()
++        let height: Double     // 0...1 (score/6, clamped to a visible floor)
++        let opacity: Double    // ink opacity for non-green bars; ignored when isGreen
++        let isGreen: Bool      // the single last (most-recent) bar
++        let isPad: Bool        // left-pad placeholder when <16 days of history
++    }
++
++    private(set) var gauntlet: Gauntlet?
++    private(set) var trends: GauntletTrends?
++    private(set) var board: GroupBoard?
++    var errorMessage: String?
++
++    private let gauntletService: GauntletService
++    private let boardService: BoardService
++    private let isFixtureBacked: Bool
++
++    init(gauntletService: GauntletService = APIClient.shared,
++         boardService: BoardService = APIClient.shared) {
++        self.gauntletService = gauntletService
++        self.boardService = boardService
++        self.isFixtureBacked = false
++    }
++
++    #if DEBUG
++    /// Screenshot-only: injects fixture data instead of hitting the network
++    /// (mirrors HomeViewModel's fixture init). `load()` is a deliberate no-op
++    /// on this instance. `boardScope` presets the active scope chip (Task 3
++    /// `-F7Board` hatch); the three optional board fixtures pre-populate the
++    /// scope caches so `GauntletBoard` never triggers `selectBoard(_:)`'s
++    /// network path on a fixture-backed VM (which would `fatalError` via
++    /// `NeverCalledDrillsService`) — a tap on any chip just reads an
++    /// already-cached scope.
++    init(fixtureGauntlet: Gauntlet, fixtureTrends: GauntletTrends, fixtureBoard: GroupBoard,
++         boardScope: BoardScope = .c14,
++         fixtureSchoolBoard: SchoolBoard? = nil,
++         fixtureGlobalBoard: GlobalBoard? = nil,
++         fixtureSchoolsBoard: SchoolsBoard? = nil) {
++        let never = NeverCalledDrillsService()
++        self.gauntletService = never
++        self.boardService = never
++        self.isFixtureBacked = true
++        self.gauntlet = fixtureGauntlet
++        self.trends = fixtureTrends
++        self.board = fixtureBoard
++        self.boardScope = boardScope
++        self.schoolBoard = fixtureSchoolBoard
++        self.globalBoard = fixtureGlobalBoard
++        self.schoolsBoard = fixtureSchoolsBoard
++    }
++    #endif
++
++    func load() async {
++        guard !isFixtureBacked else { return }
++        errorMessage = nil
++        do {
++            async let g = gauntletService.gauntlet()
++            async let t = gauntletService.trends()
++            async let b = boardService.groupBoard()
++            let gauntlet = try await g
++            let trends = try await t
++            let board = try await b
++            self.gauntlet = gauntlet
++            self.trends = trends
++            self.board = board
++        } catch {
++            errorMessage = "Couldn't load Drills."
++        }
++    }
++
++    // MARK: - Hero
++
++    var streakDay: Int { gauntlet?.streak ?? 0 }
++    var submitted: Bool { gauntlet?.submitted ?? false }
++
++    var beginLabel: String { submitted ? "See today's result" : "Begin today's set" }
++
++    /// "{ordinal} TODAY" (green) once submitted with a scored percentile; nil
++    /// pre-submission and nil when the result has no percentile yet (no fiction).
++    var hubPercentileLabel: String? {
++        guard submitted, let pct = gauntlet?.result?.dailyPercentile else { return nil }
++        return "\(Self.ordinal(Int(pct.rounded()))) TODAY"
++    }
++
++    // MARK: - Trend (I2 — deviation: score-derived bars under a percentile kicker)
++
++    private static let barCount = 16
++
++    /// Cold-start invariant: when `trends.daily` is empty, all 16 bars render
++    /// as faint left-pads with no green last bar — harmless (no data yet),
++    /// not an error state.
++    var trendBars: [TrendBar] {
++        let daily = trends?.daily ?? []
++        let real = Array(daily.suffix(Self.barCount))
++        let padCount = Self.barCount - real.count
++        var bars: [TrendBar] = (0..<padCount).map { _ in
++            TrendBar(height: 0.12, opacity: 0.10, isGreen: false, isPad: true)
++        }
++        for (offset, point) in real.enumerated() {
++            let position = padCount + offset       // absolute slot 0..<16
++            let isLast = position == Self.barCount - 1
++            let height = min(max(point.score / 6, 0.12), 1.0)
++            bars.append(TrendBar(height: height, opacity: Self.opacity(forPosition: position), isGreen: isLast, isPad: false))
++        }
++        return bars
++    }
++
++    /// Canvas-fixed recency ramp over the 16 absolute slots: 0-3 → .18,
++    /// 4-7 → .28, 8-11 → .4, 12-14 → solid ink (1.0), 15 → green (opacity unused).
++    private static func opacity(forPosition position: Int) -> Double {
++        switch position {
++        case 0..<4: return 0.18
++        case 4..<8: return 0.28
++        case 8..<12: return 0.4
++        default: return 1.0
++        }
++    }
++
++    /// "TREND — DAILY PERCENTILE, 4 WEEKS" kicker's four W-numbers, the last
++    /// appending "— {ordinal(dailyPercentile)}" only when submitted AND a
++    /// percentile is present.
++    var weekLabels: [String] {
++        let week = Self.isoWeek(for: latestTrendDate ?? Date())
++        let base = (0..<4).map { "W\(week - 3 + $0)" }
++        guard submitted, let pct = gauntlet?.result?.dailyPercentile else { return base }
++        var labels = base
++        labels[3] = "\(labels[3]) — \(Self.ordinal(Int(pct.rounded())))"
++        return labels
++    }
++
++    private var latestTrendDate: Date? {
++        guard let latest = trends?.daily.last?.date else { return nil }
++        return Self.isoDayFormatter.date(from: latest)
++    }
++
++    private static let isoDayFormatter: DateFormatter = {
++        let f = DateFormatter()
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.timeZone = TimeZone(identifier: "UTC")
++        f.dateFormat = "yyyy-MM-dd"
++        return f
++    }()
++
++    private static func isoWeek(for date: Date) -> Int {
++        var calendar = Calendar(identifier: .iso8601)
++        calendar.timeZone = TimeZone(identifier: "UTC")!
++        return calendar.component(.weekOfYear, from: date)
++    }
++
++    // MARK: - Board (C-14, Task 2 ships the group scope; Task 3 adds the switcher)
++
++    /// "{n} BEHIND №{rank-1}" derived from `result.group.pointsBehindNext`
++    /// once submitted; nil pre-submission, when the field isn't present
++    /// (I3 — never fabricated), or at rank 1 (there is no №0 to be behind).
++    var boardNote: String? {
++        guard submitted, let group = gauntlet?.result?.group, let behind = group.pointsBehindNext,
++              group.rank > 1 else { return nil }
++        return "\(behind) BEHIND №\(group.rank - 1)"
++    }
++
++    /// "COHORT {name} — WEEK {n}" — the group name from the live board (not
++    /// hardcoded), the ISO week of today (not the trend series, which may lag).
++    var boardHead: String {
++        "COHORT \(board?.group?.name ?? "—") — WEEK \(Self.isoWeek(for: Date()))"
++    }
++
++    /// Identifies "your" row without a profile fetch (Task 2 doesn't load
++    /// ProfileService): the submitted gauntlet's own `result.group` carries
++    /// the caller's rank+points for today's C-14 board, which is a unique
++    /// key into `entries`. Pre-submission there's no result, so no row is
++    /// highlighted (honest: we have no other signal for "you" in the board).
++    func isYourRow(_ entry: BoardEntry) -> Bool {
++        guard let group = gauntlet?.result?.group else { return false }
++        return entry.rank == group.rank && entry.points == group.points
++    }
++
++    // MARK: - Board scope switcher (Task 3 — C-14/WHARTON/GLOBAL/SCHOOLS)
++
++    /// The four board scopes (canvas 5b chips `C-14` `WHARTON` `GLOBAL`
++    /// `SCHOOLS`). C-14 = `scope=group` (loaded eagerly by `load()`); the
++    /// other three are lazily fetched + cached on first `selectBoard(_:)`.
++    enum BoardScope: CaseIterable {
++        case c14, wharton, global, schools
++
++        var chipLabel: String {
++            switch self {
++            case .c14: return "C-14"
++            case .wharton: return "WHARTON"
++            case .global: return "GLOBAL"
++            case .schools: return "SCHOOLS"
++            }
++        }
++    }
++
++    private(set) var boardScope: BoardScope = .c14
++    private(set) var schoolBoard: SchoolBoard?
++    private(set) var globalBoard: GlobalBoard?
++    private(set) var schoolsBoard: SchoolsBoard?
++    var boardErrorMessage: String?
++
++    /// Switches the active scope and lazily loads + caches that scope's
++    /// payload (a repeat select of an already-cached scope makes no network
++    /// call — the "loader called once per scope" invariant tests assert).
++    /// SCHOOLS also ensures `schoolBoard` is cached: B8's schools-vs-schools
++    /// list carries no per-row "is this yours" flag, so identifying "yours"
++    /// needs the caller's own school id, which only `scope=school` exposes
++    /// (that IS "your school" per the B8 Interfaces contract) — an honest
++    /// dependency, not a fabrication, and idempotent like every other cache.
++    func selectBoard(_ scope: BoardScope) async {
++        boardScope = scope
++        boardErrorMessage = nil
++        do {
++            switch scope {
++            case .c14:
++                break
++            case .wharton:
++                if schoolBoard == nil { schoolBoard = try await boardService.schoolBoard() }
++            case .global:
++                if globalBoard == nil { globalBoard = try await boardService.globalBoard() }
++            case .schools:
++                if schoolBoard == nil { schoolBoard = try await boardService.schoolBoard() }
++                if schoolsBoard == nil { schoolsBoard = try await boardService.schoolsBoard() }
++            }
++        } catch {
++            boardErrorMessage = "Couldn't load board."
++        }
++    }
++
++    /// Graceful ordinal for a possibly-nil percentile (WHARTON's "YOUR
++    /// STANDING" row, GLOBAL's percentile hero) — nil → "—", never a crash
++    /// or a fabricated number.
++    func percentileLabel(_ percentile: Double?) -> String {
++        guard let percentile else { return "—" }
++        return Self.ordinal(Int(percentile.rounded()))
++    }
++
++    /// 1dp average — SCHOOLS/WHARTON's `avgMemberPercentile` is a population
++    /// average, not a personal rank, so it renders as a plain decimal
++    /// ("69.8"), never run through `ordinal(_:)`.
++    static func decimal1(_ value: Double) -> String {
++        String(format: "%.1f", value)
++    }
++
++    /// SCHOOLS-list "yours" highlight — matched by school id against the
++    /// caller's own school (from the cached `scope=school` board, per the
++    /// selectBoard(.schools) dependency documented above).
++    func isYourSchool(_ card: SchoolCard) -> Bool {
++        guard let mine = schoolBoard?.school?.schoolId else { return false }
++        return card.schoolId == mine
++    }
++
++    // MARK: - Per-scope head/note/foot copy (canvas tablet DC dScope logic,
++    // verbatim; WEEK numbers are computed via `isoWeek`, not hardcoded, so
++    // they never go stale — the rendered text matches the canvas literal for
++    // any date the canvas's "WEEK 29" applies to).
++
++    var currentBoardHead: String {
++        switch boardScope {
++        case .c14: return boardHead
++        case .wharton: return "THE WHARTON SCHOOL — WEEK \(Self.isoWeek(for: Date()))"
++        case .global: return "ALL PLAYERS — TODAY"
++        case .schools: return "SCHOOL VS SCHOOL — WEEK \(Self.isoWeek(for: Date()))"
++        }
++    }
++
++    var currentBoardNote: String? {
++        switch boardScope {
++        case .c14: return boardNote
++        case .wharton: return "BY WEEKLY PERCENTILE"
++        case .global: return "BY PERCENTILE"
++        case .schools: return "AVG MEMBER PERCENTILE"
++        }
++    }
++
++    var currentBoardFoot: String {
++        switch boardScope {
++        case .c14: return "Drill percentiles are public. Session grades stay private."
++        case .wharton: return "Standing among verified Wharton members, by percentile. Head-counts stay private."
++        case .global: return "Everyone who ran today's gauntlet, placed by percentile — never a head-count."
++        case .schools: return "The average of member percentiles — never a head-count. Carry your school."
++        }
++    }
++
++    // MARK: - Ordinal helper ("1ST".."66TH", shared with the board rows)
++
++    static func ordinal(_ n: Int) -> String {
++        let mod100 = n % 100
++        let suffix: String
++        if (11...13).contains(mod100) {
++            suffix = "TH"
++        } else {
++            switch n % 10 {
++            case 1: suffix = "ST"
++            case 2: suffix = "ND"
++            case 3: suffix = "RD"
++            default: suffix = "TH"
++            }
++        }
++        return "\(n)\(suffix)"
++    }
++}
++
++#if DEBUG
++/// Backs the fixture-init VM. The screenshot hatch is documented non-
++/// interactive, so any call here is a misuse — fail loudly instead of
++/// silently hitting the network (mirrors HomeViewModel's NeverCalled pattern).
++private struct NeverCalledDrillsService: GauntletService, BoardService {
++    func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func trends() async throws -> GauntletTrends { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func schoolBoard() async throws -> SchoolBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func globalBoard() async throws -> GlobalBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func schoolsBoard() async throws -> SchoolsBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++}
++#endif
+diff --git a/ios/CaseRoom/State/GauntletRunViewModel.swift b/ios/CaseRoom/State/GauntletRunViewModel.swift
+new file mode 100644
+index 0000000..d0b3b66
+--- /dev/null
++++ b/ios/CaseRoom/State/GauntletRunViewModel.swift
+@@ -0,0 +1,341 @@
++/*
++ * Purpose: The gauntlet run → submit → percentile-result state machine (canvas
++ *          5b run + result). Loads today's server gauntlet (or accepts an
++ *          injected one), iterates the 6 slots collecting a signed keypad value
++ *          (numeric slots) or a choiceIndex (choice slots) plus a per-slot
++ *          durationMs, then POSTs the answers for server re-scoring. B8 allows
++ *          one submission/user/day; a 409 is recovered by re-fetching the
++ *          embedded result. "See today's result" injects that result to open
++ *          straight into the result phase (no re-run).
++ *
++ *   TIMER JUDGMENT: elapsed is always computed from a wall-clock `Date` (runStart
++ *   for the total, slotStart for the per-slot durationMs). A single repeating 1s
++ *   tick ONLY refreshes the MM:SS label — it never accumulates, so a dropped or
++ *   coalesced tick can't make the clock drift. The tick is invalidated + re-armed
++ *   per slot and torn down on submit/stop, so no timer ever leaks across slots.
++ *   The `now` clock is injectable so tests are deterministic (no runloop timer).
++ *
++ *   FM SEAM: this is the SERVER-scored path (submitGauntlet). It never touches
++ *   the on-device FM engine — the weak-section CTA bridges to `.drillRun` (the
++ *   legacy FM DrillView), which is the only FM-adjacent seam here.
++ * Inputs: a GauntletService (default APIClient.shared); optional preloaded
++ *         Gauntlet / GauntletResult; injectable `now` clock + `autoTick`.
++ * Outputs: one POST /gauntlet/attempts (live run only); no other side effects.
++ * Run: owned by RootShell's `.gauntletRun` fullScreenCover; call `start()` on task.
++ */
++
++import Foundation
++import Observation
++
++@Observable
++@MainActor
++final class GauntletRunViewModel: Identifiable {
++    enum Phase: Equatable {
++        case loading
++        case running
++        case submitting
++        case result(GauntletResult)
++        case failed(String)
++    }
++
++    let id = UUID()
++    private(set) var phase: Phase = .loading
++    private(set) var currentIndex = 0
++
++    // Numeric-slot keypad state (reset per slot); the choice-slot selection.
++    var numericInput = ""
++    var isNegative = false
++    private(set) var selectedChoice: Int?
++
++    // The collected answers, exposed for tests (one subset-encoded row per slot).
++    private(set) var answers: [GauntletAttempt] = []
++
++    // The live MM:SS run clock label (refreshed by the tick; value from `now`).
++    private(set) var timerLabel = "00:00"
++
++    private var gauntlet: Gauntlet?
++    private var runStart: Date?
++    private var slotStart: Date?
++    private var ticker: Timer?
++    private var resultElapsedSeconds: Int?
++
++    private let service: GauntletService
++    private let preloaded: Gauntlet?
++    private let preloadedResult: GauntletResult?
++    private let now: () -> Date
++    private let autoTick: Bool
++
++    init(service: GauntletService = APIClient.shared,
++         preloaded: Gauntlet? = nil,
++         preloadedResult: GauntletResult? = nil,
++         preloadedElapsedSeconds: Int? = nil,
++         now: @escaping () -> Date = { Date() },
++         autoTick: Bool = true) {
++        self.service = service
++        self.preloaded = preloaded
++        self.preloadedResult = preloadedResult
++        self.resultElapsedSeconds = preloadedElapsedSeconds
++        self.now = now
++        self.autoTick = autoTick
++    }
++
++    // MARK: - Lifecycle
++
++    /// Entry point (idempotent-ish: only acts from `.loading`). Opens straight
++    /// into `.result` when a preloaded result is supplied ("See today's
++    /// result"); otherwise starts the timed run from the injected or fetched
++    /// gauntlet, defensively showing an already-scored result if the server
++    /// says today is already submitted.
++    func start() async {
++        guard case .loading = phase else { return }
++        if let result = preloadedResult {
++            phase = .result(result)
++            return
++        }
++        if let gauntlet = preloaded {
++            beginRun(with: gauntlet)
++            return
++        }
++        do {
++            let gauntlet = try await service.gauntlet()
++            if gauntlet.submitted, let result = gauntlet.result {
++                phase = .result(result)
++            } else {
++                beginRun(with: gauntlet)
++            }
++        } catch {
++            phase = .failed("Couldn't load today's gauntlet. Try again.")
++        }
++    }
++
++    private func beginRun(with gauntlet: Gauntlet) {
++        self.gauntlet = gauntlet
++        answers = []
++        currentIndex = 0
++        resetSlotInput()
++        let start = now()
++        runStart = start
++        slotStart = start
++        phase = .running
++        refreshTimer()
++        armTicker()
++    }
++
++    /// Abandon: stop the clock, submit nothing (streak survives). The view
++    /// dismisses the cover.
++    func stop() { invalidateTicker() }
++
++    // MARK: - Slots
++
++    var slots: [GauntletSlot] { gauntlet?.slots ?? [] }
++    var currentSlot: GauntletSlot? { slots.indices.contains(currentIndex) ? slots[currentIndex] : nil }
++    var isNumericSlot: Bool { currentSlot?.choices == nil }
++
++    /// Numeric-slot Next is gated on a parseable value; choice slots advance on tap.
++    var canAdvance: Bool { GauntletKeypad.signedValue(input: numericInput, isNegative: isNegative) != nil }
++
++    private func resetSlotInput() {
++        numericInput = ""
++        isNegative = false
++        selectedChoice = nil
++    }
++
++    /// Numeric-slot advance (keypad "Next"): captures the signed value.
++    func advance() async {
++        guard case .running = phase, let slot = currentSlot, slot.choices == nil else { return }
++        let value = GauntletKeypad.signedValue(input: numericInput, isNegative: isNegative)
++        record(GauntletAttempt(slot: slot.slot, value: value, choiceIndex: nil, durationMs: durationMsForSlot()))
++        await advanceOrSubmit()
++    }
++
++    /// Choice-slot tap: records the choiceIndex and advances.
++    func selectChoice(_ index: Int) async {
++        guard case .running = phase, let slot = currentSlot, slot.choices != nil else { return }
++        selectedChoice = index
++        record(GauntletAttempt(slot: slot.slot, value: nil, choiceIndex: index, durationMs: durationMsForSlot()))
++        await advanceOrSubmit()
++    }
++
++    private func record(_ attempt: GauntletAttempt) { answers.append(attempt) }
++
++    private func advanceOrSubmit() async {
++        if currentIndex + 1 < slots.count {
++            currentIndex += 1
++            resetSlotInput()
++            slotStart = now()
++            armTicker()               // invalidate + re-arm: never a leaked tick across slots
++        } else {
++            await submit()
++        }
++    }
++
++    private func durationMsForSlot() -> Int {
++        guard let start = slotStart else { return 0 }
++        return max(0, Int(now().timeIntervalSince(start) * 1000))
++    }
++
++    // MARK: - Submit + recovery
++
++    private func submit() async {
++        invalidateTicker()
++        if let start = runStart { resultElapsedSeconds = Int(now().timeIntervalSince(start)) }
++        phase = .submitting
++        do {
++            let result = try await service.submitGauntlet(answers)
++            phase = .result(result)
++        } catch GauntletError.alreadySubmitted {
++            await recoverAlreadySubmitted()
++        } catch {
++            phase = .failed("Couldn't score your gauntlet. Try again.")
++        }
++    }
++
++    /// 409 recovery: re-fetch the gauntlet and show its embedded (already-scored)
++    /// result — the one-per-day submission already happened.
++    private func recoverAlreadySubmitted() async {
++        do {
++            let gauntlet = try await service.gauntlet()
++            if let result = gauntlet.result {
++                phase = .result(result)
++            } else {
++                phase = .failed("You already ran today's gauntlet.")
++            }
++        } catch {
++            phase = .failed("Couldn't load your result. Try again.")
++        }
++    }
++
++    // MARK: - Timer (wall-clock derived; the tick only refreshes the label)
++
++    private func armTicker() {
++        guard autoTick else { return }
++        ticker?.invalidate()
++        // Weak self + self-invalidation: if the VM is gone, the tick invalidates
++        // its own Timer (no leaked runloop tick, no nonisolated-deinit access).
++        ticker = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] timer in
++            guard let self else { timer.invalidate(); return }
++            Task { @MainActor in self.refreshTimer() }
++        }
++    }
++
++    private func invalidateTicker() {
++        ticker?.invalidate()
++        ticker = nil
++    }
++
++    private func refreshTimer() {
++        guard let start = runStart else { return }
++        timerLabel = Self.mmss(Int(now().timeIntervalSince(start)))
++    }
++
++    // MARK: - Run labels
++
++    var kicker: String {
++        guard let slot = currentSlot else { return "" }
++        return "\(Self.typeLabel(slot.drillType)) — \(currentIndex + 1) OF \(slots.count)"
++    }
++
++    var progress: Double {
++        guard !slots.isEmpty else { return 0 }
++        return Double(currentIndex) / Double(slots.count)
++    }
++
++    /// The client drillType→label map (the server's GAUNTLET_TYPE_LABELS isn't on
++    /// the wire); an unmapped type falls back to CAPS with underscores spaced.
++    static func typeLabel(_ drillType: String) -> String {
++        switch drillType {
++        case "mental_math": return "MENTAL MATH"
++        case "market_sizing": return "MARKET SIZING"
++        case "framework_recall": return "STRUCTURES"
++        default: return drillType.uppercased().replacingOccurrences(of: "_", with: " ")
++        }
++    }
++
++    // MARK: - Result labels
++
++    private var resultValue: GauntletResult? {
++        if case let .result(result) = phase { return result }
++        return nil
++    }
++
++    /// Split for the big-number + small-suffix render (72px / 28px). A nil
++    /// percentile (cold start / pre-rank) renders a graceful "—" with no suffix.
++    var resultPercentileNumber: String {
++        guard let pct = resultValue?.dailyPercentile else { return "—" }
++        return String(Int(pct.rounded()))
++    }
++
++    var resultPercentileSuffix: String {
++        guard let pct = resultValue?.dailyPercentile else { return "" }
++        return String(Self.ordinal(Int(pct.rounded())).suffix(2))
++    }
++
++    /// Combined ordinal ("66TH") or the graceful "—" — the VM-level string the
++    /// tests assert never crashes on a nil percentile.
++    var resultPercentileLabel: String {
++        guard let pct = resultValue?.dailyPercentile else { return "—" }
++        return Self.ordinal(Int(pct.rounded()))
++    }
++
++    var resultKicker: String {
++        if let seconds = resultElapsedSeconds {
++            return "PERCENTILE · TODAY'S GAUNTLET · \(Self.mmss(seconds))"
++        }
++        return "PERCENTILE · TODAY'S GAUNTLET"
++    }
++
++    var resultPointsLabel: String { "+\(resultValue?.pointsAwarded ?? 0) PTS" }
++
++    var resultCorrectLabel: String {
++        guard let result = resultValue else { return "" }
++        return "\(result.slotsCorrect)/\(result.slots) CORRECT"
++    }
++
++    /// "{ordinal(rank)} IN {group} TODAY" — only when the result carries a group
++    /// (nil hides the strip segment; no fiction).
++    var resultGroupLabel: String? {
++        guard let group = resultValue?.group else { return nil }
++        let name = group.name ?? "your cohort"
++        return "\(Self.ordinal(group.rank)) IN \(name) TODAY"
++    }
++
++    /// Derived serif line (mobile-DC JS logic is truncated in the canvas tail —
++    /// this is composed from the weakSection per persona §3; owner-gate at demo).
++    var resultSerifLine: String {
++        if let weak = resultValue?.weakSection {
++            return "Your \(weak.label) came in soft today — a few focused reps sharpen it fast."
++        }
++        return "Solid run today. Come back tomorrow and keep the streak climbing."
++    }
++
++    /// The FM practice bridge label: the weak section, else a generic weak spot.
++    var weakCtaLabel: String {
++        if let weak = resultValue?.weakSection {
++            return "Practice \(weak.label) — 3 focused drills"
++        }
++        return "Practice a weak spot — 3 focused drills"
++    }
++
++    // MARK: - Formatting helpers
++
++    static func mmss(_ totalSeconds: Int) -> String {
++        let seconds = max(0, totalSeconds)
++        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
++    }
++
++    static func ordinal(_ n: Int) -> String {
++        let mod100 = n % 100
++        let suffix: String
++        if (11...13).contains(mod100) {
++            suffix = "TH"
++        } else {
++            switch n % 10 {
++            case 1: suffix = "ST"
++            case 2: suffix = "ND"
++            case 3: suffix = "RD"
++            default: suffix = "TH"
++            }
++        }
++        return "\(n)\(suffix)"
++    }
++}
+diff --git a/ios/CaseRoom/State/HomeViewModel.swift b/ios/CaseRoom/State/HomeViewModel.swift
+index db7f491..a14d5d6 100644
+--- a/ios/CaseRoom/State/HomeViewModel.swift
++++ b/ios/CaseRoom/State/HomeViewModel.swift
+@@ -366,13 +366,18 @@ final class HomeViewModel {
+ /// loudly instead of silently hitting the network.
+ private struct NeverCalledHomeService: DashboardService, GauntletService, BoardService,
+     ProfileService, RecommendationService, TimelineService, RecentSessionsService {
+     func dashboard() async throws -> DashboardStats { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func sessions(scope: String) async throws -> [SessionSummary] { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func trends() async throws -> GauntletTrends { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func schoolBoard() async throws -> SchoolBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func globalBoard() async throws -> GlobalBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
++    func schoolsBoard() async throws -> SchoolsBoard { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func profile() async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func updateProfile(displayName: String?, bio: String?, linkedinUrl: String?) async throws -> ProfileDetail { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func uploadProfilePhoto(data: Data, mime: String) async throws -> String { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func notificationSettings() async throws -> NotificationSettings { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func updateNotificationSettings(_ settings: NotificationSettings) async throws -> NotificationSettings { fatalError("fixture-backed HomeViewModel must not call the network") }
+     func recommendations(exclude: [Int]) async throws -> [Recommendation] { fatalError("fixture-backed HomeViewModel must not call the network") }
+diff --git a/ios/CaseRoom/Views/DrillsTabStub.swift b/ios/CaseRoom/Views/DrillsTabStub.swift
+deleted file mode 100644
+index 1880188..0000000
+--- a/ios/CaseRoom/Views/DrillsTabStub.swift
++++ /dev/null
+@@ -1,19 +0,0 @@
+-/*
+- * Purpose: Transitional DRILLS tab placeholder — a later phase replaces it.
+- * Inputs: \.dsPalette.
+- * Outputs: none.
+- * Run: rendered by RootShell for DSTab.drills.
+- */
+-
+-import SwiftUI
+-
+-struct DrillsTabStub: View {
+-    @Environment(\.dsPalette) private var palette
+-    var body: some View {
+-        VStack(spacing: 8) {
+-            Text("Drills").dsText(.h1Tab).foregroundStyle(palette.ink)
+-            Text("Arrives in a later phase.").dsText(.meta).foregroundStyle(palette.muted)
+-        }
+-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+-    }
+-}
+diff --git a/ios/CaseRoom/Views/DrillsView.swift b/ios/CaseRoom/Views/DrillsView.swift
+new file mode 100644
+index 0000000..9c44cdf
+--- /dev/null
++++ b/ios/CaseRoom/Views/DrillsView.swift
+@@ -0,0 +1,318 @@
++/*
++ * Purpose: Drills hub — canvas 5b `dIsHub` (phone, .compact CANON for Task 2):
++ *          the ONE glass gauntlet hero (six-types grid, DAY N, begin/see-result,
++ *          RESETS footer + submitted percentile), the 16-bar 4-week trend (I2
++ *          deviation: rendered from raw daily score, not a daily-percentile
++ *          series — see DrillsViewModel), and the scoped board (Task 3:
++ *          `boardsSection` mounts `GauntletBoard`, the C-14/WHARTON/GLOBAL/
++ *          SCHOOLS scope switcher). Canvas 2b (iPad, .regular) reuses the SAME
++ *          hero/trend/board subviews in a two-column grid (hero+trend left,
++ *          board right) — mirrors HomeView's `.regular` pattern; RootShell
++ *          renders the iPad H1 "Drills", not this view. Only the trend bar
++ *          height changes (72px vs the phone's 56px, canvas 2b line 244); no
++ *          VM fork — the same size-class-agnostic fixtures drive both.
++ * Inputs: DrillsViewModel (injectable; DEBUG fixture init for shots).
++ * Outputs: none (navigation via AppRouter.shared).
++ * Run: mounted by RootShell for DSTab.drills.
++ */
++
++import SwiftUI
++
++struct DrillsView: View {
++    @Environment(\.dsPalette) private var palette
++    @Environment(\.horizontalSizeClass) private var hSize
++    @State private var viewModel: DrillsViewModel
++
++    // Injectable VM (default = live). The DEBUG -F7Drills hatch injects a
++    // fixture-backed VM so simctl can capture a populated screen.
++    @MainActor
++    init(viewModel: DrillsViewModel? = nil) {
++        _viewModel = State(initialValue: viewModel ?? DrillsViewModel())
++    }
++
++    var body: some View {
++        ZStack {
++            DSBackground()
++            if viewModel.gauntlet == nil {
++                Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
++            } else if hSize == .regular {
++                regularContent
++            } else {
++                content
++            }
++        }
++        .task { await viewModel.load() }
++    }
++
++    private var content: some View {
++        ScrollView {
++            VStack(alignment: .leading, spacing: 22) {
++                header
++                if let errorMessage = viewModel.errorMessage {
++                    errorBanner(errorMessage)
++                }
++                heroSection
++                trendSection()
++                boardsSection
++                Color.clear.frame(height: 120)   // room behind the tab bar
++            }
++            .padding(22)
++        }
++        .scrollIndicators(.hidden)
++        .dsHeaderFade()
++    }
++
++    // MARK: - .regular (iPad, canvas 2b) — two-column grid, top-aligned.
++    // RootShell renders the "Drills" H1 for .regular, so this content starts
++    // directly with the grid (no repeated `header`). LEFT = heroSection + the
++    // trend at the canvas's 72px bars; RIGHT = the scoped board. Same
++    // subviews as `content` above — no copy fork (mirrors HomeView.regularContent).
++
++    private var regularContent: some View {
++        ScrollView {
++            VStack(alignment: .leading, spacing: 14) {
++                if let errorMessage = viewModel.errorMessage {
++                    errorBanner(errorMessage)
++                }
++                HStack(alignment: .top, spacing: 36) {
++                    VStack(alignment: .leading, spacing: 22) {
++                        heroSection
++                        trendSection(barHeight: 72)
++                    }
++                    .frame(maxWidth: .infinity, alignment: .leading)
++                    VStack(alignment: .leading, spacing: 22) {
++                        boardsSection
++                    }
++                    .frame(maxWidth: .infinity, alignment: .leading)
++                }
++                Color.clear.frame(height: 120)   // room behind the tab bar
++            }
++            .padding(.horizontal, 28).padding(.vertical, 22)
++        }
++        .scrollIndicators(.hidden)
++        .dsHeaderFade()
++    }
++
++    private var header: some View {
++        Text("Drills").dsText(.h1Tab).foregroundStyle(palette.ink)
++    }
++
++    private func errorBanner(_ message: String) -> some View {
++        HStack(spacing: 12) {
++            Text(message).dsText(.meta).foregroundStyle(palette.muted)
++            Button { Task { await viewModel.load() } } label: {
++                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
++            }
++            .buttonStyle(.plain)
++        }
++    }
++
++    // MARK: - 1. Gauntlet hero — the ONLY glass hero on this screen (canvas 5b 916-931)
++
++    private var heroSection: some View {
++        VStack(alignment: .leading, spacing: 10) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("TODAY'S GAUNTLET — SAME SIX FOR EVERYONE").dsText(.kicker).foregroundStyle(palette.muted)
++                    .lineLimit(1).minimumScaleFactor(0.8)
++                Spacer()
++                Text("DAY \(viewModel.streakDay)").dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
++            }
++            Text("Six types, five minutes.").dsText(.cardTitle).foregroundStyle(palette.ink)
++                .padding(.bottom, 2)
++            sixTypesGrid
++                .padding(.bottom, 6)
++            beginButton
++            HStack(alignment: .firstTextBaseline) {
++                Text("RESETS 06:00 · STREAK SAFE UNTIL 23:59").dsText(.kicker).foregroundStyle(palette.muted)
++                    .lineLimit(1).minimumScaleFactor(0.8)
++                Spacer()
++                if let label = viewModel.hubPercentileLabel {
++                    Text(label).dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
++                }
++            }
++            .padding(.top, 3)
++        }
++        .padding(.horizontal, 22).padding(.top, 22).padding(.bottom, 18)
++        .glassPanel(cornerRadius: 30)
++    }
++
++    /// 2-col, hairline underline on the first two rows only (4 labels) —
++    /// fixed design-identity copy, NOT bound to live slot drillType (plan
++    /// deviation #3).
++    private var sixTypesGrid: some View {
++        let labels = ["Mental math", "Market sizing", "Structures", "Chart reads", "Synthesis", "Estimates"]
++        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible())], spacing: 5) {
++            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
++                Text(label)
++                    .font(.archivo(11.5, weight: 600))
++                    .foregroundStyle(palette.ink)
++                    .padding(.vertical, 5)
++                    .frame(maxWidth: .infinity, alignment: .leading)
++                    .overlay(alignment: .bottom) {
++                        if index < 4 {
++                            Rectangle().fill(palette.hairline).frame(height: 1)
++                        }
++                    }
++            }
++        }
++    }
++
++    private var beginButton: some View {
++        Button {
++            // Submitted → open straight into the already-scored result (B8 blocks
++            // a re-run); not-submitted → the live timed run.
++            if viewModel.submitted, let result = viewModel.gauntlet?.result {
++                AppRouter.shared.gauntletResult = result
++            }
++            AppRouter.shared.go(to: .gauntletRun)
++        } label: {
++            Text(viewModel.beginLabel)
++                .dsText(.rowTitle)
++                .foregroundStyle(palette.onInk)
++                .frame(maxWidth: .infinity)
++                .frame(height: 50)
++        }
++        .buttonStyle(DSPressStyle())
++        .background(Capsule().fill(palette.ink))
++    }
++
++    // MARK: - 2. TREND — flat, hairline-top (canvas 5b 933-947; canvas 2b line
++    // 244 raises the bars to 72px on .regular — `barHeight` parameterizes it,
++    // no VM change, same `trendBars` fixtures drive both size classes).
++
++    private func trendSection(barHeight: CGFloat = 56) -> some View {
++        VStack(alignment: .leading, spacing: 12) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("TREND — DAILY PERCENTILE, 4 WEEKS").dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                Text("MOSTLY UP").dsText(.kicker).foregroundStyle(palette.muted)
++            }
++            trendBarsRow(barHeight: barHeight)
++            weekLabelsRow
++        }
++        .padding(.top, 13)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++
++    /// Square content only (reject-list: no rounded content corners).
++    private func trendBarsRow(barHeight: CGFloat) -> some View {
++        HStack(alignment: .bottom, spacing: 5) {
++            ForEach(viewModel.trendBars) { bar in
++                Rectangle()
++                    .fill(bar.isGreen ? palette.green : palette.ink.opacity(bar.opacity))
++                    .frame(maxWidth: .infinity)
++                    .frame(height: max(barHeight * bar.height, 4))
++            }
++        }
++        .frame(height: barHeight)
++    }
++
++    private var weekLabelsRow: some View {
++        HStack {
++            ForEach(Array(viewModel.weekLabels.enumerated()), id: \.offset) { index, label in
++                Text(label)
++                    .font(.archivo(8.5, weight: 600))
++                    .tracking(0.12 * 8.5)
++                    .tabularNumbers()
++                    .foregroundStyle(index == viewModel.weekLabels.count - 1 ? palette.muted : palette.faint)
++                if index < viewModel.weekLabels.count - 1 { Spacer() }
++            }
++        }
++    }
++
++    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 3: the
++    // 4-scope switcher (C-14/WHARTON/GLOBAL/SCHOOLS) lives in GauntletBoard.
++
++    private var boardsSection: some View {
++        GauntletBoard(viewModel: viewModel)
++    }
++}
++
++#if DEBUG
++/// Screenshot/preview-only fixture (the July-16 phone persona, submitted):
++/// streak 12, gauntlet result dailyPercentile 66, C-14 rank 6 / 8 behind №5,
++/// 16 days of upward-trending daily scores, the same C-14 board HomeView's
++/// fixture uses (Amara rank 6).
++enum PreviewDrillsFixture {
++    static let gauntlet = Gauntlet(
++        date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++        slots: (1...6).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
++        streak: 12, submitted: true,
++        result: GauntletResult(
++            score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
++            dailyPercentile: 66,
++            group: GauntletGroup(groupId: 14, name: "C-14", rank: 6, points: 331, pointsBehindNext: 8),
++            schoolPercentile: 71, vsPeersDelta: 3, weakSection: WeakSection(drillType: "market_sizing", label: "market sizing"),
++            streak: 12, setKey: "set-2026-07-16"))
++
++    static let trends = GauntletTrends(
++        daily: Self.trailingDays(16), byType: [], weakest: "market_sizing")
++
++    private static func trailingDays(_ count: Int) -> [TrendPoint] {
++        let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: "en_US_POSIX")
++        formatter.timeZone = TimeZone(identifier: "UTC")
++        formatter.dateFormat = "yyyy-MM-dd"
++        var comps = DateComponents()
++        comps.year = 2026; comps.month = 7; comps.day = 16; comps.hour = 12
++        let end = Calendar.current.date(from: comps)!
++        let scores: [Double] = [2, 3, 3, 4, 3, 4, 5, 4, 5, 4, 5, 6, 5, 6, 5, 5]
++        return (0..<count).map { i in
++            let date = Calendar.current.date(byAdding: .day, value: -(count - 1 - i), to: end)!
++            return TrendPoint(date: formatter.string(from: date), score: scores[i % scores.count])
++        }
++    }
++
++    static let board = GroupBoard(
++        scope: "group", group: GroupRef(id: 14, name: "C-14"),
++        entries: [
++            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
++            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
++            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
++            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
++            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 339, rank: 5, streak: 13),
++            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
++            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
++            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
++            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
++            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
++        ])
++
++    // Task 3 scope fixtures (the canvas tablet DC board literals, §"Board
++    // reality vs canvas" — schoolId 1 shared between `schoolBoard` and the
++    // `schoolsBoard` Wharton row so `isYourSchool(_:)` highlights it).
++    static let schoolBoard = SchoolBoard(
++        scope: "school",
++        school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++        yourPercentile: 88)
++
++    static let globalBoard = GlobalBoard(scope: "global", yourPercentile: 66)
++
++    static let schoolsBoard = SchoolsBoard(
++        scope: "schools",
++        schools: [
++            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
++            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
++            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
++        ])
++
++    /// `-F7Board <c14|wharton|global|schools>` → the matching scope; any
++    /// other/absent value defaults to `.c14` (the existing screenshot).
++    static func scope(for raw: String?) -> DrillsViewModel.BoardScope {
++        switch raw {
++        case "wharton": return .wharton
++        case "global": return .global
++        case "schools": return .schools
++        default: return .c14
++        }
++    }
++}
++
++#Preview {
++    DrillsView(viewModel: .init(
++        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
++        fixtureTrends: PreviewDrillsFixture.trends,
++        fixtureBoard: PreviewDrillsFixture.board))
++}
++#endif
+diff --git a/ios/CaseRoom/Views/GauntletBoard.swift b/ios/CaseRoom/Views/GauntletBoard.swift
+new file mode 100644
+index 0000000..8abeebc
+--- /dev/null
++++ b/ios/CaseRoom/Views/GauntletBoard.swift
+@@ -0,0 +1,234 @@
++/*
++ * Purpose: The Drills hub's scoped leaderboard (canvas 5b 949-983 / tablet DC
++ *          dScope 0-3 logic) — chips `C-14` `WHARTON` `GLOBAL` `SCHOOLS`
++ *          (active = ink underline, inactive = faint no-underline), the
++ *          head+note kickers, the per-scope body, and a serif foot line.
++ *          Honors the "board reality vs canvas" deviation (bgap-b8-report
++ *          "Interfaces delivered"): B8 exposes a literal per-member rank+
++ *          points list ONLY for scope=group (C-14). scope=school/global
++ *          return the caller's OWN percentile (a single value), not a
++ *          member list; scope=schools returns the school-vs-school
++ *          avg-percentile list. The canvas's WHARTON/GLOBAL per-member lists
++ *          are aspirational — this view never fabricates one. Every ranking
++ *          is percentile or literal-cohort-rank; no view path here renders a
++ *          count/"of N" (delta §0.2).
++ * Inputs: DrillsViewModel (scope state + the 4 board caches + copy/format
++ *         helpers).
++ * Outputs: none (scope taps call `viewModel.selectBoard(_:)`).
++ * Run: mounted by DrillsView as `boardsSection`.
++ */
++
++import SwiftUI
++
++struct GauntletBoard: View {
++    @Environment(\.dsPalette) private var palette
++    let viewModel: DrillsViewModel
++
++    var body: some View {
++        VStack(alignment: .leading, spacing: 8) {
++            headNoteRow
++            chipsRow
++            scopeBody
++                .padding(.top, 8)
++            Text(viewModel.currentBoardFoot)
++                .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
++                .padding(.top, 10)
++        }
++        .padding(.top, 13)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++
++    // MARK: - Head/note kickers + scope chips (canvas 5b 952-961)
++
++    private var headNoteRow: some View {
++        HStack(alignment: .firstTextBaseline) {
++            Text(viewModel.currentBoardHead).dsText(.kicker).foregroundStyle(palette.muted)
++            Spacer()
++            if let note = viewModel.currentBoardNote {
++                Text(note).font(.archivo(9, weight: 600)).tracking(0.1 * 9)
++                    .tabularNumbers().foregroundStyle(palette.muted)
++            }
++        }
++    }
++
++    private var chipsRow: some View {
++        HStack(spacing: 16) {
++            ForEach(DrillsViewModel.BoardScope.allCases, id: \.self) { scope in
++                chipButton(scope)
++            }
++        }
++        .padding(.bottom, 9)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
++    }
++
++    /// Active = ink, weight-600, underline. Inactive = `palette.faint`
++    /// (#A9B4C4, owner-locked token), no underline — canvas 5b line 959.
++    private func chipButton(_ scope: DrillsViewModel.BoardScope) -> some View {
++        let isActive = viewModel.boardScope == scope
++        return Button {
++            Task { await viewModel.selectBoard(scope) }
++        } label: {
++            Text(scope.chipLabel)
++                .font(.archivo(10.5, weight: 600))
++                .tracking(0.1 * 10.5)
++                .foregroundStyle(isActive ? palette.ink : palette.faint)
++                .underline(isActive)
++        }
++        .buttonStyle(.plain)
++    }
++
++    @ViewBuilder
++    private var scopeBody: some View {
++        switch viewModel.boardScope {
++        case .c14: c14Body
++        case .wharton: whartonBody
++        case .global: globalBody
++        case .schools: schoolsBody
++        }
++    }
++
++    // MARK: - C-14 (group) — literal rank+points list, unchanged from Task 2:
++    // TOP FIVE ADVANCE divider before rank 6, your row highlighted.
++
++    private var c14Body: some View {
++        VStack(spacing: 0) {
++            ForEach(viewModel.board?.entries ?? []) { entry in
++                if entry.rank == 6 {
++                    topFiveDivider
++                }
++                c14Row(entry)
++            }
++        }
++    }
++
++    private var topFiveDivider: some View {
++        HStack(spacing: 8) {
++            Rectangle().fill(palette.hairline).frame(height: 1)
++            Text("TOP FIVE ADVANCE").font(.archivo(8, weight: 600)).tracking(0.15 * 8)
++                .foregroundStyle(palette.muted)
++            Rectangle().fill(palette.hairline).frame(height: 1)
++        }
++        .padding(.vertical, 5)
++    }
++
++    // `BoardEntry` has no `sub` field (canvas `Sloan`/`Booth`) — renders
++    // blank, a documented deviation (no fiction); per-row `delta` is
++    // similarly omitted (no field on the wire).
++    private func c14Row(_ entry: BoardEntry) -> some View {
++        let isYou = viewModel.isYourRow(entry)
++        return HStack(spacing: 8) {
++            Text("\(entry.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            Text(entry.displayName)
++                .font(.archivo(13, weight: isYou ? 700 : 400))
++                .foregroundStyle(palette.ink)
++                .lineLimit(1).truncationMode(.tail)
++                .frame(maxWidth: .infinity, alignment: .leading)
++            Text("\(entry.points)")
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(isYou ? palette.surface.opacity(0.55) : Color.clear)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++
++    // MARK: - WHARTON (school) — the school card + a single YOUR STANDING
++    // row. NO fabricated member list (B8 gives no per-member school data).
++
++    private var whartonBody: some View {
++        VStack(alignment: .leading, spacing: 0) {
++            if let school = viewModel.schoolBoard?.school {
++                whartonCard(school)
++            } else {
++                Text("No school on file.").dsText(.meta).foregroundStyle(palette.muted)
++                    .padding(.vertical, 11)
++            }
++            yourStandingRow
++        }
++    }
++
++    private func whartonCard(_ school: SchoolCard) -> some View {
++        HStack(spacing: 8) {
++            Text("\(school.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            VStack(alignment: .leading, spacing: 1) {
++                Text(school.name).font(.archivo(13, weight: 700)).foregroundStyle(palette.ink)
++                Text(school.campusCity).font(.archivo(10.5, weight: 400)).foregroundStyle(palette.muted)
++            }
++            .frame(maxWidth: .infinity, alignment: .leading)
++            Text(DrillsViewModel.decimal1(school.avgMemberPercentile))
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++
++    // Highlighted (surface glass bg, weight 700) — ink, not green (greens
++    // budget: the hub already spends its 3).
++    private var yourStandingRow: some View {
++        HStack(spacing: 8) {
++            Text("YOUR STANDING").font(.archivo(10, weight: 600)).tracking(0.12 * 10)
++                .foregroundStyle(palette.muted)
++            Spacer()
++            Text(viewModel.percentileLabel(viewModel.schoolBoard?.yourPercentile))
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(palette.surface.opacity(0.55))
++    }
++
++    // MARK: - GLOBAL — a single percentile hero. Ink, never green (greens
++    // budget); graceful nil → "—" (cold start / no scored history yet).
++
++    private var globalBody: some View {
++        Text(viewModel.percentileLabel(viewModel.globalBoard?.yourPercentile))
++            .font(.archivo(40, weight: 800)).tabularNumbers()
++            .foregroundStyle(palette.ink)
++            .frame(maxWidth: .infinity)
++            .padding(.vertical, 18)
++    }
++
++    // MARK: - SCHOOLS — school-vs-school avg-percentile list, your school
++    // highlighted "· yours" (matched by school id, ink weight 700 — not
++    // green).
++
++    private var schoolsBody: some View {
++        VStack(spacing: 0) {
++            ForEach(viewModel.schoolsBoard?.schools ?? []) { school in
++                schoolsRow(school)
++            }
++        }
++    }
++
++    private func schoolsRow(_ school: SchoolCard) -> some View {
++        let isYours = viewModel.isYourSchool(school)
++        return HStack(spacing: 8) {
++            Text("\(school.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            HStack(spacing: 4) {
++                Text(school.name).font(.archivo(13, weight: isYours ? 700 : 400))
++                    .foregroundStyle(palette.ink)
++                Text("· \(school.campusCity)\(isYours ? " · yours" : "")")
++                    .font(.archivo(10.5, weight: 400))
++                    .foregroundStyle(palette.muted)
++            }
++            .lineLimit(1)
++            .frame(maxWidth: .infinity, alignment: .leading)
++            Text(DrillsViewModel.decimal1(school.avgMemberPercentile))
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(isYours ? palette.surface.opacity(0.55) : Color.clear)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++}
+diff --git a/ios/CaseRoom/Views/GauntletRunView.swift b/ios/CaseRoom/Views/GauntletRunView.swift
+new file mode 100644
+index 0000000..e954480
+--- /dev/null
++++ b/ios/CaseRoom/Views/GauntletRunView.swift
+@@ -0,0 +1,305 @@
++/*
++ * Purpose: The gauntlet run experience (canvas 5b run + result frames) — a
++ *          full-screen immersive cover driven by GauntletRunViewModel's phase
++ *          machine. Run frame: a green progress bar over a hairline track, a
++ *          kicker + real MM:SS clock row, the 34px question, and per-slot input
++ *          (GauntletKeypad for numeric slots, a 2×2 glass choice grid for choice
++ *          slots), with an underline Abandon footer. Result frame: the staircase
++ *          mark drawing in, the big percentile + ordinal, the elapsed kicker, a
++ *          hairline stat strip (points / correct / rank-in-group), a serif line,
++ *          and the weak-section CTA that bridges to the legacy FM practice drill
++ *          (`.drillRun`) plus a "Back to Drills" dismiss. Result elements
++ *          rise-stagger per canvas.
++ * Inputs: a GauntletRunViewModel (live, injected, or fixture-backed).
++ * Outputs: none (submit/timer/recovery side effects live in the VM); navigation
++ *          via AppRouter.shared + \.dismiss.
++ * Run: RootShell `.fullScreenCover(item:)` builds and presents it.
++ */
++
++import SwiftUI
++
++struct GauntletRunView: View {
++    let viewModel: GauntletRunViewModel
++    @Environment(\.dsPalette) private var palette
++    @Environment(\.dismiss) private var dismiss
++
++    var body: some View {
++        ZStack {
++            DSBackground()
++            switch viewModel.phase {
++            case .loading:
++                statusText("Loading today's gauntlet…")
++            case .running:
++                runFrame
++            case .submitting:
++                statusText("Scoring your gauntlet…")
++            case .result:
++                resultFrame
++            case .failed(let message):
++                failedFrame(message)
++            }
++        }
++        .task { await viewModel.start() }
++    }
++
++    private func statusText(_ text: String) -> some View {
++        Text(text).dsText(.meta).foregroundStyle(palette.muted)
++            .frame(maxWidth: .infinity, maxHeight: .infinity)
++    }
++
++    // MARK: - Run frame (canvas 5b run)
++
++    private var runFrame: some View {
++        @Bindable var viewModel = viewModel
++        return VStack(spacing: 0) {
++            VStack(alignment: .leading, spacing: 0) {
++                progressBar
++                    .padding(.bottom, 16)
++                HStack(alignment: .firstTextBaseline) {
++                    Text(viewModel.kicker)
++                        .font(.archivo(9.5, weight: 600)).tracking(0.15 * 9.5)
++                        .foregroundStyle(palette.muted)
++                    Spacer()
++                    Text(viewModel.timerLabel)
++                        .font(.archivo(22, weight: 800)).tabularNumbers()
++                        .foregroundStyle(palette.ink)
++                }
++                .padding(.bottom, 36)
++
++                Text(viewModel.currentSlot?.prompt ?? "")
++                    .font(.archivo(34, weight: 800)).tracking(-0.03 * 34).lineSpacing(5)
++                    .tabularNumbers()
++                    .foregroundStyle(palette.ink)
++                    .fixedSize(horizontal: false, vertical: true)
++                    .padding(.bottom, 32)
++
++                if viewModel.isNumericSlot {
++                    GauntletKeypad(
++                        input: $viewModel.numericInput,
++                        isNegative: $viewModel.isNegative,
++                        canAdvance: viewModel.canAdvance,
++                        onAdvance: { Task { await viewModel.advance() } })
++                } else {
++                    choiceGrid(viewModel.currentSlot?.choices ?? [])
++                }
++            }
++            .padding(.horizontal, 24)
++            .padding(.top, 24)
++
++            Spacer(minLength: 24)
++
++            Button { viewModel.stop(); dismiss() } label: {
++                Text("Abandon run — streak survives, score doesn't")
++                    .dsText(.actionLabel).underline().foregroundStyle(palette.muted)
++                    .padding(8)
++            }
++            .buttonStyle(.plain)
++            .padding(.bottom, 40)
++        }
++    }
++
++    private var progressBar: some View {
++        GeometryReader { geo in
++            ZStack(alignment: .leading) {
++                Rectangle().fill(palette.hairline)
++                Rectangle().fill(palette.green).frame(width: geo.size.width * viewModel.progress)
++            }
++        }
++        .frame(height: 2)
++        .animation(DSMotion.riseCurve, value: viewModel.progress)
++    }
++
++    private func choiceGrid(_ choices: [String]) -> some View {
++        LazyVGrid(columns: [GridItem(.flexible(), spacing: 9), GridItem(.flexible(), spacing: 9)], spacing: 9) {
++            ForEach(Array(choices.enumerated()), id: \.offset) { index, label in
++                Button { Task { await viewModel.selectChoice(index) } } label: {
++                    Text(label)
++                        .font(.archivo(17, weight: 600)).tabularNumbers()
++                        .foregroundStyle(palette.ink)
++                        .frame(maxWidth: .infinity).frame(height: 62)
++                        .glassKey(cornerRadius: 20)
++                }
++                .buttonStyle(DSPressStyle())
++            }
++        }
++    }
++
++    // MARK: - Result frame (canvas 5b result)
++
++    private var resultFrame: some View {
++        ResultContent(viewModel: viewModel, dismiss: { dismiss() })
++    }
++
++    private func failedFrame(_ message: String) -> some View {
++        VStack(spacing: 16) {
++            Text(message).dsText(.meta).foregroundStyle(palette.muted).multilineTextAlignment(.center)
++            Button { dismiss() } label: {
++                Text("Back to Drills").dsText(.actionLabel).underline().foregroundStyle(palette.ink).padding(6)
++            }
++            .buttonStyle(.plain)
++        }
++        .padding(30)
++        .frame(maxWidth: .infinity, maxHeight: .infinity)
++    }
++}
++
++// The result frame is a dedicated view so its one-shot rise-stagger `appeared`
++// state has a stable home (the canvas .3/.4/.5/.62/.74s delays).
++private struct ResultContent: View {
++    let viewModel: GauntletRunViewModel
++    let dismiss: () -> Void
++    @Environment(\.dsPalette) private var palette
++    @State private var appeared = false
++
++    var body: some View {
++        VStack(spacing: 0) {
++            StaircaseMarkView(animated: true)
++                .frame(width: 96, height: 80)
++                .padding(.bottom, 16)
++
++            percentile
++                .rise(appeared, delay: 0.30)
++                .padding(.bottom, 8)
++
++            Text(viewModel.resultKicker)
++                .font(.archivo(9.5, weight: 600)).tracking(0.16 * 9.5)
++                .foregroundStyle(palette.faint)
++                .multilineTextAlignment(.center)
++                .rise(appeared, delay: 0.40)
++                .padding(.bottom, 18)
++
++            statStrip
++                .rise(appeared, delay: 0.50)
++                .padding(.bottom, 18)
++
++            Text(viewModel.resultSerifLine)
++                .dsText(.serif(15, italic: true))
++                .foregroundStyle(palette.ink)
++                .multilineTextAlignment(.center)
++                .padding(.horizontal, 4)
++                .rise(appeared, delay: 0.62)
++                .padding(.bottom, 26)
++
++            ctaButtons
++                .rise(appeared, delay: 0.74)
++        }
++        .padding(.horizontal, 30)
++        .frame(maxWidth: .infinity, maxHeight: .infinity)
++        .onAppear { appeared = true }
++    }
++
++    private var percentile: some View {
++        HStack(alignment: .top, spacing: 0) {
++            Text(viewModel.resultPercentileNumber)
++                .font(.archivo(72, weight: 800)).tracking(-0.04 * 72).tabularNumbers()
++            Text(viewModel.resultPercentileSuffix)
++                .font(.archivo(28, weight: 800)).tabularNumbers()
++                .padding(.top, 6)
++        }
++        .foregroundStyle(palette.ink)
++    }
++
++    private var statStrip: some View {
++        HStack(spacing: 14) {
++            Text(viewModel.resultPointsLabel)
++                .font(.archivo(11, weight: 600)).tracking(0.1 * 11).tabularNumbers()
++                .foregroundStyle(palette.green)
++            Text(viewModel.resultCorrectLabel)
++                .font(.archivo(11, weight: 600)).tracking(0.1 * 11).tabularNumbers()
++                .foregroundStyle(palette.muted)
++            if let groupLabel = viewModel.resultGroupLabel {
++                Text(groupLabel)
++                    .font(.archivo(11, weight: 600)).tracking(0.1 * 11).tabularNumbers()
++                    .foregroundStyle(palette.muted)
++            }
++        }
++        .padding(.horizontal, 16).padding(.vertical, 11)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
++    }
++
++    private var ctaButtons: some View {
++        VStack(spacing: 10) {
++            Button {
++                // The FM practice bridge: dismiss the server-gauntlet cover, then
++                // open the legacy on-device DrillView (.drillRun) unchanged.
++                dismiss()
++                AppRouter.shared.go(to: .drillRun)
++            } label: {
++                Text(viewModel.weakCtaLabel)
++                    .dsText(.rowTitle).foregroundStyle(palette.onInk)
++                    .frame(maxWidth: .infinity).frame(height: 50)
++            }
++            .buttonStyle(DSPressStyle())
++            .background(Capsule().fill(palette.ink))
++
++            Button { dismiss() } label: {
++                Text("Back to Drills").dsText(.actionLabel).underline().foregroundStyle(palette.ink).padding(6)
++            }
++            .buttonStyle(.plain)
++        }
++    }
++}
++
++// The canvas result-element rise: 8px up + fade, staggered by `delay`.
++private extension View {
++    func rise(_ appeared: Bool, delay: Double) -> some View {
++        self
++            .opacity(appeared ? 1 : 0)
++            .offset(y: appeared ? 0 : 8)
++            .animation(DSMotion.riseCurve.delay(delay), value: appeared)
++    }
++}
++
++#if DEBUG
++/// Screenshot-only fixtures for the `-F7Run numeric|choice` + `-F7Result`
++/// hatches. A constant clock keeps the run timer at 00:00 so the shots are
++/// deterministic; the result hatch injects a 04:12 elapsed for the full kicker.
++enum PreviewGauntletRunFixture {
++    private static let fixedNow = Date(timeIntervalSince1970: 1_752_600_000)
++
++    private static let numericSlots: [GauntletSlot] = [
++        GauntletSlot(slot: 1, drillType: "mental_math", key: "k1",
++                     prompt: "A unit's revenue rises from 4.2 to 5.7. What is the percent change, to the nearest whole percent?",
++                     numbers: [], choices: nil),
++        GauntletSlot(slot: 2, drillType: "mental_math", key: "k2", prompt: "17 × 24 = ?", numbers: [], choices: nil),
++    ]
++
++    private static let choiceSlots: [GauntletSlot] = [
++        GauntletSlot(slot: 1, drillType: "market_sizing", key: "k1",
++                     prompt: "Best first cut to size the US coffee-shop market?",
++                     numbers: [],
++                     choices: ["Population × spend", "Stores × revenue", "Households × trips", "GDP × share"]),
++        GauntletSlot(slot: 2, drillType: "mental_math", key: "k2", prompt: "17 × 24 = ?", numbers: [], choices: nil),
++    ]
++
++    private static func gauntlet(_ slots: [GauntletSlot]) -> Gauntlet {
++        Gauntlet(date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++                 slots: slots, streak: 12, submitted: false, result: nil)
++    }
++
++    static let result = GauntletResult(
++        score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
++        dailyPercentile: 66,
++        group: GauntletGroup(groupId: 14, name: "C-14", rank: 3, points: 331, pointsBehindNext: 8),
++        schoolPercentile: 71, vsPeersDelta: 3,
++        weakSection: WeakSection(drillType: "market_sizing", label: "market sizing"),
++        streak: 12, setKey: "set-2026-07-16")
++
++    @MainActor
++    static func runVM(mode: String?) -> GauntletRunViewModel {
++        // start() resets per-slot input on entry, so each slot opens on a fresh
++        // keypad — the shot shows the honest arrive-at-slot state (Next disabled
++        // until a value is entered).
++        let slots = mode == "choice" ? choiceSlots : numericSlots
++        return GauntletRunViewModel(preloaded: gauntlet(slots), now: { fixedNow }, autoTick: false)
++    }
++
++    @MainActor
++    static let resultVM = GauntletRunViewModel(
++        preloadedResult: result, preloadedElapsedSeconds: 252, now: { fixedNow }, autoTick: false)
++}
++
++#Preview("Run — numeric") { GauntletRunView(viewModel: PreviewGauntletRunFixture.runVM(mode: "numeric")) }
++#Preview("Result") { GauntletRunView(viewModel: PreviewGauntletRunFixture.resultVM) }
++#endif
+diff --git a/ios/CaseRoom/Views/HomeView.swift b/ios/CaseRoom/Views/HomeView.swift
+index 051207c..c5fbd4c 100644
+--- a/ios/CaseRoom/Views/HomeView.swift
++++ b/ios/CaseRoom/Views/HomeView.swift
+@@ -220,13 +220,13 @@ struct HomeView: View {
+         case .empty: return palette.ink.opacity(0.12)
+         }
+     }
+ 
+     private var beginButton: some View {
+         Button {
+-            AppRouter.shared.go(to: .drillRun)
++            AppRouter.shared.go(to: .gauntletRun)
+         } label: {
+             Text("Begin today's set")
+                 .dsText(.rowTitle)
+                 .foregroundStyle(palette.onInk)
+                 .frame(maxWidth: .infinity)
+                 .frame(height: 50)
+diff --git a/ios/CaseRoomTests/AppRouterTests.swift b/ios/CaseRoomTests/AppRouterTests.swift
+index 3f837e8..eec35b0 100644
+--- a/ios/CaseRoomTests/AppRouterTests.swift
++++ b/ios/CaseRoomTests/AppRouterTests.swift
+@@ -15,23 +15,25 @@ final class AppRouterTests: XCTestCase {
+         let r = AppRouter.shared
+         r.selection = .home
+         r.avatarSheet = false
+         r.proposeToUserID = nil
+         r.sessionTakeoverID = nil
+         r.drillRun = false
++        r.gauntletRun = false
+         r.pending = nil
+         return r
+     }
+ 
+     // owningTab
+     func testOwningTabForTabRoutes() {
+         XCTAssertEqual(AppRoute.home.owningTab, .home)
+         XCTAssertEqual(AppRoute.library.owningTab, .library)
+         XCTAssertEqual(AppRoute.caseTab.owningTab, .caseTab)
+         XCTAssertEqual(AppRoute.community.owningTab, .community)
+         XCTAssertEqual(AppRoute.drills.owningTab, .drills)
++        XCTAssertEqual(AppRoute.gauntletRun.owningTab, .drills)
+     }
+     func testOwningTabForDetailRoutes() {
+         XCTAssertEqual(AppRoute.caseDetail(1).owningTab, .library)
+         XCTAssertEqual(AppRoute.timelineDetail.owningTab, .home)
+         XCTAssertEqual(AppRoute.recap(9).owningTab, .caseTab)
+         XCTAssertEqual(AppRoute.groupPage(3).owningTab, .community)
+@@ -56,12 +58,17 @@ final class AppRouterTests: XCTestCase {
+     func testGoToDrillRunSelectsHomeAndFlagsDrill() {
+         let r = freshRouter()
+         r.go(to: .drillRun)
+         XCTAssertEqual(r.selection, .home)
+         XCTAssertTrue(r.drillRun)
+     }
++    func testGoToGauntletRunFlagsGauntlet() {
++        let r = freshRouter()
++        r.go(to: .gauntletRun)
++        XCTAssertTrue(r.gauntletRun)
++    }
+     func testGoToSessionTakeoverSetsCover() {
+         let r = freshRouter()
+         r.go(to: .sessionTakeover(42))
+         XCTAssertEqual(r.sessionTakeoverID, 42)
+     }
+     func testGoToCaseDetailSelectsLibraryAndPushes() {
+diff --git a/ios/CaseRoomTests/DrillsViewModelTests.swift b/ios/CaseRoomTests/DrillsViewModelTests.swift
+new file mode 100644
+index 0000000..d4bdb55
+--- /dev/null
++++ b/ios/CaseRoomTests/DrillsViewModelTests.swift
+@@ -0,0 +1,384 @@
++/*
++ * Purpose: Unit tests for DrillsViewModel — streakDay/submitted/beginLabel/
++ *          hubPercentileLabel for submitted vs not-submitted gauntlets,
++ *          16-bar trend derivation (left-pad when <16 points, last bar
++ *          green), week-label suffix gating, the ordinal helper, the C-14
++ *          board note derivation from group.pointsBehindNext, and (Task 3)
++ *          the scope switcher: selectBoard(_:) lazily loads + caches each of
++ *          WHARTON/GLOBAL/SCHOOLS exactly once, WHARTON exposes the school
++ *          card + ordinal yourPercentile, GLOBAL's nil yourPercentile → "—",
++ *          SCHOOLS marks the caller's own school "yours", and percentile/
++ *          decimal copy formatting (66.0 → "66TH"; avg 69.8 → "69.8").
++ * Inputs: fake Gauntlet/Board services (no live network).
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++@MainActor
++final class DrillsViewModelTests: XCTestCase {
++
++    // MARK: - Hero derivation
++
++    func testNotSubmittedDerivesBeginLabelAndHidesPercentile() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertEqual(vm.streakDay, 12)
++        XCTAssertFalse(vm.submitted)
++        XCTAssertEqual(vm.beginLabel, "Begin today's set")
++        XCTAssertNil(vm.hubPercentileLabel)
++    }
++
++    func testSubmittedDerivesSeeResultAndPercentileLabel() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: true, streak: 12, dailyPercentile: 66), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertTrue(vm.submitted)
++        XCTAssertEqual(vm.beginLabel, "See today's result")
++        XCTAssertEqual(vm.hubPercentileLabel, "66TH TODAY")
++    }
++
++    // MARK: - Trend bars
++
++    func testTrendBarsIs16WithLastGreenWhenFullHistory() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture16),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        let bars = vm.trendBars
++        XCTAssertEqual(bars.count, 16)
++        XCTAssertTrue(bars.last!.isGreen)
++        XCTAssertFalse(bars.first!.isPad)
++        // Heights derive from score/6, clamped to a visible floor.
++        for bar in bars {
++            XCTAssertGreaterThan(bar.height, 0)
++            XCTAssertLessThanOrEqual(bar.height, 1)
++        }
++    }
++
++    func testTrendBarsLeftPadsWhenFewerThan16Points() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture(days: 5)),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        let bars = vm.trendBars
++        XCTAssertEqual(bars.count, 16)
++        XCTAssertEqual(bars.prefix(11).filter(\.isPad).count, 11)
++        XCTAssertFalse(bars.last!.isPad)
++        XCTAssertTrue(bars.last!.isGreen)
++    }
++
++    // MARK: - Week labels
++
++    func testWeekLabelsAppendPercentileSuffixOnlyWhenSubmitted() async {
++        let submitted = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: true, streak: 12, dailyPercentile: 66), trends: .fixture16),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await submitted.load()
++        XCTAssertEqual(submitted.weekLabels.count, 4)
++        XCTAssertEqual(submitted.weekLabels.last, "W29 — 66TH")
++
++        let notSubmitted = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture16),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await notSubmitted.load()
++        XCTAssertFalse(notSubmitted.weekLabels.last!.contains("—"))
++    }
++
++    // MARK: - Ordinal helper
++
++    func testOrdinalHelper() {
++        XCTAssertEqual(DrillsViewModel.ordinal(1), "1ST")
++        XCTAssertEqual(DrillsViewModel.ordinal(2), "2ND")
++        XCTAssertEqual(DrillsViewModel.ordinal(3), "3RD")
++        XCTAssertEqual(DrillsViewModel.ordinal(11), "11TH")
++        XCTAssertEqual(DrillsViewModel.ordinal(12), "12TH")
++        XCTAssertEqual(DrillsViewModel.ordinal(13), "13TH")
++        XCTAssertEqual(DrillsViewModel.ordinal(21), "21ST")
++        XCTAssertEqual(DrillsViewModel.ordinal(66), "66TH")
++    }
++
++    // MARK: - C-14 board note
++
++    func testBoardNoteDerivesFromPointsBehindNextWhenSubmitted() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(
++                gauntlet: .fixture(submitted: true, streak: 12, dailyPercentile: 66, pointsBehindNext: 4, rank: 6),
++                trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertEqual(vm.boardNote, "4 BEHIND №5")
++    }
++
++    func testBoardNoteOmittedWhenNotSubmitted() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertNil(vm.boardNote)
++    }
++
++    func testBoardEntriesExposedFromGroupBoard() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertEqual(vm.board?.entries.count, 10)
++        XCTAssertEqual(vm.board?.group?.name, "C-14")
++    }
++
++    // MARK: - Board scope switcher (Task 3 — C-14/WHARTON/GLOBAL/SCHOOLS)
++
++    private func makeScopeVM(boardService: FakeCountingBoardService = FakeCountingBoardService()) async -> DrillsViewModel {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: boardService)
++        await vm.load()
++        return vm
++    }
++
++    func testSelectBoardSwitchesScope() async {
++        let vm = await makeScopeVM()
++        XCTAssertEqual(vm.boardScope, .c14)
++        await vm.selectBoard(.wharton)
++        XCTAssertEqual(vm.boardScope, .wharton)
++        await vm.selectBoard(.global)
++        XCTAssertEqual(vm.boardScope, .global)
++        await vm.selectBoard(.schools)
++        XCTAssertEqual(vm.boardScope, .schools)
++        await vm.selectBoard(.c14)
++        XCTAssertEqual(vm.boardScope, .c14)
++    }
++
++    func testSelectBoardCachesWhartonLoaderCalledOnce() async {
++        let boardService = FakeCountingBoardService()
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.wharton)
++        await vm.selectBoard(.wharton)
++        await vm.selectBoard(.c14)
++        await vm.selectBoard(.wharton)
++        XCTAssertEqual(boardService.schoolBoardCallCount, 1)
++    }
++
++    func testSelectBoardCachesGlobalLoaderCalledOnce() async {
++        let boardService = FakeCountingBoardService()
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.global)
++        await vm.selectBoard(.global)
++        XCTAssertEqual(boardService.globalBoardCallCount, 1)
++    }
++
++    func testSelectBoardCachesSchoolsLoaderCalledOnce() async {
++        let boardService = FakeCountingBoardService()
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.schools)
++        await vm.selectBoard(.schools)
++        // SCHOOLS also needs the caller's own school (to mark "yours"), an
++        // honest dependency on scope=school — also cached, called once.
++        XCTAssertEqual(boardService.schoolsBoardCallCount, 1)
++        XCTAssertEqual(boardService.schoolBoardCallCount, 1)
++    }
++
++    func testWhartonExposesSchoolCardAndYourStandingOrdinal() async {
++        let vm = await makeScopeVM()
++        await vm.selectBoard(.wharton)
++        XCTAssertEqual(vm.schoolBoard?.school?.name, "Wharton")
++        XCTAssertEqual(vm.schoolBoard?.school?.campusCity, "Philadelphia")
++        XCTAssertEqual(vm.schoolBoard?.school?.rank, 2)
++        XCTAssertEqual(vm.percentileLabel(vm.schoolBoard?.yourPercentile), "88TH")
++    }
++
++    func testGlobalYourPercentileOrdinal() async {
++        let vm = await makeScopeVM()
++        await vm.selectBoard(.global)
++        XCTAssertEqual(vm.percentileLabel(vm.globalBoard?.yourPercentile), "66TH")
++    }
++
++    func testGlobalNilYourPercentileRendersEmDash() async {
++        let boardService = FakeCountingBoardService(globalYourPercentile: nil)
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.global)
++        XCTAssertNil(vm.globalBoard?.yourPercentile)
++        XCTAssertEqual(vm.percentileLabel(vm.globalBoard?.yourPercentile), "—")
++    }
++
++    func testSchoolsMarksYourSchool() async {
++        let vm = await makeScopeVM()
++        await vm.selectBoard(.schools)
++        let schools = vm.schoolsBoard?.schools ?? []
++        XCTAssertEqual(schools.count, 4)
++        let wharton = try! XCTUnwrap(schools.first { $0.name == "Wharton" })
++        let insead = try! XCTUnwrap(schools.first { $0.name == "INSEAD" })
++        XCTAssertTrue(vm.isYourSchool(wharton))
++        XCTAssertFalse(vm.isYourSchool(insead))
++    }
++
++    func testPercentileAndDecimalFormatting() async {
++        let vm = await makeScopeVM()
++        XCTAssertEqual(vm.percentileLabel(66.0), "66TH")
++        XCTAssertEqual(vm.percentileLabel(nil), "—")
++        XCTAssertEqual(DrillsViewModel.decimal1(69.8), "69.8")
++        XCTAssertEqual(DrillsViewModel.decimal1(71.4), "71.4")
++    }
++
++    func testCurrentBoardCopyPerScope() async {
++        let vm = await makeScopeVM()
++        // GLOBAL's head/note/foot carry no date, so assert exact equality.
++        await vm.selectBoard(.global)
++        XCTAssertEqual(vm.currentBoardHead, "ALL PLAYERS — TODAY")
++        XCTAssertEqual(vm.currentBoardNote, "BY PERCENTILE")
++        XCTAssertEqual(vm.currentBoardFoot, "Everyone who ran today's gauntlet, placed by percentile — never a head-count.")
++
++        // WHARTON/SCHOOLS heads carry a live ISO week number (matches C-14's
++        // existing `boardHead` pattern) — assert the fixed prefix, not the
++        // week number, so this test doesn't go stale after week 29.
++        await vm.selectBoard(.wharton)
++        XCTAssertTrue(vm.currentBoardHead.hasPrefix("THE WHARTON SCHOOL — WEEK "))
++        XCTAssertEqual(vm.currentBoardNote, "BY WEEKLY PERCENTILE")
++        XCTAssertEqual(vm.currentBoardFoot, "Standing among verified Wharton members, by percentile. Head-counts stay private.")
++
++        await vm.selectBoard(.schools)
++        XCTAssertTrue(vm.currentBoardHead.hasPrefix("SCHOOL VS SCHOOL — WEEK "))
++        XCTAssertEqual(vm.currentBoardNote, "AVG MEMBER PERCENTILE")
++        XCTAssertEqual(vm.currentBoardFoot, "The average of member percentiles — never a head-count. Carry your school.")
++    }
++}
++
++// MARK: - Fixtures + fakes
++
++private extension Gauntlet {
++    static func fixture(submitted: Bool, streak: Int, dailyPercentile: Double? = nil,
++                         pointsBehindNext: Int? = nil, rank: Int = 6) -> Gauntlet {
++        let result: GauntletResult? = submitted
++            ? GauntletResult(
++                score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
++                dailyPercentile: dailyPercentile,
++                group: GauntletGroup(groupId: 14, name: "C-14", rank: rank, points: 331, pointsBehindNext: pointsBehindNext),
++                schoolPercentile: nil, vsPeersDelta: nil, weakSection: nil, streak: streak, setKey: "set-2026-07-16")
++            : nil
++        return Gauntlet(
++            date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++            slots: (1...6).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
++            streak: streak, submitted: submitted, result: result)
++    }
++}
++
++private extension GauntletTrends {
++    private static let isoDay: DateFormatter = {
++        let f = DateFormatter()
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.dateFormat = "yyyy-MM-dd"
++        return f
++    }()
++
++    /// `count` consecutive days ending 2026-07-16 (a Thursday, W29), scores
++    /// trending mildly upward.
++    private static func trailingDays(_ count: Int) -> [TrendPoint] {
++        var comps = DateComponents()
++        comps.year = 2026; comps.month = 7; comps.day = 16; comps.hour = 12
++        let end = Calendar.current.date(from: comps)!
++        return (0..<count).map { i in
++            let date = Calendar.current.date(byAdding: .day, value: -(count - 1 - i), to: end)!
++            return TrendPoint(date: isoDay.string(from: date), score: Double(2 + i % 5))
++        }
++    }
++
++    /// 16 days of upward-trending scores.
++    static let fixture16 = GauntletTrends(daily: trailingDays(16), byType: [], weakest: nil)
++
++    static let fixture = fixture16
++
++    static func fixture(days: Int) -> GauntletTrends {
++        GauntletTrends(daily: trailingDays(days), byType: [], weakest: nil)
++    }
++}
++
++private extension GroupBoard {
++    static let fixture = GroupBoard(
++        scope: "group", group: GroupRef(id: 14, name: "C-14"),
++        entries: [
++            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
++            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
++            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
++            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
++            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 335, rank: 5, streak: 13),
++            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
++            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
++            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
++            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
++            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
++        ])
++}
++
++private final class FakeDrillsGauntletService: GauntletService, @unchecked Sendable {
++    let gauntletValue: Gauntlet
++    let trendsValue: GauntletTrends
++    init(gauntlet: Gauntlet, trends: GauntletTrends) {
++        self.gauntletValue = gauntlet
++        self.trendsValue = trends
++    }
++    func gauntlet() async throws -> Gauntlet { gauntletValue }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        fatalError("DrillsViewModel never submits the gauntlet")
++    }
++    func trends() async throws -> GauntletTrends { trendsValue }
++}
++
++private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
++    let boardValue: GroupBoard
++    init(board: GroupBoard) { self.boardValue = board }
++    func groupBoard() async throws -> GroupBoard { boardValue }
++    func schoolBoard() async throws -> SchoolBoard { fatalError("Task 2 doesn't call schoolBoard()") }
++    func globalBoard() async throws -> GlobalBoard { fatalError("Task 2 doesn't call globalBoard()") }
++    func schoolsBoard() async throws -> SchoolsBoard { fatalError("Task 2 doesn't call schoolsBoard()") }
++}
++
++// Task 3 — call-counting fake so `selectBoard(_:)`'s per-scope caching
++// (loader called once per scope, even across repeat selects) is directly
++// verifiable. `schoolBoardCallCount` also covers SCHOOLS' documented
++// dependency on scope=school (to know the caller's own school id). Fixture
++// values are the canvas tablet DC board literals: WHARTON Wharton/
++// Philadelphia/avg 69.8/rank 2/yourPercentile 88; SCHOOLS INSEAD 71.4 r1,
++// Wharton 69.8 r2 (schoolId 1, matches `schoolBoard.school` → "yours"),
++// LBS 68.9 r3, HBS 67.2 r4.
++private final class FakeCountingBoardService: BoardService, @unchecked Sendable {
++    private(set) var schoolBoardCallCount = 0
++    private(set) var globalBoardCallCount = 0
++    private(set) var schoolsBoardCallCount = 0
++
++    private let globalYourPercentile: Double?
++
++    init(globalYourPercentile: Double? = 66) {
++        self.globalYourPercentile = globalYourPercentile
++    }
++
++    func groupBoard() async throws -> GroupBoard { .fixture }
++
++    func schoolBoard() async throws -> SchoolBoard {
++        schoolBoardCallCount += 1
++        return SchoolBoard(
++            scope: "school",
++            school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++            yourPercentile: 88)
++    }
++
++    func globalBoard() async throws -> GlobalBoard {
++        globalBoardCallCount += 1
++        return GlobalBoard(scope: "global", yourPercentile: globalYourPercentile)
++    }
++
++    func schoolsBoard() async throws -> SchoolsBoard {
++        schoolsBoardCallCount += 1
++        return SchoolsBoard(scope: "schools", schools: [
++            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
++            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
++            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
++        ])
++    }
++}
+diff --git a/ios/CaseRoomTests/GauntletNetworkingTests.swift b/ios/CaseRoomTests/GauntletNetworkingTests.swift
+new file mode 100644
+index 0000000..2d22b1b
+--- /dev/null
++++ b/ios/CaseRoomTests/GauntletNetworkingTests.swift
+@@ -0,0 +1,173 @@
++/*
++ * Purpose: Unit tests for the F7 Task 1 gauntlet-submit/boards/trends
++ *          Codables added to HomeModels.swift — pure decode/encode against
++ *          literal JSON matching the B8-pinned payloads (bgap-b8-report.md
++ *          "Interfaces delivered"). No live network: a local decoder/encoder
++ *          mirrors APIClient's private configuration exactly (see
++ *          APIClientTests.fixtureDecoder for the same pattern).
++ * Inputs: literal JSON strings.
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++final class GauntletNetworkingTests: XCTestCase {
++
++    // Mirrors APIClient's private decoder/encoder configuration exactly.
++    private func decoder() -> JSONDecoder {
++        let decoder = JSONDecoder()
++        decoder.keyDecodingStrategy = .convertFromSnakeCase
++        return decoder
++    }
++
++    private func encoder() -> JSONEncoder {
++        let encoder = JSONEncoder()
++        encoder.keyEncodingStrategy = .convertToSnakeCase
++        return encoder
++    }
++
++    // MARK: - GauntletResult (nulls)
++
++    func testGauntletResultDecodesWithNullPercentileAndNullGroup() throws {
++        let json = #"""
++        {"score": 0.5, "slots_correct": 3, "slots": 6, "points_awarded": 0,
++         "daily_percentile": null, "group": null, "school_percentile": null,
++         "vs_peers_delta": null, "weak_section": null, "streak": 1, "set_key": "2026-07-17"}
++        """#
++        let result = try decoder().decode(GauntletResult.self, from: Data(json.utf8))
++
++        XCTAssertEqual(result.score, 0.5)
++        XCTAssertEqual(result.slotsCorrect, 3)
++        XCTAssertEqual(result.slots, 6)
++        XCTAssertEqual(result.pointsAwarded, 0)
++        XCTAssertNil(result.dailyPercentile)
++        XCTAssertNil(result.group)
++        XCTAssertNil(result.schoolPercentile)
++        XCTAssertNil(result.vsPeersDelta)
++        XCTAssertNil(result.weakSection)
++        XCTAssertEqual(result.streak, 1)
++        XCTAssertEqual(result.setKey, "2026-07-17")
++    }
++
++    // MARK: - SchoolBoard (scope=school)
++
++    func testSchoolBoardDecodesPopulated() throws {
++        let json = #"""
++        {"scope": "school", "school": {"school_id": 1, "name": "Wharton",
++          "campus_city": "Philadelphia", "avg_member_percentile": 72.5, "rank": 3},
++         "your_percentile": 60.0}
++        """#
++        let board = try decoder().decode(SchoolBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "school")
++        XCTAssertEqual(board.school?.schoolId, 1)
++        XCTAssertEqual(board.school?.name, "Wharton")
++        XCTAssertEqual(board.school?.campusCity, "Philadelphia")
++        XCTAssertEqual(board.school?.avgMemberPercentile, 72.5)
++        XCTAssertEqual(board.school?.rank, 3)
++        XCTAssertEqual(board.yourPercentile, 60.0)
++    }
++
++    func testSchoolBoardDecodesNullSchoolAndNullPercentile() throws {
++        let json = #"{"scope": "school", "school": null, "your_percentile": null}"#
++        let board = try decoder().decode(SchoolBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "school")
++        XCTAssertNil(board.school)
++        XCTAssertNil(board.yourPercentile)
++    }
++
++    // MARK: - GlobalBoard (scope=global)
++
++    func testGlobalBoardDecodesPopulated() throws {
++        let json = #"{"scope": "global", "your_percentile": 88.0}"#
++        let board = try decoder().decode(GlobalBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "global")
++        XCTAssertEqual(board.yourPercentile, 88.0)
++    }
++
++    func testGlobalBoardDecodesNullPercentile() throws {
++        let json = #"{"scope": "global", "your_percentile": null}"#
++        let board = try decoder().decode(GlobalBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "global")
++        XCTAssertNil(board.yourPercentile)
++    }
++
++    // MARK: - SchoolsBoard (scope=schools)
++
++    func testSchoolsBoardDecodesList() throws {
++        let json = #"""
++        {"scope": "schools", "schools": [
++          {"school_id": 1, "name": "Wharton", "campus_city": "Philadelphia",
++           "avg_member_percentile": 72.5, "rank": 1},
++          {"school_id": 2, "name": "Yale SOM", "campus_city": "New Haven",
++           "avg_member_percentile": 65.0, "rank": 2}]}
++        """#
++        let board = try decoder().decode(SchoolsBoard.self, from: Data(json.utf8))
++
++        XCTAssertEqual(board.scope, "schools")
++        XCTAssertEqual(board.schools.count, 2)
++        XCTAssertEqual(board.schools[0].name, "Wharton")
++        XCTAssertEqual(board.schools[0].id, 1)
++        XCTAssertEqual(board.schools[1].campusCity, "New Haven")
++    }
++
++    // MARK: - GauntletTrends
++
++    func testGauntletTrendsDecodesWithNullWeakest() throws {
++        let json = #"""
++        {"daily": [{"date": "2026-07-16", "score": 4.0}, {"date": "2026-07-17", "score": 6.0}],
++         "by_type": [{"drill_type": "mental_math", "attempts": 10, "correct": 8, "accuracy": 0.8}],
++         "weakest": null}
++        """#
++        let trends = try decoder().decode(GauntletTrends.self, from: Data(json.utf8))
++
++        XCTAssertEqual(trends.daily.count, 2)
++        XCTAssertEqual(trends.daily[1].date, "2026-07-17")
++        XCTAssertEqual(trends.daily[1].score, 6.0)
++        XCTAssertEqual(trends.byType.count, 1)
++        XCTAssertEqual(trends.byType[0].drillType, "mental_math")
++        XCTAssertEqual(trends.byType[0].id, "mental_math")
++        XCTAssertEqual(trends.byType[0].accuracy, 0.8)
++        XCTAssertNil(trends.weakest)
++    }
++
++    func testGauntletTrendsDecodesWithWeakest() throws {
++        let json = #"""
++        {"daily": [], "by_type": [], "weakest": "market_sizing"}
++        """#
++        let trends = try decoder().decode(GauntletTrends.self, from: Data(json.utf8))
++
++        XCTAssertEqual(trends.weakest, "market_sizing")
++    }
++
++    // MARK: - GauntletAttempt encoding (per-slot SUBSET, snake_case)
++
++    func testNumericAttemptEncodesValueAndDurationOmitsChoiceIndex() throws {
++        let attempt = GauntletAttempt(slot: 0, value: 42.5, choiceIndex: nil, durationMs: 1200)
++        let data = try encoder().encode(attempt)
++        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
++
++        XCTAssertEqual(Set(object.keys), ["slot", "value", "duration_ms"])
++        XCTAssertEqual(object["slot"] as? Int, 0)
++        XCTAssertEqual(object["value"] as? Double, 42.5)
++        XCTAssertEqual(object["duration_ms"] as? Int, 1200)
++        XCTAssertNil(object["choice_index"])
++    }
++
++    func testChoiceAttemptEncodesChoiceIndexAndDurationOmitsValue() throws {
++        let attempt = GauntletAttempt(slot: 1, value: nil, choiceIndex: 2, durationMs: 800)
++        let data = try encoder().encode(attempt)
++        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
++
++        XCTAssertEqual(Set(object.keys), ["slot", "choice_index", "duration_ms"])
++        XCTAssertEqual(object["slot"] as? Int, 1)
++        XCTAssertEqual(object["choice_index"] as? Int, 2)
++        XCTAssertEqual(object["duration_ms"] as? Int, 800)
++        XCTAssertNil(object["value"])
++    }
++}
+diff --git a/ios/CaseRoomTests/GauntletRunViewModelTests.swift b/ios/CaseRoomTests/GauntletRunViewModelTests.swift
+new file mode 100644
+index 0000000..b79e685
+--- /dev/null
++++ b/ios/CaseRoomTests/GauntletRunViewModelTests.swift
+@@ -0,0 +1,260 @@
++/*
++ * Purpose: Unit tests for GauntletRunViewModel — the run→submit→result state
++ *          machine. Covers: numeric-slot advance collects the signed value +
++ *          a positive durationMs; the sign toggle produces a negative value;
++ *          choice-slot tap records the choiceIndex (no value); last-slot advance
++ *          triggers the submit → .result transition; GauntletError.alreadySubmitted
++ *          recovers by re-fetching the embedded result; abandon submits nothing;
++ *          a nil percentile result yields the graceful "—" label (no crash); and
++ *          the drillType→kicker label map.
++ * Inputs: a fake GauntletService + an injectable test clock (no live network,
++ *         no runloop timer — autoTick off).
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++@MainActor
++final class GauntletRunViewModelTests: XCTestCase {
++
++    // MARK: - Numeric slot capture
++
++    func testNumericAdvanceCollectsSignedValueAndDuration() async {
++        let clock = TestClock()
++        let vm = GauntletRunViewModel(
++            service: FakeRunService(gauntlet: .numericFixture(count: 3), result: .fixture),
++            preloaded: .numericFixture(count: 3), now: { clock.now }, autoTick: false)
++        await vm.start()
++        vm.numericInput = "12"
++        clock.advance(2)                     // 2s on this slot
++        await vm.advance()
++        XCTAssertEqual(vm.answers.count, 1)
++        XCTAssertEqual(vm.answers[0].slot, 1)
++        XCTAssertEqual(vm.answers[0].value, 12)
++        XCTAssertNil(vm.answers[0].choiceIndex)
++        XCTAssertEqual(vm.answers[0].durationMs, 2000)
++        XCTAssertGreaterThan(vm.answers[0].durationMs ?? 0, 0)
++    }
++
++    func testNumericSignToggleProducesNegativeValue() async {
++        let clock = TestClock()
++        let vm = GauntletRunViewModel(
++            service: FakeRunService(gauntlet: .numericFixture(count: 3), result: .fixture),
++            preloaded: .numericFixture(count: 3), now: { clock.now }, autoTick: false)
++        await vm.start()
++        vm.numericInput = "5"
++        vm.isNegative = true
++        clock.advance(1)
++        await vm.advance()
++        XCTAssertEqual(vm.answers[0].value, -5)
++    }
++
++    // MARK: - Choice slot capture
++
++    func testChoiceSlotRecordsChoiceIndexNoValue() async {
++        let clock = TestClock()
++        let vm = GauntletRunViewModel(
++            service: FakeRunService(gauntlet: .choiceFirstFixture, result: .fixture),
++            preloaded: .choiceFirstFixture, now: { clock.now }, autoTick: false)
++        await vm.start()
++        XCTAssertFalse(vm.isNumericSlot)
++        clock.advance(3)
++        await vm.selectChoice(2)
++        XCTAssertEqual(vm.answers.count, 1)
++        XCTAssertEqual(vm.answers[0].choiceIndex, 2)
++        XCTAssertNil(vm.answers[0].value)
++        XCTAssertEqual(vm.answers[0].durationMs, 3000)
++    }
++
++    // MARK: - Submit on last slot
++
++    func testLastSlotAdvanceTriggersSubmitAndResult() async {
++        let service = FakeRunService(gauntlet: .numericFixture(count: 2), result: .fixture)
++        let clock = TestClock()
++        let vm = GauntletRunViewModel(
++            service: service, preloaded: .numericFixture(count: 2), now: { clock.now }, autoTick: false)
++        await vm.start()
++        vm.numericInput = "1"; clock.advance(1); await vm.advance()   // slot 1 → index 1
++        vm.numericInput = "2"; clock.advance(1); await vm.advance()   // slot 2 (last) → submit
++        XCTAssertEqual(service.submitCallCount, 1)
++        XCTAssertEqual(vm.answers.count, 2)
++        guard case .result(let result) = vm.phase else {
++            return XCTFail("expected .result, got \(vm.phase)")
++        }
++        XCTAssertEqual(result, GauntletResult.fixture)
++    }
++
++    // MARK: - 409 recovery
++
++    func testAlreadySubmittedRecoversEmbeddedResult() async {
++        let embedded = GauntletResult.fixture
++        let submittedGauntlet = Gauntlet.numericFixture(count: 1, submitted: true, result: embedded)
++        let service = FakeRunService(
++            gauntlet: submittedGauntlet, result: .fixture, submitError: GauntletError.alreadySubmitted)
++        let clock = TestClock()
++        // Fresh (not-submitted) gauntlet to run through; the service's gauntlet()
++        // re-fetch returns the submitted one carrying the embedded result.
++        let vm = GauntletRunViewModel(
++            service: service, preloaded: .numericFixture(count: 1), now: { clock.now }, autoTick: false)
++        await vm.start()
++        vm.numericInput = "9"; clock.advance(1); await vm.advance()   // last slot → submit → 409 → recover
++        XCTAssertEqual(service.submitCallCount, 1)
++        XCTAssertEqual(service.gauntletCallCount, 1)                  // the recovery re-fetch
++        guard case .result(let result) = vm.phase else {
++            return XCTFail("expected recovered .result, got \(vm.phase)")
++        }
++        XCTAssertEqual(result, embedded)
++    }
++
++    // MARK: - Abandon
++
++    func testAbandonDoesNotSubmit() async {
++        let service = FakeRunService(gauntlet: .numericFixture(count: 3), result: .fixture)
++        let clock = TestClock()
++        let vm = GauntletRunViewModel(
++            service: service, preloaded: .numericFixture(count: 3), now: { clock.now }, autoTick: false)
++        await vm.start()
++        vm.numericInput = "1"; clock.advance(1); await vm.advance()   // partial run
++        vm.stop()                                                     // abandon
++        XCTAssertEqual(service.submitCallCount, 0)
++        XCTAssertEqual(vm.answers.count, 1)                           // no phantom final answer
++    }
++
++    // MARK: - Percentile-nil graceful result
++
++    func testNilPercentileResultRendersGracefulLabel() async {
++        let vm = GauntletRunViewModel(preloadedResult: .fixtureNoPercentile, autoTick: false)
++        await vm.start()
++        guard case .result = vm.phase else { return XCTFail("expected .result") }
++        XCTAssertEqual(vm.resultPercentileLabel, "—")
++        XCTAssertEqual(vm.resultPercentileNumber, "—")
++        XCTAssertEqual(vm.resultPercentileSuffix, "")
++    }
++
++    func testPreloadedResultOpensDirectlyInResultPhase() async {
++        let vm = GauntletRunViewModel(preloadedResult: .fixture, preloadedElapsedSeconds: 252, autoTick: false)
++        await vm.start()
++        guard case .result = vm.phase else { return XCTFail("expected .result") }
++        XCTAssertEqual(vm.resultPercentileLabel, "66TH")
++        XCTAssertEqual(vm.resultPointsLabel, "+40 PTS")
++        XCTAssertEqual(vm.resultCorrectLabel, "5/6 CORRECT")
++        XCTAssertEqual(vm.resultGroupLabel, "3RD IN C-14 TODAY")
++        XCTAssertEqual(vm.resultKicker, "PERCENTILE · TODAY'S GAUNTLET · 04:12")
++        XCTAssertEqual(vm.weakCtaLabel, "Practice market sizing — 3 focused drills")
++    }
++
++    // MARK: - Kicker label map
++
++    func testKickerLabelMapPerDrillType() async {
++        let slots = [
++            GauntletSlot(slot: 1, drillType: "mental_math", key: "k1", prompt: "p1", numbers: [], choices: nil),
++            GauntletSlot(slot: 2, drillType: "market_sizing", key: "k2", prompt: "p2", numbers: [], choices: nil),
++            GauntletSlot(slot: 3, drillType: "framework_recall", key: "k3", prompt: "p3", numbers: [], choices: nil),
++            GauntletSlot(slot: 4, drillType: "some_new_type", key: "k4", prompt: "p4", numbers: [], choices: nil),
++        ]
++        let gauntlet = Gauntlet(date: "2026-07-16", setKey: "s", provisional: false,
++                                slots: slots, streak: 1, submitted: false, result: nil)
++        let clock = TestClock()
++        let vm = GauntletRunViewModel(
++            service: FakeRunService(gauntlet: gauntlet, result: .fixture),
++            preloaded: gauntlet, now: { clock.now }, autoTick: false)
++        await vm.start()
++        XCTAssertEqual(vm.kicker, "MENTAL MATH — 1 OF 4")
++        vm.numericInput = "1"; await vm.advance()
++        XCTAssertEqual(vm.kicker, "MARKET SIZING — 2 OF 4")
++        vm.numericInput = "1"; await vm.advance()
++        XCTAssertEqual(vm.kicker, "STRUCTURES — 3 OF 4")
++        vm.numericInput = "1"; await vm.advance()
++        XCTAssertEqual(vm.kicker, "SOME NEW TYPE — 4 OF 4")   // caps fallback
++    }
++
++    // MARK: - Static helpers
++
++    func testStaticTypeLabelAndFormatting() {
++        XCTAssertEqual(GauntletRunViewModel.typeLabel("mental_math"), "MENTAL MATH")
++        XCTAssertEqual(GauntletRunViewModel.typeLabel("market_sizing"), "MARKET SIZING")
++        XCTAssertEqual(GauntletRunViewModel.typeLabel("framework_recall"), "STRUCTURES")
++        XCTAssertEqual(GauntletRunViewModel.typeLabel("chart_read"), "CHART READ")
++        XCTAssertEqual(GauntletRunViewModel.mmss(252), "04:12")
++        XCTAssertEqual(GauntletRunViewModel.mmss(0), "00:00")
++        XCTAssertEqual(GauntletRunViewModel.mmss(3661), "61:01")
++        XCTAssertEqual(GauntletRunViewModel.ordinal(3), "3RD")
++        XCTAssertEqual(GauntletRunViewModel.ordinal(66), "66TH")
++    }
++
++    func testKeypadSignedValueSemantics() {
++        XCTAssertEqual(GauntletKeypad.signedValue(input: "12", isNegative: false), 12)
++        XCTAssertEqual(GauntletKeypad.signedValue(input: "12", isNegative: true), -12)
++        XCTAssertEqual(GauntletKeypad.signedValue(input: "3.5", isNegative: true), -3.5)
++        XCTAssertNil(GauntletKeypad.signedValue(input: "", isNegative: false))
++        XCTAssertNil(GauntletKeypad.signedValue(input: "abc", isNegative: false))
++    }
++}
++
++// MARK: - Fixtures + fake
++
++private final class TestClock {
++    var now = Date(timeIntervalSince1970: 1_000_000)
++    func advance(_ seconds: TimeInterval) { now += seconds }
++}
++
++private extension Gauntlet {
++    static func numericFixture(count: Int, submitted: Bool = false, result: GauntletResult? = nil) -> Gauntlet {
++        Gauntlet(
++            date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++            slots: (1...count).map {
++                GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil)
++            },
++            streak: 12, submitted: submitted, result: result)
++    }
++
++    static let choiceFirstFixture = Gauntlet(
++        date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++        slots: [
++            GauntletSlot(slot: 1, drillType: "market_sizing", key: "k1", prompt: "pick",
++                         numbers: [], choices: ["A", "B", "C", "D"]),
++            GauntletSlot(slot: 2, drillType: "mental_math", key: "k2", prompt: "p2", numbers: [], choices: nil),
++        ],
++        streak: 12, submitted: false, result: nil)
++}
++
++private extension GauntletResult {
++    static let fixture = GauntletResult(
++        score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
++        dailyPercentile: 66,
++        group: GauntletGroup(groupId: 14, name: "C-14", rank: 3, points: 331, pointsBehindNext: 8),
++        schoolPercentile: 71, vsPeersDelta: 3,
++        weakSection: WeakSection(drillType: "market_sizing", label: "market sizing"),
++        streak: 12, setKey: "set-2026-07-16")
++
++    static let fixtureNoPercentile = GauntletResult(
++        score: 4, slotsCorrect: 4, slots: 6, pointsAwarded: 20,
++        dailyPercentile: nil, group: nil, schoolPercentile: nil, vsPeersDelta: nil,
++        weakSection: nil, streak: 1, setKey: "set-2026-07-16")
++}
++
++private final class FakeRunService: GauntletService, @unchecked Sendable {
++    let gauntletValue: Gauntlet
++    let resultValue: GauntletResult
++    let submitError: Error?
++    private(set) var submitCallCount = 0
++    private(set) var gauntletCallCount = 0
++
++    init(gauntlet: Gauntlet, result: GauntletResult, submitError: Error? = nil) {
++        self.gauntletValue = gauntlet
++        self.resultValue = result
++        self.submitError = submitError
++    }
++
++    func gauntlet() async throws -> Gauntlet { gauntletCallCount += 1; return gauntletValue }
++
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        submitCallCount += 1
++        if let submitError { throw submitError }
++        return resultValue
++    }
++
++    func trends() async throws -> GauntletTrends { fatalError("GauntletRunViewModel never calls trends()") }
++}
+diff --git a/ios/CaseRoomTests/HomeViewModelTests.swift b/ios/CaseRoomTests/HomeViewModelTests.swift
+index a83c1ef..9fbe422 100644
+--- a/ios/CaseRoomTests/HomeViewModelTests.swift
++++ b/ios/CaseRoomTests/HomeViewModelTests.swift
+@@ -408,18 +408,33 @@ private final class FakeDashboardService: DashboardService, @unchecked Sendable
+ }
+ 
+ private final class FakeGauntletService: GauntletService, @unchecked Sendable {
+     var value: Gauntlet
+     init(_ value: Gauntlet) { self.value = value }
+     func gauntlet() async throws -> Gauntlet { value }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        fatalError("HomeViewModel never submits the gauntlet")
++    }
++    func trends() async throws -> GauntletTrends {
++        fatalError("HomeViewModel never calls trends()")
++    }
+ }
+ 
+ private final class FakeBoardService: BoardService, @unchecked Sendable {
+     var value: GroupBoard
+     init(_ value: GroupBoard) { self.value = value }
+     func groupBoard() async throws -> GroupBoard { value }
++    func schoolBoard() async throws -> SchoolBoard {
++        fatalError("HomeViewModel never calls schoolBoard()")
++    }
++    func globalBoard() async throws -> GlobalBoard {
++        fatalError("HomeViewModel never calls globalBoard()")
++    }
++    func schoolsBoard() async throws -> SchoolsBoard {
++        fatalError("HomeViewModel never calls schoolsBoard()")
++    }
+ }
+ 
+ private final class FakeProfileService: ProfileService, @unchecked Sendable {
+     var value: ProfileDetail
+     init(_ value: ProfileDetail) { self.value = value }
+     func profile() async throws -> ProfileDetail { value }

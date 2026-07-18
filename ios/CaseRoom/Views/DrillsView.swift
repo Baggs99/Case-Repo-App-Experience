@@ -1,0 +1,322 @@
+/*
+ * Purpose: Drills hub — canvas 5b `dIsHub` (phone, .compact CANON for Task 2):
+ *          the ONE glass gauntlet hero (six-types grid, DAY N, begin/see-result,
+ *          RESETS footer + submitted percentile), the 16-bar 4-week trend (I2
+ *          deviation: rendered from raw daily score, not a daily-percentile
+ *          series — see DrillsViewModel), and the scoped board (Task 3:
+ *          `boardsSection` mounts `GauntletBoard`, the C-14/WHARTON/GLOBAL/
+ *          SCHOOLS scope switcher). Canvas 2b (iPad, .regular) reuses the SAME
+ *          hero/trend/board subviews in a two-column grid (hero+trend left,
+ *          board right) — mirrors HomeView's `.regular` pattern; RootShell
+ *          renders the iPad H1 "Drills", not this view. Only the trend bar
+ *          height changes (72px vs the phone's 56px, canvas 2b line 244); no
+ *          VM fork — the same size-class-agnostic fixtures drive both.
+ * Inputs: DrillsViewModel (injectable; DEBUG fixture init for shots).
+ * Outputs: none (navigation via AppRouter.shared).
+ * Run: mounted by RootShell for DSTab.drills.
+ */
+
+import SwiftUI
+
+struct DrillsView: View {
+    @Environment(\.dsPalette) private var palette
+    @Environment(\.horizontalSizeClass) private var hSize
+    @State private var viewModel: DrillsViewModel
+
+    // Injectable VM (default = live). The DEBUG -F7Drills hatch injects a
+    // fixture-backed VM so simctl can capture a populated screen.
+    @MainActor
+    init(viewModel: DrillsViewModel? = nil) {
+        _viewModel = State(initialValue: viewModel ?? DrillsViewModel())
+    }
+
+    var body: some View {
+        ZStack {
+            DSBackground()
+            if viewModel.gauntlet == nil {
+                if let errorMessage = viewModel.errorMessage {
+                    errorBanner(errorMessage)
+                } else {
+                    Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
+                }
+            } else if hSize == .regular {
+                regularContent
+            } else {
+                content
+            }
+        }
+        .task { await viewModel.load() }
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                header
+                if let errorMessage = viewModel.errorMessage {
+                    errorBanner(errorMessage)
+                }
+                heroSection
+                trendSection()
+                boardsSection
+                Color.clear.frame(height: 120)   // room behind the tab bar
+            }
+            .padding(22)
+        }
+        .scrollIndicators(.hidden)
+        .dsHeaderFade()
+    }
+
+    // MARK: - .regular (iPad, canvas 2b) — two-column grid, top-aligned.
+    // RootShell renders the "Drills" H1 for .regular, so this content starts
+    // directly with the grid (no repeated `header`). LEFT = heroSection + the
+    // trend at the canvas's 72px bars; RIGHT = the scoped board. Same
+    // subviews as `content` above — no copy fork (mirrors HomeView.regularContent).
+
+    private var regularContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let errorMessage = viewModel.errorMessage {
+                    errorBanner(errorMessage)
+                }
+                HStack(alignment: .top, spacing: 36) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        heroSection
+                        trendSection(barHeight: 72)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 22) {
+                        boardsSection
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Color.clear.frame(height: 120)   // room behind the tab bar
+            }
+            .padding(.horizontal, 28).padding(.vertical, 22)
+        }
+        .scrollIndicators(.hidden)
+        .dsHeaderFade()
+    }
+
+    private var header: some View {
+        Text("Drills").dsText(.h1Tab).foregroundStyle(palette.ink)
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(spacing: 12) {
+            Text(message).dsText(.meta).foregroundStyle(palette.muted)
+            Button { Task { await viewModel.load() } } label: {
+                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - 1. Gauntlet hero — the ONLY glass hero on this screen (canvas 5b 916-931)
+
+    private var heroSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("TODAY'S GAUNTLET — SAME SIX FOR EVERYONE").dsText(.kicker).foregroundStyle(palette.muted)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer()
+                Text("DAY \(viewModel.streakDay)").dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
+            }
+            Text("Six types, five minutes.").dsText(.cardTitle).foregroundStyle(palette.ink)
+                .padding(.bottom, 2)
+            sixTypesGrid
+                .padding(.bottom, 6)
+            beginButton
+            HStack(alignment: .firstTextBaseline) {
+                Text("RESETS 06:00 · STREAK SAFE UNTIL 23:59").dsText(.kicker).foregroundStyle(palette.muted)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                Spacer()
+                if let label = viewModel.hubPercentileLabel {
+                    Text(label).dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
+                }
+            }
+            .padding(.top, 3)
+        }
+        .padding(.horizontal, 22).padding(.top, 22).padding(.bottom, 18)
+        .glassPanel(cornerRadius: 30)
+    }
+
+    /// 2-col, hairline underline on the first two rows only (4 labels) —
+    /// fixed design-identity copy, NOT bound to live slot drillType (plan
+    /// deviation #3).
+    private var sixTypesGrid: some View {
+        let labels = ["Mental math", "Market sizing", "Structures", "Chart reads", "Synthesis", "Estimates"]
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible())], spacing: 5) {
+            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+                Text(label)
+                    .font(.archivo(11.5, weight: 600))
+                    .foregroundStyle(palette.ink)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .bottom) {
+                        if index < 4 {
+                            Rectangle().fill(palette.hairline).frame(height: 1)
+                        }
+                    }
+            }
+        }
+    }
+
+    private var beginButton: some View {
+        Button {
+            // Submitted → open straight into the already-scored result (B8 blocks
+            // a re-run); not-submitted → the live timed run.
+            if viewModel.submitted, let result = viewModel.gauntlet?.result {
+                AppRouter.shared.gauntletResult = result
+            }
+            AppRouter.shared.go(to: .gauntletRun)
+        } label: {
+            Text(viewModel.beginLabel)
+                .dsText(.rowTitle)
+                .foregroundStyle(palette.onInk)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+        }
+        .buttonStyle(DSPressStyle())
+        .background(Capsule().fill(palette.ink))
+    }
+
+    // MARK: - 2. TREND — flat, hairline-top (canvas 5b 933-947; canvas 2b line
+    // 244 raises the bars to 72px on .regular — `barHeight` parameterizes it,
+    // no VM change, same `trendBars` fixtures drive both size classes).
+
+    private func trendSection(barHeight: CGFloat = 56) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("TREND — DAILY PERCENTILE, 4 WEEKS").dsText(.kicker).foregroundStyle(palette.muted)
+                Spacer()
+                Text("MOSTLY UP").dsText(.kicker).foregroundStyle(palette.muted)
+            }
+            trendBarsRow(barHeight: barHeight)
+            weekLabelsRow
+        }
+        .padding(.top, 13)
+        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+    }
+
+    /// Square content only (reject-list: no rounded content corners).
+    private func trendBarsRow(barHeight: CGFloat) -> some View {
+        HStack(alignment: .bottom, spacing: 5) {
+            ForEach(viewModel.trendBars) { bar in
+                Rectangle()
+                    .fill(bar.isGreen ? palette.green : palette.ink.opacity(bar.opacity))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: max(barHeight * bar.height, 4))
+            }
+        }
+        .frame(height: barHeight)
+    }
+
+    private var weekLabelsRow: some View {
+        HStack {
+            ForEach(Array(viewModel.weekLabels.enumerated()), id: \.offset) { index, label in
+                Text(label)
+                    .font(.archivo(8.5, weight: 600))
+                    .tracking(0.12 * 8.5)
+                    .tabularNumbers()
+                    .foregroundStyle(index == viewModel.weekLabels.count - 1 ? palette.muted : palette.faint)
+                if index < viewModel.weekLabels.count - 1 { Spacer() }
+            }
+        }
+    }
+
+    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 3: the
+    // 4-scope switcher (C-14/WHARTON/GLOBAL/SCHOOLS) lives in GauntletBoard.
+
+    private var boardsSection: some View {
+        GauntletBoard(viewModel: viewModel)
+    }
+}
+
+#if DEBUG
+/// Screenshot/preview-only fixture (the July-16 phone persona, submitted):
+/// streak 12, gauntlet result dailyPercentile 66, C-14 rank 6 / 8 behind №5,
+/// 16 days of upward-trending daily scores, the same C-14 board HomeView's
+/// fixture uses (Amara rank 6).
+enum PreviewDrillsFixture {
+    static let gauntlet = Gauntlet(
+        date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
+        slots: (1...6).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
+        streak: 12, submitted: true,
+        result: GauntletResult(
+            score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
+            dailyPercentile: 66,
+            group: GauntletGroup(groupId: 14, name: "C-14", rank: 6, points: 331, pointsBehindNext: 8),
+            schoolPercentile: 71, vsPeersDelta: 3, weakSection: WeakSection(drillType: "market_sizing", label: "market sizing"),
+            streak: 12, setKey: "set-2026-07-16"))
+
+    static let trends = GauntletTrends(
+        daily: Self.trailingDays(16), byType: [], weakest: "market_sizing")
+
+    private static func trailingDays(_ count: Int) -> [TrendPoint] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        var comps = DateComponents()
+        comps.year = 2026; comps.month = 7; comps.day = 16; comps.hour = 12
+        let end = Calendar.current.date(from: comps)!
+        let scores: [Double] = [2, 3, 3, 4, 3, 4, 5, 4, 5, 4, 5, 6, 5, 6, 5, 5]
+        return (0..<count).map { i in
+            let date = Calendar.current.date(byAdding: .day, value: -(count - 1 - i), to: end)!
+            return TrendPoint(date: formatter.string(from: date), score: scores[i % scores.count])
+        }
+    }
+
+    static let board = GroupBoard(
+        scope: "group", group: GroupRef(id: 14, name: "C-14"),
+        entries: [
+            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
+            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
+            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
+            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
+            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 339, rank: 5, streak: 13),
+            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
+            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
+            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
+            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
+            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
+        ])
+
+    // Task 3 scope fixtures (the canvas tablet DC board literals, §"Board
+    // reality vs canvas" — schoolId 1 shared between `schoolBoard` and the
+    // `schoolsBoard` Wharton row so `isYourSchool(_:)` highlights it).
+    static let schoolBoard = SchoolBoard(
+        scope: "school",
+        school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+        yourPercentile: 88)
+
+    static let globalBoard = GlobalBoard(scope: "global", yourPercentile: 66)
+
+    static let schoolsBoard = SchoolsBoard(
+        scope: "schools",
+        schools: [
+            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
+            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
+            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
+        ])
+
+    /// `-F7Board <c14|wharton|global|schools>` → the matching scope; any
+    /// other/absent value defaults to `.c14` (the existing screenshot).
+    static func scope(for raw: String?) -> DrillsViewModel.BoardScope {
+        switch raw {
+        case "wharton": return .wharton
+        case "global": return .global
+        case "schools": return .schools
+        default: return .c14
+        }
+    }
+}
+
+#Preview {
+    DrillsView(viewModel: .init(
+        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
+        fixtureTrends: PreviewDrillsFixture.trends,
+        fixtureBoard: PreviewDrillsFixture.board))
+}
+#endif
