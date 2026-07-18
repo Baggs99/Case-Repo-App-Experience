@@ -7,7 +7,8 @@
  *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
- *         -CaseFixtures (F3) — see the #if DEBUG blocks).
+ *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5) — see
+ *         the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -220,6 +221,22 @@ struct CaseRoomApp: App {
         }
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true
+        }
+        // MARK: - F5 — dark takeover screenshot hatch. Fake auth (no network) +
+        // present the session fullScreenCover; RootShell.takeoverSession reads the
+        // same arg and binds SessionView to SessionFixtures' stub service + no-op
+        // signaling, so the dark `state:"lobby"` lobby captures with no dev server.
+        if args.contains("-startTakeover") {
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.sessionTakeoverID = SessionFixtures.lobbySessionId
+        }
+        // MARK: - F5-T6 — recap report screenshot hatch. Fake auth (no network) +
+        // present the LIGHT recap fullScreenCover; RootShell.recapReport reads the
+        // same arg and binds RecapReportView to SessionFixtures.recapFlow, so the
+        // canvas-6b recap (T. Becker, 4.1) captures with no dev server.
+        if args.contains("-startRecap") {
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.recapSessionID = SessionFixtures.recapSessionId
         }
         if let idx = args.firstIndex(of: "-startCaseDetail"), idx + 1 < args.count,
            let caseId = Int(args[idx + 1]) {

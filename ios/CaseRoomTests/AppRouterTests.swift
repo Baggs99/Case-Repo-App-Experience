@@ -18,6 +18,7 @@ final class AppRouterTests: XCTestCase {
         r.groupCreate = false
         r.proposeToUserID = nil
         r.sessionTakeoverID = nil
+        r.recapSessionID = nil   // F5
         r.drillRun = false
         r.gauntletRun = false
         r.pending = nil
@@ -82,6 +83,14 @@ final class AppRouterTests: XCTestCase {
         let r = freshRouter()
         r.go(to: .sessionTakeover(42))
         XCTAssertEqual(r.sessionTakeoverID, 42)
+    }
+    // F5-T6: go(to: .recap) now presents the recap report cover (was a stub that
+    // only selected the Case tab) — it sets recapSessionID AND selects .caseTab.
+    func testGoToRecapPresentsCoverAndSelectsCaseTab() {
+        let r = freshRouter()
+        r.go(to: .recap(5150))
+        XCTAssertEqual(r.recapSessionID, 5150)
+        XCTAssertEqual(r.selection, .caseTab)
     }
     func testGoToCaseDetailSelectsLibraryAndPushes() {
         let r = freshRouter()

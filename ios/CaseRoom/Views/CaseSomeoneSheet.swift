@@ -50,7 +50,7 @@ struct CaseSomeoneSheet: View {
             .onChange(of: viewModel.gatedRecapSessionID) { _, newValue in
                 guard let id = newValue else { return }
                 dismiss()
-                AppRouter.shared.casePath.append(.recap(id))
+                AppRouter.shared.go(to: .recap(id))
             }
             .fullScreenCover(isPresented: $showScanner) {
                 CaseSomeoneScanCover { code in

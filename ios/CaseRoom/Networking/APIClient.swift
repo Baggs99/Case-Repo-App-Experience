@@ -145,7 +145,28 @@ protocol SessionService {
     func finalize(id: Int, grade: Double?) async throws -> Finalized
 }
 
-actor APIClient: SessionService, PairService, DrillService, AvailabilityService, ProfileService,
+// MARK: - F5 SessionFlowService
+// B3 session-flow endpoints (F5 Task 1): case negotiation, role swap, the
+// feedback recap gate, and the released feedback report. All cookie-authed;
+// POST/PUT are same-origin from the native client (no Origin header -> passes
+// CSRF), exactly like SessionService. NOTE: acceptCase returns SessionDetail,
+// not a NegotiationView — the /negotiation/accept route returns the stamped
+// (negotiating->lobby) session row, the same bare shape /consent and /state
+// return. Verified against webapp/routes/session_flow.py accept_case ->
+// sessions_repo.stamp_negotiated_case.
+protocol SessionFlowService {
+    func negotiation(id: Int) async throws -> NegotiationView
+    func proposeCase(id: Int, caseId: Int) async throws -> NegotiationView
+    func acceptCase(id: Int, caseId: Int) async throws -> SessionDetail
+    func swap(id: Int) async throws -> SwapInitiated
+    func swapAccept(id: Int) async throws -> SwapAccepted
+    func recaps() async throws -> [RecapListItem]
+    func recapViewed(id: Int) async throws -> RecapViewedResult
+    func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult
+    func feedbackReport(id: Int) async throws -> FeedbackReport
+}
+
+actor APIClient: SessionService, SessionFlowService, PairService, DrillService, AvailabilityService, ProfileService,
     TimelineService, RecommendationService, GauntletService, BoardService, CommunityService {
     static let shared = APIClient()
 
@@ -811,6 +832,80 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
         _ = try await performRaw(request)
+    }
+
+    // MARK: - F5 Session flow (SessionFlowService)
+
+    func negotiation(id: Int) async throws -> NegotiationView {
+        try await send(path: "/api/practice/\(id)/negotiation", method: "GET")
+    }
+
+    func proposeCase(id: Int, caseId: Int) async throws -> NegotiationView {
+        struct ProposeBody: Encodable { let caseId: Int }
+        return try await send(
+            path: "/api/practice/\(id)/negotiation/propose", method: "POST",
+            body: ProposeBody(caseId: caseId)
+        )
+    }
+
+    // Returns SessionDetail (not NegotiationView): /negotiation/accept stamps the
+    // case + flips negotiating->lobby and returns the bare session row.
+    func acceptCase(id: Int, caseId: Int) async throws -> SessionDetail {
+        struct AcceptBody: Encodable { let caseId: Int }
+        return try await send(
+            path: "/api/practice/\(id)/negotiation/accept", method: "POST",
+            body: AcceptBody(caseId: caseId)
+        )
+    }
+
+    // Swap POST carries no body (interviewer-initiated; server reads the session).
+    func swap(id: Int) async throws -> SwapInitiated {
+        try await send(path: "/api/practice/\(id)/swap", method: "POST")
+    }
+
+    func swapAccept(id: Int) async throws -> SwapAccepted {
+        try await send(path: "/api/practice/\(id)/swap/accept", method: "POST")
+    }
+
+    func recaps() async throws -> [RecapListItem] {
+        struct RecapsResponse: Decodable { let recaps: [RecapListItem] }
+        let response: RecapsResponse = try await send(path: "/api/v1/recaps", method: "GET")
+        return response.recaps
+    }
+
+    func recapViewed(id: Int) async throws -> RecapViewedResult {
+        try await send(path: "/api/practice/\(id)/recap/viewed", method: "POST")
+    }
+
+    // Body {case_rating, feedback_thumbs}: a nil `thumbs` omits the key
+    // (encodeIfPresent), which the server treats as None (thumbs not recorded).
+    func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult {
+        struct CloseBody: Encodable { let caseRating: Int; let feedbackThumbs: Bool? }
+        return try await send(
+            path: "/api/practice/\(id)/recap/close", method: "POST",
+            body: CloseBody(caseRating: caseRating, feedbackThumbs: thumbs)
+        )
+    }
+
+    func feedbackReport(id: Int) async throws -> FeedbackReport {
+        try await send(path: "/api/practice/\(id)/feedback", method: "GET")
+    }
+
+    // Parses a recap-SEAT 409 body {"detail": {"blocked_by_recap": <session_id>}}
+    // into the blocking session id. Scope: ONLY the four candidate-seat entries
+    // where the caller is about to take a candidate seat — proposal accept,
+    // proposal claim, pair claim, and practice create. Those 409s mean "clear
+    // your open recap for session N first" and a later F5/F3 task routes to it.
+    // Do NOT use this on swap/accept's 409: that one is the swap INITIATOR's own
+    // recap gate (assert_candidate_gate_clear on the new candidate = old
+    // interviewer), a different flow. This helper only decodes; it wires nothing.
+    static func recapBlockSessionID(from data: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = object["detail"] as? [String: Any],
+              let sessionID = detail["blocked_by_recap"] as? Int else {
+            return nil
+        }
+        return sessionID
     }
 
     private static func multipartRecordingBody(boundary: String, seq: Int, mime: String, blob: Data) -> Data {

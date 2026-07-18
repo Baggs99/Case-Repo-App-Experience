@@ -36,6 +36,7 @@ struct VideoCallView: View {
     let audioEnabled: Bool
     let onToggleVideo: () -> Void
     let onToggleAudio: () -> Void
+    @Environment(\.dsPalette) private var palette
 
     init(
         capture: MediaCapturing,
@@ -54,33 +55,69 @@ struct VideoCallView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack {
+            // Dark striped interviewer pane — the placeholder the remote video
+            // renders over once frames arrive (canvas 4a live surface).
+            Rectangle()
+                .fill(palette.surface)
+                .overlay(DiagonalStripes(color: palette.ink.opacity(0.05)))
+                .ignoresSafeArea()
+
             RTCVideoRepresentable(track: remoteVideoTrack)
                 .ignoresSafeArea()
 
-            RTCVideoRepresentable(track: localVideoTrack)
-                .frame(width: 120, height: 160)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .padding()
-
             VStack {
+                HStack(alignment: .top) {
+                    liveChip
+                    Spacer()
+                    // Self-view inset over the untouched local representable.
+                    RTCVideoRepresentable(track: localVideoTrack)
+                        .frame(width: 96, height: 128)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(palette.ink.opacity(0.14), lineWidth: 1)
+                        )
+                }
+                .padding(16)
+
                 Spacer()
                 controls
             }
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: 24) {
-            Button(audioEnabled ? "Mute" : "Unmute") {
-                onToggleAudio()
-            }
-            Button(videoEnabled ? "Camera off" : "Camera on") {
-                onToggleVideo()
-            }
+    private var liveChip: some View {
+        HStack(spacing: 7) {
+            BlinkDot()
+            Text("LIVE")
+                .font(.archivo(10, weight: 600))
+                .tracking(10 * 0.14)
+                .foregroundStyle(palette.ink)
         }
-        .buttonStyle(.borderedProminent)
-        .padding(.bottom, 32)
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .glassChip()
+    }
+
+    private var controls: some View {
+        HStack(spacing: 12) {
+            controlChip(audioEnabled ? "Mute" : "Unmute", action: onToggleAudio)
+            controlChip(videoEnabled ? "Camera off" : "Camera on", action: onToggleVideo)
+        }
+        .padding(.bottom, 24)
+    }
+
+    private func controlChip(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.archivo(12.5, weight: 600))
+                .foregroundStyle(palette.ink)
+                .padding(.horizontal, 18)
+                .frame(height: 40)
+                .glassChip()
+        }
+        .buttonStyle(DSPressStyle())
     }
 
     private var localVideoTrack: RTCVideoTrack? {
@@ -136,4 +173,6 @@ private struct RTCVideoRepresentable: UIViewRepresentable {
         onToggleVideo: {},
         onToggleAudio: {}
     )
+    .frame(height: 300)
+    .dsTheme(.dark)
 }

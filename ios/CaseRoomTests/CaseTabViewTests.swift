@@ -129,34 +129,34 @@ final class CaseTabViewTests: XCTestCase {
 
     // MARK: - CaseTabGateSteering
 
-    func testGateSteeringAppendsRecapRouteAndClearsGate() {
-        var path: [AppRoute] = []
+    func testGateSteeringSetsRecapPresentationAndClearsGate() {
+        var presentation: Int?
         var cleared = false
 
-        CaseTabGateSteering.steer(sessionID: 555, casePath: &path) { cleared = true }
+        CaseTabGateSteering.steer(sessionID: 555, recapPresentation: &presentation) { cleared = true }
 
-        XCTAssertEqual(path, [.recap(555)])
+        XCTAssertEqual(presentation, 555)
         XCTAssertTrue(cleared)
     }
 
-    func testGateSteeringAppendsOntoExistingPath() {
-        var path: [AppRoute] = [.recap(1)]
+    func testGateSteeringReplacesExistingPresentation() {
+        var presentation: Int? = 1
         var cleared = false
 
-        CaseTabGateSteering.steer(sessionID: 2, casePath: &path) { cleared = true }
+        CaseTabGateSteering.steer(sessionID: 2, recapPresentation: &presentation) { cleared = true }
 
-        XCTAssertEqual(path, [.recap(1), .recap(2)])
+        XCTAssertEqual(presentation, 2)
         XCTAssertTrue(cleared)
     }
 
     func testGateSteeringNoOpWhenSessionIDNil() {
-        var path: [AppRoute] = []
+        var presentation: Int?
 
-        CaseTabGateSteering.steer(sessionID: nil, casePath: &path) {
+        CaseTabGateSteering.steer(sessionID: nil, recapPresentation: &presentation) {
             XCTFail("clearGate should not run when there is nothing to steer")
         }
 
-        XCTAssertTrue(path.isEmpty)
+        XCTAssertNil(presentation)
     }
 
     // MARK: - CasePrefillSteering (F4→F3 case-prefill)

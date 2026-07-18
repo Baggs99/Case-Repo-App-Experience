@@ -10,12 +10,12 @@
  *          "awaiting reply" sent rows), and HISTORY. Verb-bar taps present
  *          three MARK-bounded placeholder sheets (T3/T4/T5 fill the bodies);
  *          a recap gate (either tapped or a 409-surfaced
- *          `gatedRecapSessionID`) pushes the interim RecapGateStub (F5
- *          replaces at merge) onto casePath.
+ *          `gatedRecapSessionID`) presents F5's recap report cover via
+ *          AppRouter.recapSessionID.
  * Inputs: CaseTabViewModel (default live). DEBUG `-CaseFixtures` (wired in
  *         RootShell's caseTabRoot, mirrors `-GroupPageFixtures`) injects
  *         CaseFixtures.makeViewModel() — no dev server needed.
- * Outputs: none directly; AppRouter.shared.casePath pushes for `.recap`;
+ * Outputs: none directly; AppRouter.shared.recapSessionID set for `.recap`;
  *          CaseTabViewModel actions (accept/decline/counter/addToCalendar)
  *          as side effects of row taps.
  * Run: mounted by RootShell inside `NavigationStack(path: $router.casePath)`
@@ -97,9 +97,9 @@ enum CaseTabCopy {
 // `.onChange(of: viewModel.gatedRecapSessionID)` handler so the "append +
 // clear" steering is testable without rendering the SwiftUI view.
 enum CaseTabGateSteering {
-    static func steer(sessionID: Int?, casePath: inout [AppRoute], clearGate: () -> Void) {
+    static func steer(sessionID: Int?, recapPresentation: inout Int?, clearGate: () -> Void) {
         guard let sessionID else { return }
-        casePath.append(.recap(sessionID))
+        recapPresentation = sessionID
         clearGate()
     }
 }
@@ -173,11 +173,12 @@ struct CaseTabView: View {
             .onChange(of: router.caseGetCasedPrefillCaseID) { _, _ in consumePrefill() }
             .onChange(of: router.caseSomeonePrefillCaseID) { _, _ in consumePrefill() }
             // B3 recap gate: any action that 409s with blockedByRecap sets
-            // gatedRecapSessionID — steer to the interim recap stub, then
-            // clear so a later gate can re-fire (plain Int? never re-fires
-            // the same value twice).
+            // gatedRecapSessionID — present F5's recap report cover (merge
+            // reconciliation: the F3-interim stub is gone), then clear so a
+            // later gate can re-fire (plain Int? never re-fires the same
+            // value twice).
             .onChange(of: viewModel.gatedRecapSessionID) { _, newValue in
-                CaseTabGateSteering.steer(sessionID: newValue, casePath: &AppRouter.shared.casePath) {
+                CaseTabGateSteering.steer(sessionID: newValue, recapPresentation: &AppRouter.shared.recapSessionID) {
                     viewModel.clearGate()
                 }
             }
@@ -594,7 +595,7 @@ struct CaseTabView: View {
     private var recapGateCard: some View {
         if let recap = viewModel.gateRecap {
             Button {
-                AppRouter.shared.casePath.append(.recap(recap.sessionId))
+                AppRouter.shared.go(to: .recap(recap.sessionId))
             } label: {
                 VStack(alignment: .leading, spacing: 7) {
                     Text("UNREAD RECAP — CLEARS BEFORE YOUR NEXT CASE")

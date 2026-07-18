@@ -72,7 +72,8 @@ struct RootShell: View {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
                 || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
-                || args.contains("-CaseFixtures") { return }
+                || args.contains("-CaseFixtures")
+                || args.contains("-startTakeover") || args.contains("-startRecap") { return } // F3+F5
             #endif
             await sessionStore.bootstrap()
         }
@@ -130,7 +131,8 @@ struct RootShell: View {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
                 || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
-                || args.contains("-CaseFixtures") { return }
+                || args.contains("-CaseFixtures")
+                || args.contains("-startTakeover") || args.contains("-startRecap") { return } // F3+F5
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
@@ -146,9 +148,24 @@ struct RootShell: View {
             get: { router.sessionTakeoverID.map(TakeoverTarget.init) },
             set: { if $0 == nil { router.sessionTakeoverID = nil } }
         )) { target in
-            // F5/F6 refit this into the dark takeover; the existing SessionView
-            // is a real, working session screen for the interim.
-            NavigationStack { SessionView(sessionId: target.id) }
+            // MARK: - F5 — dark takeover seam. The single place the whole session
+            // subtree (lobby → negotiation → live) is themed dark; every glass
+            // panel/scrim/DSBackground under here re-reads \.dsPalette and goes
+            // dark. T5's DebriefView re-overrides to .light at its own root, still
+            // inside this cover, so the debrief returns to daylight.
+            NavigationStack { takeoverSession(id: target.id) }
+                .dsTheme(.dark)
+        }
+        // MARK: - F5 — recap report cover. Mirrors the sessionTakeover cover
+        // (keyed on an Identifiable Int wrapper) but stays LIGHT: the recap is a
+        // post-session report in daylight, so this deliberately does NOT apply
+        // .dsTheme(.dark). T7 floats its close-out sheet as an .overlay inside
+        // RecapReportView (the seam is commented at that view's root).
+        .fullScreenCover(item: Binding(
+            get: { router.recapSessionID.map(RecapTarget.init) },
+            set: { if $0 == nil { router.recapSessionID = nil } }
+        )) { target in
+            NavigationStack { recapReport(id: target.id) }
         }
         // Drill run — presented at the (stable) authenticated shell view, not inside a
         // tab, so it survives tab switches and warm foregrounding. `initial: true` also
@@ -175,6 +192,71 @@ struct RootShell: View {
         }) { runViewModel in
             GauntletRunView(viewModel: runViewModel)
         }
+    }
+
+    // MARK: - F5 — takeover session builder. `-startTakeover` swaps in the
+    // fixture-backed SessionService + no-op signaling (SessionFixtures.swift) so
+    // simctl captures the dark `state:"lobby"` takeover with no dev server and no
+    // live socket; the live path is the real SessionView (default services).
+    @ViewBuilder
+    private func takeoverSession(id: Int) -> some View {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let idx = args.firstIndex(of: "-startTakeover") {
+            // Optional variant token after -startTakeover: lobby (default, T2) |
+            // nego | negoInterviewer | negoKept (F5-T3) | live-candidate |
+            // live-candidate-exhibit | live-interviewer (F5-T4) | debrief |
+            // debrief-interviewer (F5-T5, LIGHT — rendered inside this dark cover
+            // so the shot proves DebriefView's .dsTheme(.light) override wins).
+            let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
+            switch variant {
+            case "debrief":
+                SessionFixtures.debriefCandidateStandalone()
+            case "debrief-interviewer":
+                SessionFixtures.debriefInterviewerStandalone()
+            case "nego":
+                SessionView(sessionId: id, service: SessionFixtures.negoCandidateService,
+                            signaling: SessionFixtures.negoSignaling,
+                            flowService: SessionFixtures.negoCandidateFlow)
+            case "negoInterviewer":
+                SessionView(sessionId: id, service: SessionFixtures.negoInterviewerService,
+                            signaling: SessionFixtures.negoSignaling,
+                            flowService: SessionFixtures.negoInterviewerFlow)
+            case "negoKept":
+                SessionFixtures.negoKeptStandalone()
+            case "live-candidate":
+                SessionFixtures.liveCandidateStandalone(openExhibit: false)
+            case "live-candidate-exhibit":
+                SessionFixtures.liveCandidateStandalone(openExhibit: true)
+            case "live-interviewer":
+                SessionFixtures.liveInterviewerStandalone()
+            default:
+                SessionView(sessionId: id, service: SessionFixtures.lobbyService,
+                            signaling: SessionFixtures.lobbySignaling)
+            }
+        } else {
+            SessionView(sessionId: id)
+        }
+        #else
+        SessionView(sessionId: id)
+        #endif
+    }
+
+    // MARK: - F5 — recap report builder. `-startRecap` swaps in the
+    // fixture-backed SessionFlowService (SessionFixtures.recapFlow) so simctl
+    // captures the LIGHT canvas-6b recap with no dev server; the live path is the
+    // real RecapReportView (default APIClient).
+    @ViewBuilder
+    private func recapReport(id: Int) -> some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-startRecap") {
+            SessionFixtures.recapStandalone()
+        } else {
+            RecapReportView(sessionId: id)
+        }
+        #else
+        RecapReportView(sessionId: id)
+        #endif
     }
 
     // Mirrors the legacy TodayView.startDrill() wiring (FM/on-device engine path).
@@ -265,15 +347,13 @@ struct RootShell: View {
             }
         case .library:
             CasesListView()
-        // MARK: F3 — Case tab (canvas 3b). caseTabRoot below is fixture-or-live;
-        // .recap is F3's own interim stub (F5 replaces at merge). Push/deep-link
-        // steering onto .recap stays AppRouter.go(to:)'s (F5's), untouched here.
+        // MARK: F3 — Case tab (canvas 3b). caseTabRoot below is fixture-or-live.
+        // Merge reconciliation (F3×F5): every recap entry point now presents
+        // F5's recap report cover via AppRouter.recapSessionID / go(.recap) —
+        // the F3-interim RecapGateStub and its casePath destination are gone.
         case .caseTab:
             NavigationStack(path: $router.casePath) {
                 caseTabRoot
-                    .navigationDestination(for: AppRoute.self) { route in
-                        if case .recap(let id) = route { RecapGateStub(sessionID: id) }
-                    }
             }
         case .community:
             NavigationStack(path: $router.communityPath) {
@@ -303,6 +383,7 @@ struct RootShell: View {
 // Identifiable wrappers so `.sheet(item:)` / `.fullScreenCover(item:)` drive off Int.
 private struct ProposeTarget: Identifiable { let id: Int }
 private struct TakeoverTarget: Identifiable { let id: Int }
+private struct RecapTarget: Identifiable { let id: Int }  // F5 — recap cover key
 
 #Preview {
     RootShell()
