@@ -22,7 +22,9 @@ Interpreter: /Users/thomaskgould/dev/Case-Repo-App-Experience/.venv/bin/python
 - F5 parallel (~/dev/fe-f5): owns SessionView/SessionViewModel + recap screens. F3 navigates .recap(sessionID) on any blocked_by_recap 409; provides a MARK-bounded interim recap destination stub (F5 replaces at merge). Do NOT edit session/recap files.
 
 ## Plan
-(pending — awaiting backend contract extraction + plan-review)
+- docs/superpowers/plans/2026-07-17-fe-f3-plan.md (T1 data → T2 phone spine → T3/T4/T5 sheets → T6 tablet → close-out). Contract sheet extracted (scout). Opus plan-review: SOUND-WITH-FIXES (1 Crit + 4 Imp + 8 Min) — all dispositioned in the plan's "Plan-review dispositions" section. Key fixes: Proposal explicit init + optional case fields (blast radius = 5 sites not 1); HISTORY scope="recent" (NOT "past"); QR payload pinned caseroom://pair?code=<short_code>; go(.recap) steering DEFERRED to F5 per hard boundary; Ping = now-proposal.
 
 ## Tasks
-(pending)
+- **T1 DONE** (commits 04de029, c81b115). Data layer: Proposal (optional case fields + direction/state/claimToken/counterTimes/counterBy/counteredAt + explicit defaulted init), AcceptedSession urls optional, PairToken.shortCode, RecapItem, ClaimResult, CaseGateError.blockedByRecap(Int) wired into accept/claim/pairClaim only (nested {"detail":{"blocked_by_recap":id}} @ 409). CaseTabViewModel + CaseTabService + CaseFixtures. APIClient.recaps()/claimProposal/counterProposal. Suite **509/0** (500+9). Opus review APPROVE-WITH-NITS (0 Crit/Imp; 4 minors: VM not @MainActor = mirrors SessionsViewModel precedent; 2 dead gate-catch arms in decline/counter = spec-directed; minor test gaps; claimProposal token path-interp low-risk). xcodeproj stays gitignored/regenerable (repo convention — only Package.resolved tracked).
+- **T2** (phone spine) — dispatching.
+- T3/T4/T5 (sheets), T6 (tablet), close-out — pending.
