@@ -8,7 +8,7 @@
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
  *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5),
- *         -OnbWelcome, -OnbEmail, -OnbPasscode (F9) — see the #if DEBUG blocks).
+ *         -OnbWelcome, -OnbEmail, -OnbPasscode, -OnbAccount (F9) — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -119,6 +119,15 @@ struct CaseRoomApp: App {
                     vm.code = "123"
                     return vm
                 }())
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbAccount") {
+                // Onboarding account-completion / profile-import (F9-T5) fixture
+                // hatch: STEP 3 OF 05, fixture VM parked at .account, pre-seeded
+                // with displayName "Amara Osei" so the hero field is populated
+                // (simctl can't type). Proves the field + "or" divider + both
+                // OAuth secondary buttons; the OAuth buttons are wired to
+                // VM.startOAuth (mock/fixture-proven — the live native round-trip
+                // is a documented Thomas follow-up, plan KNOWN UNCERTAINTIES #3).
+                OnboardingAccountView(viewModel: OnboardingFixtures.viewModel(step: .account))
             } else {
                 rootView
             }
