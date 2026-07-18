@@ -170,6 +170,19 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   FW3. Opus leads, sonnet implementers (F7 run-mechanics JUDGMENT → opus),
   synchronous subagents, watchdog re-armed.
 
+- 2026-07-17 F8 → feature/backend-gap @ a3b0d27 (phase head 0ee9dc2). Merge
+  clean. Fresh integration DB: backend 655; iOS FULL **455/0** (413 + 42).
+  §7 smoke PASS (Home live, Community live w/ correct empty-states on the
+  sparse seed, Library regression clean, avatar sheet shows "Administer a
+  group"); group-create sheet not smoke-driven (fixture-only -GroupCreate
+  Fixtures route — real flow needs tap-driving; covered by VM tests +
+  phase shots). Crash sweep clean. F8 stayed inside the pinned AppRoute
+  enum (groupCreate = router bool, no new case). Contract note: B6
+  report's "swap_invite_pending always false" line is STALE (pre-B3) —
+  /connections serves it live. Known MINOR deferred: admin member-progress
+  Retry re-runs board load, not progress fetch. F7 still in flight —
+  FW4 closes at its merge.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
