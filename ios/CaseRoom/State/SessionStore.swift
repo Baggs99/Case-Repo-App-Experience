@@ -49,6 +49,14 @@ final class SessionStore {
         }
     }
 
+    // The onboarding flow holds the returned User locally and only flips
+    // isAuthenticated here, after the OTP-verify session cookie is set — so
+    // RootShell keeps showing the onboarding cover through the account/group
+    // steps instead of swapping to the shell mid-flow.
+    func finishOnboarding() async {
+        await bootstrap()
+    }
+
     func logout() async {
         do {
             try await client.logout()

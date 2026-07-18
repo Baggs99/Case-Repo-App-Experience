@@ -222,6 +222,24 @@ struct ProfileDetail: Codable, Equatable {
     let photoUrl: String?
 }
 
+// POST /api/v1/groups/join (B6, webapp/routes/groups.py:69) row. The route
+// returns {id, name, school_id, invite_code, role, already_member}; this
+// decodes a deliberate 3-of-6 subset — Swift ignores the unlisted keys, and
+// convertFromSnakeCase maps already_member -> alreadyMember.
+struct JoinedGroup: Codable, Equatable {
+    let id: Int
+    let name: String
+    let alreadyMember: Bool
+}
+
+// Typed onboarding failures the generic APIError can't distinguish: a 404 from
+// /groups/join is an unknown invite code (not a routing miss), and OAuth is
+// surfaced as unavailable on 503/cancel (see OnboardingOAuth.swift).
+enum OnboardingError: Error, Equatable {
+    case unknownInviteCode
+    case oauthUnavailable
+}
+
 // B5 GET/PUT /api/v1/settings/notifications — the five category flags.
 struct NotificationSettings: Codable, Equatable {
     var proposals: Bool
