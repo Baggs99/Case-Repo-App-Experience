@@ -702,6 +702,57 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         return response.sessionId
     }
 
+    // MARK: - Get-cased-now (GetCasedService, F3-T3)
+
+    // Case-less-capable pairing for the "Get cased now" sheet: nil mints a
+    // general pairing code (candidate hasn't chosen a case yet); a concrete id
+    // scopes it to a case (T4). The existing PairService.pairCreate takes a
+    // non-optional Int (interviewer-flow, always case-scoped), so this is a
+    // sibling overload rather than a change to that contract. Forces `case_id`
+    // to explicit null when nil so the server distinguishes case-less from a
+    // malformed/absent field.
+    func pairCreate(caseId: Int?) async throws -> PairToken {
+        struct FlexPairBody: Encodable {
+            let caseId: Int?
+            enum CodingKeys: String, CodingKey { case caseId }
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(caseId, forKey: .caseId)   // null when nil
+            }
+        }
+        return try await send(
+            path: "/api/practice/pair/create", method: "POST", body: FlexPairBody(caseId: caseId)
+        )
+    }
+
+    // A "ping" from the Get-cased-now board — a now-invite to a free classmate.
+    // POST /api/proposals with case_id:null, from_role:"candidate", one "now"
+    // proposed time. Mirrors createProposal's discard-body style (the endpoint
+    // returns the bare proposals row, which doesn't decode into Proposal).
+    func createNowInvite(toUserId: Int) async throws {
+        struct NowInviteBody: Encodable {
+            let toUserId: Int
+            let caseId: Int?
+            let fromRole: String
+            let proposedTimes: [Date]
+            enum CodingKeys: String, CodingKey { case toUserId, caseId, fromRole, proposedTimes }
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(toUserId, forKey: .toUserId)
+                try container.encode(caseId, forKey: .caseId)   // explicit null
+                try container.encode(fromRole, forKey: .fromRole)
+                try container.encode(proposedTimes, forKey: .proposedTimes)
+            }
+        }
+        let body = NowInviteBody(
+            toUserId: toUserId, caseId: nil, fromRole: "candidate", proposedTimes: [Date()]
+        )
+        var request = try makeRequest(path: "/api/proposals", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        _ = try await performRaw(request)
+    }
+
     private static func multipartRecordingBody(boundary: String, seq: Int, mime: String, blob: Data) -> Data {
         var body = Data()
         func appendField(name: String, value: String) {

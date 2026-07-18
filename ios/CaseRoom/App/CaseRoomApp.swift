@@ -154,6 +154,9 @@ struct CaseRoomApp: App {
     //  -CaseFixtures (F3)  fake auth + selects the Case tab; RootShell's
     //                    caseTabRoot swaps in a fixture-backed
     //                    CaseTabViewModel — see CaseFixtures.swift.
+    //  -CaseSheet <name> (F3-T3, DEBUG)  under -CaseFixtures, CaseTabView opens
+    //                    a verb-bar sheet on appear (getCased) so the OPEN sheet
+    //                    can be screenshotted with no dev server. Release-inert.
     @MainActor
     private func applyDebugLaunchHatches() async {
         let args = ProcessInfo.processInfo.arguments

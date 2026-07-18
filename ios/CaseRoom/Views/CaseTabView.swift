@@ -124,6 +124,7 @@ struct CaseTabView: View {
     var body: some View {
         content
             .task { await viewModel.load() }
+            .onAppear { presentSheetHatchIfNeeded() }
             // B3 recap gate: any action that 409s with blockedByRecap sets
             // gatedRecapSessionID — steer to the interim recap stub, then
             // clear so a later gate can re-fire (plain Int? never re-fires
@@ -151,7 +152,14 @@ struct CaseTabView: View {
                 }
             }
             .sheet(item: $activeSheet) { sheet in
-                CaseSheetPlaceholder(kind: sheet)
+                switch sheet {
+                case .getCased:
+                    // T3 — the real Get-cased-now glass sheet (canvas `sheetNow3`).
+                    GetCasedNowSheet(viewModel: makeGetCasedViewModel())
+                case .caseSomeone, .schedule:
+                    // T4/T5 still fill these bodies; the seam stays stable.
+                    CaseSheetPlaceholder(kind: sheet)
+                }
             }
             .sheet(item: $counterTarget) { proposal in
                 NewTimeSheet(proposal: proposal, date: $counterDate) { chosen in
@@ -162,6 +170,34 @@ struct CaseTabView: View {
 
     private var acceptChoiceIsPresented: Binding<Bool> {
         Binding(get: { acceptChoiceProposal != nil }, set: { if !$0 { acceptChoiceProposal = nil } })
+    }
+
+    /// Get-cased-now sheet VM: live by default; the `-CaseFixtures` screenshot
+    /// hatch swaps in the canvas-persona stub (K7Q-4TN, S. Park / J. Okafor) so
+    /// the sheet renders with no dev server.
+    @MainActor
+    private func makeGetCasedViewModel() -> GetCasedNowViewModel {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-CaseFixtures") {
+            return .fixture()
+        }
+        #endif
+        return GetCasedNowViewModel()
+    }
+
+    /// DEBUG screenshot hatch: `-CaseSheet getCased` (only under `-CaseFixtures`)
+    /// opens the sheet on appear so simctl can capture the OPEN sheet with no
+    /// dev server and no tapping. Release-inert.
+    private func presentSheetHatchIfNeeded() {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("-CaseFixtures"),
+              let index = args.firstIndex(of: "-CaseSheet"), index + 1 < args.count else { return }
+        switch args[index + 1] {
+        case "getCased": activeSheet = .getCased
+        default: break
+        }
+        #endif
     }
 
     private var content: some View {
