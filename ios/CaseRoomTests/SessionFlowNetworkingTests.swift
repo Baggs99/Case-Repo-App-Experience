@@ -205,13 +205,16 @@ final class SessionFlowNetworkingTests: XCTestCase {
            "viewed_at": null, "interviewer_name": "Alice Dev"},
           {"session_id": 31, "case_id": 6, "case_title": "Retail turnaround",
            "grade": null, "finalized_at": "2026-07-17T09:00:00+00:00",
-           "viewed_at": "2026-07-17T09:05:00+00:00", "interviewer_name": null}
+           "viewed_at": "2026-07-17T09:05:00+00:00", "interviewer_name": null},
+          {"session_id": 32, "case_id": 7, "case_title": null,
+           "grade": null, "finalized_at": "2026-07-17T11:00:00+00:00",
+           "viewed_at": null, "interviewer_name": "Carol Dev"}
         ]}
         """#)
 
         let recaps = try await client.recaps()
 
-        XCTAssertEqual(recaps.count, 2)
+        XCTAssertEqual(recaps.count, 3)
         XCTAssertEqual(recaps[0].sessionId, 30)
         XCTAssertEqual(recaps[0].caseId, 5)
         XCTAssertEqual(recaps[0].caseTitle, "Widget Co")
@@ -221,6 +224,10 @@ final class SessionFlowNetworkingTests: XCTestCase {
         XCTAssertNil(recaps[1].grade)
         XCTAssertNil(recaps[1].interviewerName)
         XCTAssertEqual(recaps[1].viewedAt, "2026-07-17T09:05:00+00:00")
+        // Legacy row: LEFT-JOINed case_title is null and must decode to nil,
+        // not fail the whole list decode.
+        XCTAssertNil(recaps[2].caseTitle)
+        XCTAssertEqual(recaps[2].caseId, 7)
 
         let request = StubURLProtocol.recordedRequests.first!
         XCTAssertEqual(request.url?.path, "/api/v1/recaps")

@@ -77,13 +77,13 @@ struct SwapAccepted: Codable, Equatable {
 // One row of GET /api/v1/recaps (session_flow.py list_recaps ->
 // feedback_repo.list_unread_recaps): finalized-but-unclosed recaps where the
 // caller was candidate. `finalizedAt`/`viewedAt` are ISO datetime strings kept
-// as String (display-only; no Date parsing needed). NOTE: the backend docstring
-// warns case_title can be NULL for legacy rows — matches the plan's String
-// contract, but a legacy null would fail to decode.
+// as String (display-only; no Date parsing needed). `caseTitle` is optional:
+// list_unread_recaps LEFT-JOINs cases, so case_title is nullable (legacy rows) —
+// a non-optional would fail the whole recaps() decode and soft-lock the gate.
 struct RecapListItem: Codable, Equatable, Identifiable {
     let sessionId: Int
     let caseId: Int
-    let caseTitle: String
+    let caseTitle: String?
     let interviewerName: String?
     let grade: Double?
     let finalizedAt: String?

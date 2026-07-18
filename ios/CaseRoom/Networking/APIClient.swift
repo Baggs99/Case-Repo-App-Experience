@@ -748,9 +748,9 @@ actor APIClient: SessionService, SessionFlowService, PairService, DrillService, 
     }
 
     // Parses a recap-SEAT 409 body {"detail": {"blocked_by_recap": <session_id>}}
-    // into the blocking session id. Scope: ONLY the five candidate-seat entries
-    // where the caller is about to take a candidate seat — proposal create,
-    // proposal accept, pair claim, and pair create/accept. Those 409s mean "clear
+    // into the blocking session id. Scope: ONLY the four candidate-seat entries
+    // where the caller is about to take a candidate seat — proposal accept,
+    // proposal claim, pair claim, and practice create. Those 409s mean "clear
     // your open recap for session N first" and a later F5/F3 task routes to it.
     // Do NOT use this on swap/accept's 409: that one is the swap INITIATOR's own
     // recap gate (assert_candidate_gate_clear on the new candidate = old
