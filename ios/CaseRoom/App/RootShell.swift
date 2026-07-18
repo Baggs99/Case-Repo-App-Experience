@@ -208,7 +208,8 @@ struct RootShell: View {
             // live-candidate-exhibit | live-interviewer (F5-T4) | debrief |
             // debrief-interviewer (F5-T5, LIGHT — rendered inside this dark cover
             // so the shot proves DebriefView's .dsTheme(.light) override wins) |
-            // console-phone | console-phone-scored (F6-T2, LIGHT phone console 8b).
+            // console-phone | console-phone-scored (F6-T2, LIGHT phone console 8b) |
+            // console-tablet | console-tablet-scored (F6-T3, LIGHT tablet hero 1a).
             let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
             switch variant {
             // F6-T2 — the interviewer phone console (canvas 8b, LIGHT). Rendered
@@ -220,6 +221,13 @@ struct RootShell: View {
                 SessionFixtures.consolePhoneStandalone(released: false)
             case "console-phone-scored":
                 SessionFixtures.consolePhoneStandalone(released: true)
+            // F6-T3 — the interviewer TABLET hero (canvas 1a, LIGHT). `-scored`
+            // seeds the master clock near the cap (under-5 green) + releases e1 →
+            // a SENT · mm:ss frame; the base variant runs at 12:34 on Release.
+            case "console-tablet":
+                SessionFixtures.consoleTabletStandalone(scored: false)
+            case "console-tablet-scored":
+                SessionFixtures.consoleTabletStandalone(scored: true)
             case "debrief":
                 SessionFixtures.debriefCandidateStandalone()
             case "debrief-interviewer":

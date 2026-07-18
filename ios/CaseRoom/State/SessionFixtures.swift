@@ -415,6 +415,80 @@ enum SessionFixtures {
         model.isMasterRunning = true
         return ConsolePhoneStandalone(model: model, releaseE1: released)
     }
+
+    // MARK: - F6-T3 tablet-console screenshot fixtures (canvas 1a, LIGHT)
+
+    /// The tablet console's rubric: the CANVAS-FAITHFUL 12-dim / max-10 template
+    /// (ids match ConsoleScript.dims so each dim renders name + one-line desc),
+    /// with a handful of dims pre-scored so the SCORE THIS STAGE cells + the rail
+    /// avg fill. Unlike the phone fixture (real-shaped 5-dim), the tablet mock
+    /// carries the full 12 (documented OWNER-VISUAL deviation A3).
+    static let consoleTabletRubric = RubricState(
+        templateItems: [
+            RubricTemplateItem(id: "fit", label: "Fit", dimension: "fit", maxPoints: 10),
+            RubricTemplateItem(id: "star", label: "STAR", dimension: "star", maxPoints: 10),
+            RubricTemplateItem(id: "summary", label: "Summary", dimension: "summary", maxPoints: 10),
+            RubricTemplateItem(id: "comm", label: "Communication", dimension: "comm", maxPoints: 10),
+            RubricTemplateItem(id: "questions", label: "Questions", dimension: "questions", maxPoints: 10),
+            RubricTemplateItem(id: "structure", label: "Structure", dimension: "structure", maxPoints: 10),
+            RubricTemplateItem(id: "quant", label: "Quant accuracy", dimension: "quant", maxPoints: 10),
+            RubricTemplateItem(id: "judgment", label: "Business judgment", dimension: "judgment", maxPoints: 10),
+            RubricTemplateItem(id: "creativity", label: "Creativity", dimension: "creativity", maxPoints: 10),
+            RubricTemplateItem(id: "synthesis", label: "Synthesis", dimension: "synthesis", maxPoints: 10),
+            RubricTemplateItem(id: "leading", label: "Leading required", dimension: "leading", maxPoints: 10),
+            RubricTemplateItem(id: "time", label: "Time management", dimension: "time", maxPoints: 10),
+        ],
+        items: [
+            "fit": RubricItemScore(points: 8, note: "Owned the disagreement; changed the plan"),
+            "star": RubricItemScore(points: 7, note: "Result had a number in it"),
+            "summary": RubricItemScore(points: 7, note: "Recapped cleanly at the transition"),
+            "comm": RubricItemScore(points: 8, note: "Top-down, composed"),
+            "structure": RubricItemScore(points: 8, note: "MECE branches, hypothesis-led"),
+            "quant": RubricItemScore(points: 6, note: "Reached €90M; setup slow to land"),
+            "judgment": RubricItemScore(points: 7, note: "Named the €30M gap unprompted"),
+        ],
+        notesMd: "", gradePreview: 0, grade: nil, finalizedAt: nil)
+
+    /// Exhibit metas for e1/e2/e3 (idx 0/1/2). idx 0 reuses the F5 crypto meta;
+    /// idx 1/2 are lightweight (reveal is a recorded no-op on this shot path).
+    static let consoleTabletExhibitMetas: [ExhibitMeta] = [
+        liveExhibitMeta,                                                   // idx 0 → e1
+        ExhibitMeta(exhibitId: 502, idx: 1, sourcePages: "3", width: 1200, height: 800, bytes: 1, ivB64: ""),
+        ExhibitMeta(exhibitId: 503, idx: 2, sourcePages: "4", width: 1200, height: 800, bytes: 1, ivB64: ""),
+    ]
+
+    /// The tablet console header strings (canvas 1a, verbatim).
+    static let consoleTabletKicker = "CASE 07 · MARKET ENTRY · FINAL-ROUND STYLE"
+    static let consoleTabletTitle = "Low-cost carrier enters the Nordic market"
+    static let consoleTabletCandidate = "Amara Osei · Wharton MBA"
+
+    /// A RubricViewModel pre-seeded (via a stub service serving the 12-dim rubric
+    /// + the three Nordic exhibits) so the console's own load() re-reads the SAME
+    /// canvas-faithful state rather than clobbering it.
+    @MainActor
+    static func consoleTabletRubricVM() -> RubricViewModel {
+        let vm = RubricViewModel(sessionId: 4040, service: ConsolePreviewSessionService(
+            rubricState: consoleTabletRubric, exhibitList: consoleTabletExhibitMetas))
+        vm.templateItems = consoleTabletRubric.templateItems
+        vm.items = consoleTabletRubric.items
+        vm.exhibits = consoleTabletExhibitMetas
+        return vm
+    }
+
+    /// Standalone tablet console (canvas 1a, LIGHT). Sits on the QUANT stage (the
+    /// one with exhibit rows + the quant/judgment score dims). `scored` seeds the
+    /// master clock near the cap (41:00 → under-5 green N-LEFT) and releases e1 so
+    /// a SENT · mm:ss marker shows (rv #8); the base variant runs at 12:34 with the
+    /// exhibits still on Release. Rendered inside RootShell's dark takeover cover,
+    /// so it also proves the `.dsTheme(.light)` override wins.
+    @MainActor
+    static func consoleTabletStandalone(scored: Bool) -> some View {
+        let model = ConsoleViewModel(stages: ConsoleScript.tablet, isPhone: false, rubric: consoleTabletRubricVM())
+        model.pickStage(4)                          // QUANT — exhibits e1/e2 + quant/judgment
+        model.elapsedSeconds = scored ? 2460 : 754  // 41:00 (near cap, green) / 12:34
+        model.isMasterRunning = true
+        return ConsoleTabletStandalone(model: model, releaseE1: scored)
+    }
 }
 
 /// Drives the LIVE candidate shot: hands CandidateLiveView the shared VM, then
@@ -460,20 +534,44 @@ struct ConsolePhoneStandalone: View {
     }
 }
 
-/// Stub SessionService for the phone-console shot — serves the console rubric +
-/// the one Nordic exhibit; reveal/save are recorded no-ops; unused endpoints
-/// throw (never hit on the screenshot path).
+/// Drives the tablet-console shot: renders the console (tablet layout via the
+/// pre-seeded 7-stage/`isPhone:false` model) with the canvas-1a header +
+/// candidate name, then (for the SENT · mm:ss frame) releases e1 off the seeded
+/// master clock in .task.
+struct ConsoleTabletStandalone: View {
+    let model: ConsoleViewModel
+    let releaseE1: Bool
+
+    var body: some View {
+        InterviewerConsoleView(
+            model: model,
+            caseKicker: SessionFixtures.consoleTabletKicker,
+            caseTitle: SessionFixtures.consoleTabletTitle,
+            candidateName: SessionFixtures.consoleTabletCandidate
+        )
+        .task {
+            if releaseE1 { await model.release(scriptId: "e1") }
+        }
+    }
+}
+
+/// Stub SessionService for the console shots — serves a supplied rubric +
+/// exhibit list (phone: real-shaped 5-dim + one exhibit; tablet: canvas 12-dim +
+/// three exhibits); reveal/save are recorded no-ops; unused endpoints throw
+/// (never hit on the screenshot path).
 struct ConsolePreviewSessionService: SessionService {
     enum StubError: Error { case unused }
+    var rubricState: RubricState = SessionFixtures.consoleRubric
+    var exhibitList: [ExhibitMeta] = [SessionFixtures.liveExhibitMeta]
 
     func sessionDetail(id: Int) async throws -> SessionDetail { throw StubError.unused }
     func joinConfig(id: Int) async throws -> JoinConfig { throw StubError.unused }
     func setConsent(id: Int, consent: Bool) async throws -> SessionDetail { throw StubError.unused }
     func transition(id: Int, target: String) async throws -> SessionDetail { throw StubError.unused }
-    func rubric(id: Int) async throws -> RubricState { SessionFixtures.consoleRubric }
+    func rubric(id: Int) async throws -> RubricState { rubricState }
     func saveRubric(id: Int, items: [String: RubricItemScore], notesMd: String) async throws -> Double { 0 }
     func reveal(id: Int, exhibitId: Int) async throws {}
-    func exhibits(id: Int) async throws -> [ExhibitMeta] { [SessionFixtures.liveExhibitMeta] }
+    func exhibits(id: Int) async throws -> [ExhibitMeta] { exhibitList }
     func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data { throw StubError.unused }
     func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws { throw StubError.unused }
     func completeRecording(id: Int) async throws { throw StubError.unused }
