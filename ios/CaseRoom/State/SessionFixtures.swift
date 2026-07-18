@@ -499,6 +499,37 @@ enum SessionFixtures {
         }
         return ConsoleTabletStandalone(model: model, releaseE1: scored)
     }
+
+    // MARK: - F6-T5 PDF-mode screenshot fixtures (canvas 1a PDF mode / phone)
+
+    /// Standalone tablet console with the LEFT-pane PDF overlay open (canvas 1a
+    /// PDF mode). Releases e1 first so page-02's Exhibit-01 corner shows SENT ·
+    /// mm:ss (A2, the SAME marker as the script row); the 380px rail stays live
+    /// beside the overlay. `page` (0…2) picks the shot page (01 brief / 02 exhibit
+    /// / 03 answer key).
+    @MainActor
+    static func consolePDFStandalone(page: Int) -> some View {
+        let model = ConsoleViewModel(stages: ConsoleScript.tablet, isPhone: false, rubric: consoleTabletRubricVM())
+        model.pickStage(4)              // QUANT — e1/e2 sit behind the overlay
+        model.elapsedSeconds = 754      // 12:34 (canvas demo seed)
+        model.isMasterRunning = true
+        return ConsolePDFStandalone(
+            model: model, page: page,
+            kicker: consoleTabletKicker, title: consoleTabletTitle, candidate: consoleTabletCandidate)
+    }
+
+    /// Standalone phone console with the full-screen PDF pager open (deviation #5
+    /// — no canvas anchor; same 3 authored pages + design tokens).
+    @MainActor
+    static func consolePhonePDFStandalone() -> some View {
+        let model = ConsoleViewModel(stages: ConsoleScript.phone, isPhone: true, rubric: consoleRubricVM())
+        model.pickStage(3)              // QUANT
+        model.elapsedSeconds = 754
+        model.isMasterRunning = true
+        return ConsolePDFStandalone(
+            model: model, page: 0,
+            kicker: consoleKicker, title: consoleTitle, candidate: "")
+    }
 }
 
 /// Drives the LIVE candidate shot: hands CandidateLiveView the shared VM, then
@@ -561,6 +592,28 @@ struct ConsoleTabletStandalone: View {
         )
         .task {
             if releaseE1 { await model.release(scriptId: "e1") }
+        }
+    }
+}
+
+/// Drives the T5 PDF-mode shots (tablet left-pane overlay / phone full-screen
+/// pager): renders the console (layout follows the model's `isPhone`), then in
+/// .task releases e1 (so page-02 shows SENT · mm:ss) and opens the PDF, paging to
+/// the requested page via the VM's bounded `pdfNext()`.
+struct ConsolePDFStandalone: View {
+    let model: ConsoleViewModel
+    let page: Int
+    let kicker: String
+    let title: String
+    let candidate: String
+
+    var body: some View {
+        InterviewerConsoleView(
+            model: model, caseKicker: kicker, caseTitle: title, candidateName: candidate)
+        .task {
+            await model.release(scriptId: "e1")
+            model.openPDF()
+            for _ in 0 ..< max(0, page) { model.pdfNext() }
         }
     }
 }

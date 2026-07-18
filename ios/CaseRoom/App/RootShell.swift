@@ -209,7 +209,9 @@ struct RootShell: View {
             // debrief-interviewer (F5-T5, LIGHT — rendered inside this dark cover
             // so the shot proves DebriefView's .dsTheme(.light) override wins) |
             // console-phone | console-phone-scored (F6-T2, LIGHT phone console 8b) |
-            // console-tablet | console-tablet-scored (F6-T3, LIGHT tablet hero 1a).
+            // console-tablet | console-tablet-scored (F6-T3, LIGHT tablet hero 1a) |
+            // console-pdf | console-pdf-p2 | console-pdf-p3 | console-phone-pdf
+            // (F6-T5, PDF case-pack mode — tablet left-pane overlay / phone pager).
             let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
             switch variant {
             // F6-T2 — the interviewer phone console (canvas 8b, LIGHT). Rendered
@@ -228,6 +230,17 @@ struct RootShell: View {
                 SessionFixtures.consoleTabletStandalone(scored: false)
             case "console-tablet-scored":
                 SessionFixtures.consoleTabletStandalone(scored: true)
+            // F6-T5 — PDF case-pack mode. Tablet: the LEFT-pane overlay open (the
+            // 380px rail stays live beside it); `-p2`/`-p3` page to Exhibit 01 /
+            // the answer key. Phone: the full-screen single-column pager.
+            case "console-pdf":
+                SessionFixtures.consolePDFStandalone(page: 0)
+            case "console-pdf-p2":
+                SessionFixtures.consolePDFStandalone(page: 1)
+            case "console-pdf-p3":
+                SessionFixtures.consolePDFStandalone(page: 2)
+            case "console-phone-pdf":
+                SessionFixtures.consolePhonePDFStandalone()
             case "debrief":
                 SessionFixtures.debriefCandidateStandalone()
             case "debrief-interviewer":
