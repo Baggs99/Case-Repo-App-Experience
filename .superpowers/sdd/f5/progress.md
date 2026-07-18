@@ -18,9 +18,9 @@ Bootstrap done + plan approved (after fixes). Starting task loop at T1.
   integration check, debrief light-in-dark risk) — plan committed
 
 ## Tasks
-- [ ] T1 Networking foundation (Opus)
-- [ ] T2 Lobby refit dark (Opus)
-- [ ] T3 Negotiation stage (Opus)
+- [x] T1 Networking foundation (Opus) — 1450d62 + fix ffe3f90; 517/0; Opus APPROVE. Deviations: acceptCase→SessionDetail, difficulty String?, RecapListItem.caseTitle optional (legacy null), reveals lenient.
+- [x] T2 Lobby refit dark (Opus) — 8d47abd; 523/0; Opus APPROVE. Single `.dsTheme(.dark)` seam in RootShell. DEBUG hatch `-startTakeover lobby`. Deviations: lobby CTA "waiting…" (negotiating precedes lobby per B3), pill omits schedule, hero subtitle = caseTitle (no peer-bio VM field).
+- [x] T3 Negotiation stage (Opus) — 85622a2; 538/0; Opus APPROVE (no fixes). NegotiationStageView + NegotiationLogic (15 tests). Additive SessionVM negotiationTick kept 29 VM + 37 signal green. B3 ordering: negotiating→lobby (SessionView switch gains "negotiating"). Known limitation: candidate counter case-selection thin (candidate_requested_case ~always null for case-less; no library picker) — deferrable.
 - [ ] T4 LIVE refit dark (Opus) — HIGHEST RISK
 - [ ] T5 Debrief refit light (Opus)
 - [ ] T6 Recap report page (Opus)
