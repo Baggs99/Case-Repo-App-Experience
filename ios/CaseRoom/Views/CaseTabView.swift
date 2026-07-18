@@ -1,14 +1,17 @@
 /*
  * Purpose: Case tab — canvas 3b "calm spine" (CANON, phone). A slim glass verb
- *          bar (the screen's ONE glass hero + ONE filled button: "Get cased
- *          now"), the recap-gate card (the only card, sanctioned 2nd filled
- *          exception — NOT a second glass hero), then flat hairline sections:
- *          NEXT UP (+ Swap), UPCOMING (rise-in, add-to-calendar), PENDING
- *          (Accept/New time/Decline + dashed "awaiting reply" sent rows), and
- *          HISTORY. Verb-bar taps present three MARK-bounded placeholder
- *          sheets (T3/T4/T5 fill the bodies); a recap gate (either tapped or
- *          a 409-surfaced `gatedRecapSessionID`) pushes the interim
- *          RecapGateStub (F5 replaces at merge) onto casePath.
+ *          bar (glass CHROME, ONE filled button: "Get cased now") plus the
+ *          recap-gate card — the screen's ONE glass HERO (canvas 3b line 1544
+ *          is glass; filled "Read the recap" is the 2nd sanctioned filled
+ *          exception) — then flat hairline sections: NEXT UP (leading green
+ *          blink dot on the imminent session + Swap + tabular countdown),
+ *          UPCOMING (hollow-ring dot, rise-in, tabular countdown,
+ *          add-to-calendar), PENDING (Accept/New time/Decline + hairline
+ *          "awaiting reply" sent rows), and HISTORY. Verb-bar taps present
+ *          three MARK-bounded placeholder sheets (T3/T4/T5 fill the bodies);
+ *          a recap gate (either tapped or a 409-surfaced
+ *          `gatedRecapSessionID`) pushes the interim RecapGateStub (F5
+ *          replaces at merge) onto casePath.
  * Inputs: CaseTabViewModel (default live). DEBUG `-CaseFixtures` (wired in
  *         RootShell's caseTabRoot, mirrors `-GroupPageFixtures`) injects
  *         CaseFixtures.makeViewModel() — no dev server needed.
@@ -72,6 +75,20 @@ struct CaseTabSectionVisibility: Equatable {
 enum CaseTabCopy {
     static func pendingOfferLabel(fromName: String, fromRole: String) -> String {
         fromRole == "candidate" ? "\(fromName) asks you to interview" : "\(fromName) offers to interview you"
+    }
+
+    /// Canvas 3b's right-aligned relative countdown ("T-6H" style, tabular).
+    /// nil when there's no scheduled time to count down to.
+    static func countdown(to date: Date?, now: Date) -> String? {
+        guard let date else { return nil }
+        let seconds = date.timeIntervalSince(now)
+        if seconds <= 0 { return "NOW" }
+        let hours = seconds / 3600
+        if hours < 24 {
+            return "T-\(max(1, Int(hours.rounded(.up))))H"
+        }
+        let days = Int((hours / 24).rounded(.up))
+        return "T-\(days)D"
     }
 }
 
@@ -233,9 +250,10 @@ struct CaseTabView: View {
         .glassChip()
     }
 
-    // MARK: - 2. Recap-gate card — the ONLY card on the screen (canvas 3b
-    // 1544-1552). Flat filled card (sanctioned 2nd filled exception, NOT a
-    // glass hero — plan-review M7): square corners, solid surface fill.
+    // MARK: - 2. Recap-gate card — the ONE glass hero on the screen (canvas 3b
+    // line 1544 is glass: var(--gbg) + blur, 26px rounded corners — the verb
+    // bar above is glass CHROME, not a hero; this card is the hero). Filled
+    // "Read the recap" is the 2nd sanctioned filled-button exception.
     // RecapItem carries no serif "quote" field (interviewerName/grade/
     // caseTitle only), so the lede binds the case title rather than
     // fabricating persona-only feedback text — documented deviation.
@@ -252,7 +270,7 @@ struct CaseTabView: View {
                     Text(recap.caseTitle)
                         .dsText(.serif(14, italic: true)).foregroundStyle(palette.ink)
                     Text("\(recap.interviewerName) · \(Self.gradeText(recap.grade))")
-                        .dsText(.meta).foregroundStyle(palette.muted)
+                        .dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
                         .padding(.bottom, 5)
                     HStack(spacing: 14) {
                         Text("Read the recap")
@@ -267,8 +285,7 @@ struct CaseTabView: View {
                 }
                 .padding(.horizontal, 19).padding(.vertical, 17)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(palette.surface)
-                .overlay(Rectangle().strokeBorder(palette.hairline, lineWidth: 1))
+                .glassPanel(cornerRadius: 26)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -279,7 +296,11 @@ struct CaseTabView: View {
     // vm.nextUp (the soonest scheduled session) rather than a separate
     // recommendation entity — CaseTabViewModel has no recommendation field.
     // Swap is a cosmetic stub (the real swap-roles endpoint is F5's session
-    // takeover) — wires the UI + a toast, per the T2 brief.
+    // takeover) — wires the UI + a toast, per the T2 brief. The row restores
+    // canvas 3b's leading status dot + right-aligned tabular countdown
+    // (canvas ~1573-1579); nextUp is the single most-imminent session, so it
+    // gets the green blink dot (keeps content greens ≤3 — the other is UPCOMING's
+    // hollow ring, unlit).
 
     @ViewBuilder
     private var nextUpSection: some View {
@@ -288,24 +309,37 @@ struct CaseTabView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("NEXT UP FOR YOU").dsText(.kicker).foregroundStyle(palette.muted)
                     Spacer()
-                    Button { toastMessage = "Invite sent" } label: {
+                    Button { toastMessage = "invite sent" } label: {
                         Text("Swap").font(.archivo(11, weight: 600)).underline().foregroundStyle(palette.muted)
                     }
                     .buttonStyle(.plain)
                 }
-                Text("vs \(session.otherUser) · \(session.caseTitle)")
-                    .font(.archivo(16, weight: 700))
-                    .foregroundStyle(palette.ink)
-                Text(Self.sessionMeta(session))
-                    .dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
+                HStack(alignment: .center, spacing: 12) {
+                    BlinkDot(diameter: 7)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("vs \(session.otherUser) · \(session.caseTitle)")
+                            .font(.archivo(16, weight: 700))
+                            .foregroundStyle(palette.ink)
+                        Text(Self.sessionMeta(session))
+                            .dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
+                    }
+                    Spacer(minLength: 8)
+                    if let countdown = CaseTabCopy.countdown(to: session.scheduledAt, now: Date()) {
+                        Text(countdown)
+                            .font(.archivo(10, weight: 600)).tracking(0.08 * 10).tabularNumbers()
+                            .foregroundStyle(palette.muted)
+                    }
+                }
             }
             .padding(.top, 13).padding(.bottom, 4)
             .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
         }
     }
 
-    // MARK: - 4. UPCOMING — flat rows (canvas 3b 1568-1599), rise-in staggered
-    // (Motion.rise), each with an add-to-calendar underline affordance.
+    // MARK: - 4. UPCOMING — flat rows (canvas 3b 1568-1599): leading hollow-
+    // ring status dot + tabular countdown (canon chrome) PLUS an
+    // add-to-calendar underline affordance (F3 brief's real EventKit
+    // capability) — rise-in staggered (Motion.rise).
 
     @ViewBuilder
     private var upcomingSection: some View {
@@ -330,26 +364,40 @@ struct CaseTabView: View {
         }
     }
 
+    /// Hollow ring (canvas 3b: `border:1.5px solid #515A66`) — every UPCOMING
+    /// row is an accepted-but-not-imminent session; only nextUp lights green.
+    private var hollowRingDot: some View {
+        Circle().strokeBorder(palette.muted, lineWidth: 1.5).frame(width: 7, height: 7)
+    }
+
     private func upcomingRow(_ session: SessionSummary) -> some View {
         HStack(alignment: .center, spacing: 12) {
+            hollowRingDot
             VStack(alignment: .leading, spacing: 2) {
                 Text("vs \(session.otherUser) · \(session.caseTitle)")
                     .dsText(.rowTitleStrong).foregroundStyle(palette.ink).lineLimit(1)
                 Text(Self.sessionMeta(session)).dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
             }
             Spacer(minLength: 8)
-            Button { Task { await viewModel.addToCalendar(session) } } label: {
-                Text("Add to calendar")
-                    .font(.archivo(11, weight: 600)).underline().foregroundStyle(palette.ink)
+            VStack(alignment: .trailing, spacing: 4) {
+                if let countdown = CaseTabCopy.countdown(to: session.scheduledAt, now: Date()) {
+                    Text(countdown)
+                        .font(.archivo(10, weight: 600)).tracking(0.08 * 10).tabularNumbers()
+                        .foregroundStyle(palette.muted)
+                }
+                Button { Task { await viewModel.addToCalendar(session) } } label: {
+                    Text("Add to calendar")
+                        .font(.archivo(11, weight: 600)).underline().foregroundStyle(palette.ink)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.vertical, 12)
         .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
     }
 
     // MARK: - 5. PENDING — received rows w/ Accept/New time/Decline (canvas
-    // 3b 1601-1631); sent-awaiting rows below, dashed hairline, no actions.
+    // 3b 1601-1631); sent-awaiting rows below, standard hairline, no actions.
 
     @ViewBuilder
     private var pendingSection: some View {
@@ -380,7 +428,7 @@ struct CaseTabView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(CaseTabCopy.pendingOfferLabel(fromName: proposal.fromName, fromRole: proposal.fromRole))
                     .dsText(.rowTitleStrong).foregroundStyle(palette.ink)
-                Text(Self.proposalMeta(proposal)).dsText(.meta).foregroundStyle(palette.muted)
+                Text(Self.proposalMeta(proposal)).dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
             }
             Spacer(minLength: 8)
             HStack(spacing: 12) {
@@ -402,21 +450,23 @@ struct CaseTabView: View {
         .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
     }
 
-    /// Sent-and-awaiting rows: dashed-era hairline, verbatim "awaiting reply",
-    /// no actions. Proposal carries no recipient-name field (only fromName —
-    /// the sender), so the row leads with the case title rather than a
+    /// Sent-and-awaiting rows: the same standard hairline as every other row
+    /// (canvas 3b's sent row uses `border-bottom:1px solid #C9D2DF`, not a
+    /// dashed rule — MINOR-3 review fix), verbatim "awaiting reply", no
+    /// actions. Proposal carries no recipient-name field (only fromName — the
+    /// sender), so the row leads with the case title rather than a
     /// fabricated "You → X" — documented deviation from canvas's `sentWho3`.
     private func sentAwaitingRow(_ proposal: Proposal) -> some View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(proposal.caseTitle ?? "Practice case").dsText(.rowTitleStrong).foregroundStyle(palette.ink)
-                Text(Self.proposalMeta(proposal)).dsText(.meta).foregroundStyle(palette.muted)
+                Text(Self.proposalMeta(proposal)).dsText(.meta).tabularNumbers().foregroundStyle(palette.muted)
             }
             Spacer(minLength: 8)
             Text("awaiting reply").dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
         }
         .padding(.vertical, 12)
-        .overlay(DashedLine(color: palette.hairline), alignment: .bottom)
+        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
     }
 
     private func acceptProposal(_ proposal: Proposal) {
@@ -508,23 +558,6 @@ struct CaseTabView: View {
 }
 
 // MARK: - Subviews
-
-/// A 1px dashed hairline — the "sent" row's dashed-era divider (canvas §1
-/// glass recipes don't cover this; it is the one dashed rule in the system,
-/// marking a row as pending-outbound rather than settled).
-private struct DashedLine: View {
-    var color: Color
-    var body: some View {
-        GeometryReader { geo in
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: 0))
-                path.addLine(to: CGPoint(x: geo.size.width, y: 0))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
-        .frame(height: 1)
-    }
-}
 
 /// The canvas content rise: 16px up + fade, staggered by `delay` (Design
 /// Decisions §1: "rise 420ms cubic-bezier(0.22,1,0.36,1) 16px up, staggered

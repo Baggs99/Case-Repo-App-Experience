@@ -80,6 +80,34 @@ final class CaseTabViewTests: XCTestCase {
         XCTAssertFalse(visibility.showsUpcoming)
     }
 
+    // MARK: - CaseTabCopy.countdown (canon "T-6H"/"T-3D" style, tabular)
+
+    func testCountdownNilWhenNoDate() {
+        XCTAssertNil(CaseTabCopy.countdown(to: nil, now: Date()))
+    }
+
+    func testCountdownNowWhenAtOrPastDeadline() {
+        let now = Date()
+        XCTAssertEqual(CaseTabCopy.countdown(to: now, now: now), "NOW")
+        XCTAssertEqual(CaseTabCopy.countdown(to: now.addingTimeInterval(-60), now: now), "NOW")
+    }
+
+    func testCountdownHoursUnderADay() {
+        let now = Date()
+        XCTAssertEqual(CaseTabCopy.countdown(to: now.addingTimeInterval(3600 * 6), now: now), "T-6H")
+    }
+
+    func testCountdownRoundsUpPartialHour() {
+        let now = Date()
+        // 5h10m out rounds up to T-6H, not truncates to T-5H.
+        XCTAssertEqual(CaseTabCopy.countdown(to: now.addingTimeInterval(3600 * 5 + 600), now: now), "T-6H")
+    }
+
+    func testCountdownDaysAtOrOverADay() {
+        let now = Date()
+        XCTAssertEqual(CaseTabCopy.countdown(to: now.addingTimeInterval(3600 * 24 * 3), now: now), "T-3D")
+    }
+
     // MARK: - CaseTabCopy.pendingOfferLabel
 
     func testPendingOfferLabelInterviewerOffersToInterviewYou() {
