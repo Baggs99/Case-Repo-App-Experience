@@ -40,3 +40,7 @@ Baseline: 655 passed (caserepo_fe_f10, seeded). Branch fe/f10-guestweb @ ae46fed
   shows "On the record."), upgrade bad-domain 400 surfaced, /saved?guest=1
   "Kept for now." close copy. 16/16 green
   (`pytest tests/test_f10_guest_web.py -q`).
+- Task 3 (keep/upgrade/saved): complete, commit 7029c63, review BOTH PASS. 16 tests green.
+  Folded M1(case_type)/M2(grade assert)/M3(context). Two review minors fixed in dc9-commit:
+  /saved default gates on isGuest; keep kicker not "FEEDBACK SENT" for aborted/missed.
+- Full backend suite: 671 passed (655 baseline + 16 F10). Green.

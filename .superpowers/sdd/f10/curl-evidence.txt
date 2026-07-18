@@ -1,0 +1,71 @@
+# F10 curl evidence — dev server :8110, DB caserepo_fe_f10 — Sat Jul 18 04:26:30 EDT 2026
+
+## 1. GET /g/claim/{token} link-gate (public) -> expect 200 + 8a markup
+status=200
+YOU'VE BEEN ASKED TO INTERVIEW
+Continue as guest
+Log in — keep it on your record
+
+## 2. GET /g/claim/bogus -> expect 404 + neutral copy
+status=404
+no longer active
+
+## 3. Cross-origin POST /g/claim/{token} -> expect 403 (require_same_origin CSRF)
+status=403
+
+## 4. Same-origin POST /g/claim/{token} unauth -> expect 303 + Set-Cookie + Location /g/session/{id}
+HTTP/1.1 303 See Other
+location: /g/session/347
+set-cookie: case_repo_session=8fiIARRomKJJPDEC0H0F0RDJQ3262hbe1a9ZBeHE1WQ; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax
+
+## 5. GET /g/session/347 with GUEST cookie -> expect 200 console-lite markup
+status=200
+GUEST CONSOLE
+READ ALOUD
+End — finalize
+kicker case_type:
+CANDIDATE: ALICE DEV
+
+## 6. IDOR — GUEST cookie (session 347) on a NONEXISTENT session -> 404; foreign existing covered by pytest
+status=403
+
+## 7. Drive lifecycle via existing guest-aware endpoints (Origin header = same-origin)
+guest consent(true): 200
+guest state->lobby:  200
+candidate consent:   200
+guest state->live:   200
+guest state->debrief:200
+guest finalize g=4:   (grade in body: 4.0 )
+
+## 6b. IDOR — GUEST(session 347) on EXISTING foreign session  -> expect 403
+status=404
+     (reverse: guest2 on 347)
+status=401
+
+## 8. GET /g/session/347/keep (finalized, GUEST) -> expect 200 + upgrade ask
+status=200
+FEEDBACK SENT — ALICE DEV HAS IT
+Keep this session on a record?
+Create an account
+Not now
+
+## 9. POST /api/v1/auth/upgrade (GUEST -> real, fresh yale email) -> expect 200 upgraded
+{"upgraded":true,"user_id":189,"email":"f10curl+1784363277@yale.edu"}
+status=200
+
+## 10. GET /g/session/347/saved (now NON-guest) -> expect 200 + On the record.
+status=200
+On the record<
+
+## 11. GET /g/session/347/saved?guest=1 (Not-now variant) -> honest 'Kept for now.'
+status=404
+
+## 6b (rerun). IDOR — GUEST(347) on EXISTING foreign session 348 -> expect 403; reverse guest2 on 347 -> 403
+guest1->348 status=404
+guest2->347 status=403
+
+## 11 (rerun). GET /g/session/348/saved?guest=1 (Not-now, still guest) -> honest 'Kept for now.'
+status=200
+Kept for now<
+
+(Note: earlier 6b/11 used a same-candidate second seed whose case was already burned -> empty SID2; rerun above uses candidate b@yale.edu. Full foreign-session IDOR + not-now also proven hermetically in tests/test_f10_guest_web.py.)
