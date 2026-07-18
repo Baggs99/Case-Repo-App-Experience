@@ -56,6 +56,14 @@ final class AppRouter {
     var groupCreate = false
     var proposeToUserID: Int?
     var sessionTakeoverID: Int?
+
+    // MARK: F3 case-prefill — the F4 library CTA sets one of these + selects the
+    // Case tab; CaseTabView consumes it to open the matching verb-bar sheet with
+    // the case pre-filled, then clears it. Router STATE only (mirrors
+    // groupCreate/proposeToUserID) — no go()/App-Intent/deep-link involvement.
+    var caseSomeonePrefillCaseID: Int?    // done case → "Case someone with this"
+    var caseSomeonePrefillTitle: String?  // carried case title for that context
+    var caseGetCasedPrefillCaseID: Int?   // open case → "Get cased on this"
     var drillRun = false          // the shell owns the drill sheet, keyed off this
     var gauntletRun = false       // shell owns the gauntlet fullScreenCover, keyed off this (F7 Task 4)
     // "See today's result" seam (F7 Task 4): DrillsView sets the already-scored

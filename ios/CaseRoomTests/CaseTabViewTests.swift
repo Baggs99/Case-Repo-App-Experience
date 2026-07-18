@@ -158,6 +158,35 @@ final class CaseTabViewTests: XCTestCase {
         XCTAssertTrue(path.isEmpty)
     }
 
+    // MARK: - CasePrefillSteering (F4→F3 case-prefill)
+
+    func testPrefillSteeringNilWhenNothingSet() {
+        XCTAssertNil(CasePrefillSteering.target(getCasedID: nil, someoneID: nil, someoneTitle: nil))
+    }
+
+    func testPrefillSteeringOpenCaseGoesToGetCased() {
+        XCTAssertEqual(
+            CasePrefillSteering.target(getCasedID: 6, someoneID: nil, someoneTitle: nil),
+            .getCased(6)
+        )
+    }
+
+    func testPrefillSteeringDoneCaseGoesToCaseSomeoneWithTitle() {
+        XCTAssertEqual(
+            CasePrefillSteering.target(getCasedID: nil, someoneID: 6, someoneTitle: "Ski resort"),
+            .caseSomeone(id: 6, title: "Ski resort")
+        )
+    }
+
+    func testPrefillSteeringCaseSomeoneTakesPriority() {
+        // Defensive: the two fields are mutually exclusive by construction, but
+        // if both were somehow set, caseSomeone wins.
+        XCTAssertEqual(
+            CasePrefillSteering.target(getCasedID: 7, someoneID: 6, someoneTitle: nil),
+            .caseSomeone(id: 6, title: nil)
+        )
+    }
+
     // MARK: - CaseSheet
 
     func testCaseSheetTitlesAreVerbatim() {

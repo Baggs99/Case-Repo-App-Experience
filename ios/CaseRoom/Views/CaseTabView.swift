@@ -103,8 +103,33 @@ enum CaseTabGateSteering {
     }
 }
 
+// MARK: - Pure F4→F3 prefill-steering (unit-tested) — maps the router's
+// case-prefill state onto which verb-bar sheet to open. The two prefill fields
+// are mutually exclusive by construction (a done case → caseSomeone; an open
+// case → getCased); caseSomeone is given priority defensively.
+enum CasePrefillSteering {
+    enum Target: Equatable {
+        case getCased(Int)
+        case caseSomeone(id: Int, title: String?)
+    }
+
+    static func target(getCasedID: Int?, someoneID: Int?, someoneTitle: String?) -> Target? {
+        if let someoneID { return .caseSomeone(id: someoneID, title: someoneTitle) }
+        if let getCasedID { return .getCased(getCasedID) }
+        return nil
+    }
+}
+
+/// Captured case-someone prefill context (id + optional title), held in view
+/// state across the router-field clear so the sheet VM reads it at build time.
+struct CaseSomeonePrefillContext: Equatable {
+    let id: Int
+    let title: String?
+}
+
 struct CaseTabView: View {
     @Environment(\.dsPalette) private var palette
+    @State private var router = AppRouter.shared
     @State private var viewModel: CaseTabViewModel
     @State private var activeSheet: CaseSheet?
     @State private var acceptChoiceProposal: Proposal?
@@ -112,6 +137,11 @@ struct CaseTabView: View {
     @State private var counterDate = Date()
     @State private var toastMessage: String?
     @State private var upcomingAppeared = false
+    // F4→F3 prefill: captured before the router fields are cleared (clearing
+    // prevents re-trigger) so the sheet VMs still read the case context when
+    // `.sheet(item:)` builds them on the next render.
+    @State private var getCasedPrefillCaseID: Int?
+    @State private var caseSomeonePrefill: CaseSomeonePrefillContext?
 
     // Injectable VM (default = live). RootShell's `-CaseFixtures` hatch
     // (caseTabRoot) passes CaseFixtures.makeViewModel() — mirrors
@@ -124,7 +154,15 @@ struct CaseTabView: View {
     var body: some View {
         content
             .task { await viewModel.load() }
-            .onAppear { presentSheetHatchIfNeeded() }
+            .onAppear {
+                presentSheetHatchIfNeeded()
+                consumePrefill()   // cold path: field set before this view observed a change
+            }
+            // F4→F3 seam: the library CTA sets a router prefill field + selects
+            // the Case tab; consume it here to open the matching verb-bar sheet
+            // with the case pre-filled, then clear so it can't re-trigger.
+            .onChange(of: router.caseGetCasedPrefillCaseID) { _, _ in consumePrefill() }
+            .onChange(of: router.caseSomeonePrefillCaseID) { _, _ in consumePrefill() }
             // B3 recap gate: any action that 409s with blockedByRecap sets
             // gatedRecapSessionID — steer to the interim recap stub, then
             // clear so a later gate can re-fire (plain Int? never re-fires
@@ -156,8 +194,11 @@ struct CaseTabView: View {
                 case .getCased:
                     // T3 — the real Get-cased-now glass sheet (canvas `sheetNow3`).
                     GetCasedNowSheet(viewModel: makeGetCasedViewModel())
-                case .caseSomeone, .schedule:
-                    // T4/T5 still fill these bodies; the seam stays stable.
+                case .caseSomeone:
+                    // T4 — the real Case-someone glass sheet (canvas `sheetSomeone3`).
+                    CaseSomeoneSheet(viewModel: makeCaseSomeoneViewModel())
+                case .schedule:
+                    // T5 still fills this body; the seam stays stable.
                     CaseSheetPlaceholder(kind: sheet)
                 }
             }
@@ -172,9 +213,32 @@ struct CaseTabView: View {
         Binding(get: { acceptChoiceProposal != nil }, set: { if !$0 { acceptChoiceProposal = nil } })
     }
 
-    /// Get-cased-now sheet VM: live by default; the `-CaseFixtures` screenshot
-    /// hatch swaps in the canvas-persona stub (K7Q-4TN, S. Park / J. Okafor) so
-    /// the sheet renders with no dev server.
+    /// Consume any F4→F3 router prefill: capture the case context into view
+    /// state, open the matching sheet, and clear the router fields so it can't
+    /// re-trigger (a plain Int? never re-fires the same value twice).
+    @MainActor
+    private func consumePrefill() {
+        guard let target = CasePrefillSteering.target(
+            getCasedID: router.caseGetCasedPrefillCaseID,
+            someoneID: router.caseSomeonePrefillCaseID,
+            someoneTitle: router.caseSomeonePrefillTitle
+        ) else { return }
+        switch target {
+        case .getCased(let id):
+            getCasedPrefillCaseID = id
+            activeSheet = .getCased
+        case .caseSomeone(let id, let title):
+            caseSomeonePrefill = CaseSomeonePrefillContext(id: id, title: title)
+            activeSheet = .caseSomeone
+        }
+        router.caseGetCasedPrefillCaseID = nil
+        router.caseSomeonePrefillCaseID = nil
+        router.caseSomeonePrefillTitle = nil
+    }
+
+    /// Get-cased-now sheet VM: live by default (with any F4 case prefill); the
+    /// `-CaseFixtures` screenshot hatch swaps in the canvas-persona stub
+    /// (K7Q-4TN, S. Park / J. Okafor) so the sheet renders with no dev server.
     @MainActor
     private func makeGetCasedViewModel() -> GetCasedNowViewModel {
         #if DEBUG
@@ -182,7 +246,23 @@ struct CaseTabView: View {
             return .fixture()
         }
         #endif
-        return GetCasedNowViewModel()
+        return GetCasedNowViewModel(prefillCaseId: getCasedPrefillCaseID)
+    }
+
+    /// Case-someone sheet VM: live by default (with any F4 case-someone prefill
+    /// context); the `-CaseFixtures` hatch swaps in the canvas-persona stub (S.
+    /// Park invite + "2 cased this month · 4.7 avg feedback quality").
+    @MainActor
+    private func makeCaseSomeoneViewModel() -> CaseSomeoneViewModel {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-CaseFixtures") {
+            return .fixture()
+        }
+        #endif
+        return CaseSomeoneViewModel(
+            prefillCaseId: caseSomeonePrefill?.id,
+            prefillCaseTitle: caseSomeonePrefill?.title
+        )
     }
 
     /// DEBUG screenshot hatch: `-CaseSheet getCased` (only under `-CaseFixtures`)
@@ -195,6 +275,7 @@ struct CaseTabView: View {
               let index = args.firstIndex(of: "-CaseSheet"), index + 1 < args.count else { return }
         switch args[index + 1] {
         case "getCased": activeSheet = .getCased
+        case "caseSomeone": activeSheet = .caseSomeone
         default: break
         }
         #endif
