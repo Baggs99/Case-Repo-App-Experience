@@ -1,0 +1,236 @@
+diff --git a/ios/CaseRoom/Views/DrillsView.swift b/ios/CaseRoom/Views/DrillsView.swift
+index 9c44cdf..1e12480 100644
+--- a/ios/CaseRoom/Views/DrillsView.swift
++++ b/ios/CaseRoom/Views/DrillsView.swift
+@@ -29,17 +29,21 @@ struct DrillsView: View {
+     init(viewModel: DrillsViewModel? = nil) {
+         _viewModel = State(initialValue: viewModel ?? DrillsViewModel())
+     }
+ 
+     var body: some View {
+         ZStack {
+             DSBackground()
+             if viewModel.gauntlet == nil {
+-                Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
++                if let errorMessage = viewModel.errorMessage {
++                    errorBanner(errorMessage)
++                } else {
++                    Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
++                }
+             } else if hSize == .regular {
+                 regularContent
+             } else {
+                 content
+             }
+         }
+         .task { await viewModel.load() }
+     }
+diff --git a/ios/CaseRoom/Views/GauntletBoard.swift b/ios/CaseRoom/Views/GauntletBoard.swift
+index 8abeebc..7c927bd 100644
+--- a/ios/CaseRoom/Views/GauntletBoard.swift
++++ b/ios/CaseRoom/Views/GauntletBoard.swift
+@@ -23,26 +23,49 @@ import SwiftUI
+ struct GauntletBoard: View {
+     @Environment(\.dsPalette) private var palette
+     let viewModel: DrillsViewModel
+ 
+     var body: some View {
+         VStack(alignment: .leading, spacing: 8) {
+             headNoteRow
+             chipsRow
+-            scopeBody
+-                .padding(.top, 8)
++            if let boardErrorMessage = viewModel.boardErrorMessage {
++                boardErrorRow(boardErrorMessage)
++                    .padding(.top, 8)
++            } else {
++                scopeBody
++                    .padding(.top, 8)
++            }
+             Text(viewModel.currentBoardFoot)
+                 .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
+                 .padding(.top, 10)
+         }
+         .padding(.top, 13)
+         .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+     }
+ 
++    // MARK: - Board scope-fetch failure (mirrors DrillsView's `errorBanner`).
++    // Renders INSTEAD of `scopeBody` so a failed WHARTON/GLOBAL/SCHOOLS fetch
++    // never falls through to misleading empty-state copy ("No school on
++    // file.", "—", an empty schools list). Retry re-fetches the CURRENT
++    // scope (`boardScope` is set before the fetch attempt in
++    // `selectBoard(_:)`, so it always matches whichever scope's fetch failed).
++
++    private func boardErrorRow(_ message: String) -> some View {
++        HStack(spacing: 12) {
++            Text(message).dsText(.meta).foregroundStyle(palette.muted)
++            Button { Task { await viewModel.selectBoard(viewModel.boardScope) } } label: {
++                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
++            }
++            .buttonStyle(.plain)
++        }
++        .padding(.vertical, 11)
++    }
++
+     // MARK: - Head/note kickers + scope chips (canvas 5b 952-961)
+ 
+     private var headNoteRow: some View {
+         HStack(alignment: .firstTextBaseline) {
+             Text(viewModel.currentBoardHead).dsText(.kicker).foregroundStyle(palette.muted)
+             Spacer()
+             if let note = viewModel.currentBoardNote {
+                 Text(note).font(.archivo(9, weight: 600)).tracking(0.1 * 9)
+diff --git a/ios/CaseRoomTests/DrillsViewModelTests.swift b/ios/CaseRoomTests/DrillsViewModelTests.swift
+index d4bdb55..613e9ec 100644
+--- a/ios/CaseRoomTests/DrillsViewModelTests.swift
++++ b/ios/CaseRoomTests/DrillsViewModelTests.swift
+@@ -118,16 +118,71 @@ final class DrillsViewModelTests: XCTestCase {
+     func testBoardNoteOmittedWhenNotSubmitted() async {
+         let vm = DrillsViewModel(
+             gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
+             boardService: FakeDrillsBoardService(board: .fixture))
+         await vm.load()
+         XCTAssertNil(vm.boardNote)
+     }
+ 
++    // MARK: - Load/select failure paths (I1/I2 fix — dead-end regression locks)
++
++    /// Locks in that the view must key recovery off `errorMessage`, not a
++    /// non-nil `gauntlet` — I1 was DrillsView gating its whole screen on
++    /// `gauntlet == nil` while a load failure never populates `gauntlet`,
++    /// stranding the user on "Loading…" forever with no reachable Retry.
++    func testLoadFailureSetsErrorMessage() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture, shouldThrow: true),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertNotNil(vm.errorMessage)
++        XCTAssertNil(vm.gauntlet)
++    }
++
++    /// A successful retry after a failure must clear `errorMessage` (so the
++    /// error banner disappears once the gauntlet loads).
++    func testLoadSuccessClearsErrorMessage() async {
++        let service = FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture, shouldThrow: true)
++        let vm = DrillsViewModel(gauntletService: service, boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertNotNil(vm.errorMessage)
++        service.shouldThrow = false
++        await vm.load()
++        XCTAssertNil(vm.errorMessage)
++        XCTAssertNotNil(vm.gauntlet)
++    }
++
++    /// Locks in that GauntletBoard must key its error row off
++    /// `boardErrorMessage`, not a non-nil `schoolBoard` — I2 was a failed
++    /// WHARTON/GLOBAL/SCHOOLS fetch falling through to misleading empty-state
++    /// copy ("No school on file.") instead of an error + Retry.
++    func testSelectBoardFailureSetsBoardError() async {
++        let boardService = FakeCountingBoardService()
++        boardService.shouldThrowSchoolBoard = true
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.wharton)
++        XCTAssertNotNil(vm.boardErrorMessage)
++        XCTAssertNil(vm.schoolBoard)
++    }
++
++    /// A successful retry after a failure must clear `boardErrorMessage` (so
++    /// the board's error row disappears once the scope loads).
++    func testSelectBoardSuccessClearsBoardError() async {
++        let boardService = FakeCountingBoardService()
++        boardService.shouldThrowSchoolBoard = true
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.wharton)
++        XCTAssertNotNil(vm.boardErrorMessage)
++        boardService.shouldThrowSchoolBoard = false
++        await vm.selectBoard(.wharton)
++        XCTAssertNil(vm.boardErrorMessage)
++        XCTAssertNotNil(vm.schoolBoard)
++    }
++
+     func testBoardEntriesExposedFromGroupBoard() async {
+         let vm = DrillsViewModel(
+             gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
+             boardService: FakeDrillsBoardService(board: .fixture))
+         await vm.load()
+         XCTAssertEqual(vm.board?.entries.count, 10)
+         XCTAssertEqual(vm.board?.group?.name, "C-14")
+     }
+@@ -310,28 +365,40 @@ private extension GroupBoard {
+             BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
+             BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
+             BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
+             BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
+             BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
+         ])
+ }
+ 
++private struct FakeLoadError: Error {}
++
+ private final class FakeDrillsGauntletService: GauntletService, @unchecked Sendable {
+     let gauntletValue: Gauntlet
+     let trendsValue: GauntletTrends
+-    init(gauntlet: Gauntlet, trends: GauntletTrends) {
++    /// When true, both `gauntlet()` and `trends()` throw — covers the I1
++    /// regression test ("gauntlet() (or trends()) throws").
++    var shouldThrow: Bool
++    init(gauntlet: Gauntlet, trends: GauntletTrends, shouldThrow: Bool = false) {
+         self.gauntletValue = gauntlet
+         self.trendsValue = trends
++        self.shouldThrow = shouldThrow
++    }
++    func gauntlet() async throws -> Gauntlet {
++        if shouldThrow { throw FakeLoadError() }
++        return gauntletValue
+     }
+-    func gauntlet() async throws -> Gauntlet { gauntletValue }
+     func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
+         fatalError("DrillsViewModel never submits the gauntlet")
+     }
+-    func trends() async throws -> GauntletTrends { trendsValue }
++    func trends() async throws -> GauntletTrends {
++        if shouldThrow { throw FakeLoadError() }
++        return trendsValue
++    }
+ }
+ 
+ private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
+     let boardValue: GroupBoard
+     init(board: GroupBoard) { self.boardValue = board }
+     func groupBoard() async throws -> GroupBoard { boardValue }
+     func schoolBoard() async throws -> SchoolBoard { fatalError("Task 2 doesn't call schoolBoard()") }
+     func globalBoard() async throws -> GlobalBoard { fatalError("Task 2 doesn't call globalBoard()") }
+@@ -346,25 +413,32 @@ private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
+ // Philadelphia/avg 69.8/rank 2/yourPercentile 88; SCHOOLS INSEAD 71.4 r1,
+ // Wharton 69.8 r2 (schoolId 1, matches `schoolBoard.school` → "yours"),
+ // LBS 68.9 r3, HBS 67.2 r4.
+ private final class FakeCountingBoardService: BoardService, @unchecked Sendable {
+     private(set) var schoolBoardCallCount = 0
+     private(set) var globalBoardCallCount = 0
+     private(set) var schoolsBoardCallCount = 0
+ 
++    /// When true, `schoolBoard()` throws instead of returning — covers the
++    /// I2 regression test ("a fake board service whose schoolBoard() throws").
++    /// Does not increment `schoolBoardCallCount` on the thrown attempt (the
++    /// count tracks successful loads, matching the existing cache-count tests).
++    var shouldThrowSchoolBoard = false
++
+     private let globalYourPercentile: Double?
+ 
+     init(globalYourPercentile: Double? = 66) {
+         self.globalYourPercentile = globalYourPercentile
+     }
+ 
+     func groupBoard() async throws -> GroupBoard { .fixture }
+ 
+     func schoolBoard() async throws -> SchoolBoard {
++        if shouldThrowSchoolBoard { throw FakeLoadError() }
+         schoolBoardCallCount += 1
+         return SchoolBoard(
+             scope: "school",
+             school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
+             yourPercentile: 88)
+     }
+ 
+     func globalBoard() async throws -> GlobalBoard {

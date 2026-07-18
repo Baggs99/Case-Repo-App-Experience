@@ -1,0 +1,840 @@
+diff --git a/.superpowers/sdd/f7/shots/task2-hub.png b/.superpowers/sdd/f7/shots/task2-hub.png
+new file mode 100644
+index 0000000..fd880cd
+Binary files /dev/null and b/.superpowers/sdd/f7/shots/task2-hub.png differ
+diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
+index ff08b70..9176d5f 100644
+--- a/ios/CaseRoom/App/CaseRoomApp.swift
++++ b/ios/CaseRoom/App/CaseRoomApp.swift
+@@ -1,14 +1,14 @@
+ /*
+  * Purpose: App entry point; launches RootShell (the 5-slot floating-glass tab
+  *          shell) and wires the UIKit app delegate needed for APNs device-token
+  *          registration.
+  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
+- *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -DevLogin,
++ *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills, -DevLogin,
+  *         -startTab <tab>, -avatarOpen — see the #if DEBUG blocks).
+  * Outputs: none.
+  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
+  */
+ 
+ import SwiftUI
+ import UIKit
+ import UserNotifications
+@@ -62,16 +62,24 @@ struct CaseRoomApp: App {
+                     HomeView(viewModel: .init(
+                         fixtureDashboard: PreviewHomeFixture.dashboard, fixtureGauntlet: PreviewHomeFixture.gauntlet,
+                         fixtureBoard: PreviewHomeFixture.board, fixtureProfile: PreviewHomeFixture.profile,
+                         fixtureTimeline: PreviewHomeFixture.timelineDetail))
+                 }
+             } else if ProcessInfo.processInfo.arguments.contains("-F2HomeTablet") {
+                 // Tablet Home (canvas 2a) fixture hatch: the July-17 persona.
+                 F2HomeTabletHatch()
++            } else if ProcessInfo.processInfo.arguments.contains("-F7Drills") {
++                // Drills hub (canvas 5b) fixture hatch: the July-16 persona, submitted.
++                NavigationStack {
++                    DrillsView(viewModel: .init(
++                        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
++                        fixtureTrends: PreviewDrillsFixture.trends,
++                        fixtureBoard: PreviewDrillsFixture.board))
++                }
+             } else {
+                 rootView
+             }
+             #else
+             rootView
+             #endif
+         }
+     }
+diff --git a/ios/CaseRoom/App/RootShell.swift b/ios/CaseRoom/App/RootShell.swift
+index 0c296b1..c23aa70 100644
+--- a/ios/CaseRoom/App/RootShell.swift
++++ b/ios/CaseRoom/App/RootShell.swift
+@@ -167,17 +167,17 @@ struct RootShell: View {
+             }
+         case .library:
+             CasesListView()
+         case .caseTab:
+             SessionsView()
+         case .community:
+             CommunityTabStub()
+         case .drills:
+-            DrillsTabStub()
++            DrillsView()
+         }
+     }
+ 
+     private var avatarButton: some View {
+         Button { router.avatarSheet = true } label: { AvatarPill(initials: initials) }
+             .buttonStyle(.plain)
+     }
+ 
+diff --git a/ios/CaseRoom/State/DrillsViewModel.swift b/ios/CaseRoom/State/DrillsViewModel.swift
+new file mode 100644
+index 0000000..75d3c17
+--- /dev/null
++++ b/ios/CaseRoom/State/DrillsViewModel.swift
+@@ -0,0 +1,212 @@
++/*
++ * Purpose: Backing state for the Drills hub (canvas 5b `dIsHub`) — concurrently
++ *          loads the gauntlet, the 4-week trend series, and the C-14 group
++ *          board, and derives the hero (streak/submitted/begin label/hub
++ *          percentile), the 16-bar trend (I2 deviation: rendered from raw
++ *          daily SCORE, not a daily-percentile series — see plan), the week
++ *          labels, and the C-14 board note (I3: derived from
++ *          `result.group.pointsBehindNext`, never fabricated).
++ * Inputs: GauntletService/BoardService (default APIClient.shared).
++ * Outputs: POST-free reads only (Task 2 never submits the gauntlet).
++ * Run: owned by DrillsView; call load() from .task.
++ */
++
++import Foundation
++import Observation
++
++@Observable
++@MainActor
++final class DrillsViewModel {
++    /// One trend bar (canvas 5b lines 936: 16 bars, opacity ramp, last green).
++    struct TrendBar: Identifiable {
++        let id = UUID()
++        let height: Double     // 0...1 (score/6, clamped to a visible floor)
++        let opacity: Double    // ink opacity for non-green bars; ignored when isGreen
++        let isGreen: Bool      // the single last (most-recent) bar
++        let isPad: Bool        // left-pad placeholder when <16 days of history
++    }
++
++    private(set) var gauntlet: Gauntlet?
++    private(set) var trends: GauntletTrends?
++    private(set) var board: GroupBoard?
++    var errorMessage: String?
++
++    private let gauntletService: GauntletService
++    private let boardService: BoardService
++    private let isFixtureBacked: Bool
++
++    init(gauntletService: GauntletService = APIClient.shared,
++         boardService: BoardService = APIClient.shared) {
++        self.gauntletService = gauntletService
++        self.boardService = boardService
++        self.isFixtureBacked = false
++    }
++
++    #if DEBUG
++    /// Screenshot-only: injects fixture data instead of hitting the network
++    /// (mirrors HomeViewModel's fixture init). `load()` is a deliberate no-op
++    /// on this instance.
++    init(fixtureGauntlet: Gauntlet, fixtureTrends: GauntletTrends, fixtureBoard: GroupBoard) {
++        let never = NeverCalledDrillsService()
++        self.gauntletService = never
++        self.boardService = never
++        self.isFixtureBacked = true
++        self.gauntlet = fixtureGauntlet
++        self.trends = fixtureTrends
++        self.board = fixtureBoard
++    }
++    #endif
++
++    func load() async {
++        guard !isFixtureBacked else { return }
++        errorMessage = nil
++        do {
++            async let g = gauntletService.gauntlet()
++            async let t = gauntletService.trends()
++            async let b = boardService.groupBoard()
++            let gauntlet = try await g
++            let trends = try await t
++            let board = try await b
++            self.gauntlet = gauntlet
++            self.trends = trends
++            self.board = board
++        } catch {
++            errorMessage = "Couldn't load Drills."
++        }
++    }
++
++    // MARK: - Hero
++
++    var streakDay: Int { gauntlet?.streak ?? 0 }
++    var submitted: Bool { gauntlet?.submitted ?? false }
++
++    var beginLabel: String { submitted ? "See today's result" : "Begin today's set" }
++
++    /// "{ordinal} TODAY" (green) once submitted with a scored percentile; nil
++    /// pre-submission and nil when the result has no percentile yet (no fiction).
++    var hubPercentileLabel: String? {
++        guard submitted, let pct = gauntlet?.result?.dailyPercentile else { return nil }
++        return "\(Self.ordinal(Int(pct.rounded()))) TODAY"
++    }
++
++    // MARK: - Trend (I2 — deviation: score-derived bars under a percentile kicker)
++
++    private static let barCount = 16
++
++    var trendBars: [TrendBar] {
++        let daily = trends?.daily ?? []
++        let real = Array(daily.suffix(Self.barCount))
++        let padCount = Self.barCount - real.count
++        var bars: [TrendBar] = (0..<padCount).map { _ in
++            TrendBar(height: 0.12, opacity: 0.10, isGreen: false, isPad: true)
++        }
++        for (offset, point) in real.enumerated() {
++            let position = padCount + offset       // absolute slot 0..<16
++            let isLast = position == Self.barCount - 1
++            let height = min(max(point.score / 6, 0.12), 1.0)
++            bars.append(TrendBar(height: height, opacity: Self.opacity(forPosition: position), isGreen: isLast, isPad: false))
++        }
++        return bars
++    }
++
++    /// Canvas-fixed recency ramp over the 16 absolute slots: 0-3 → .18,
++    /// 4-7 → .28, 8-11 → .4, 12-14 → solid ink (1.0), 15 → green (opacity unused).
++    private static func opacity(forPosition position: Int) -> Double {
++        switch position {
++        case 0..<4: return 0.18
++        case 4..<8: return 0.28
++        case 8..<12: return 0.4
++        default: return 1.0
++        }
++    }
++
++    /// "TREND — DAILY PERCENTILE, 4 WEEKS" kicker's four W-numbers, the last
++    /// appending "— {ordinal(dailyPercentile)}" only when submitted AND a
++    /// percentile is present.
++    var weekLabels: [String] {
++        let week = Self.isoWeek(for: latestTrendDate ?? Date())
++        let base = (0..<4).map { "W\(week - 3 + $0)" }
++        guard submitted, let pct = gauntlet?.result?.dailyPercentile else { return base }
++        var labels = base
++        labels[3] = "\(labels[3]) — \(Self.ordinal(Int(pct.rounded())))"
++        return labels
++    }
++
++    private var latestTrendDate: Date? {
++        guard let latest = trends?.daily.last?.date else { return nil }
++        return Self.isoDayFormatter.date(from: latest)
++    }
++
++    private static let isoDayFormatter: DateFormatter = {
++        let f = DateFormatter()
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.timeZone = TimeZone(identifier: "UTC")
++        f.dateFormat = "yyyy-MM-dd"
++        return f
++    }()
++
++    private static func isoWeek(for date: Date) -> Int {
++        var calendar = Calendar(identifier: .iso8601)
++        calendar.timeZone = TimeZone(identifier: "UTC")!
++        return calendar.component(.weekOfYear, from: date)
++    }
++
++    // MARK: - Board (C-14, Task 2 ships the group scope; Task 3 adds the switcher)
++
++    /// "{n} BEHIND №{rank-1}" derived from `result.group.pointsBehindNext`
++    /// once submitted; nil pre-submission or when the field isn't present
++    /// (I3 — never fabricated).
++    var boardNote: String? {
++        guard submitted, let group = gauntlet?.result?.group, let behind = group.pointsBehindNext else { return nil }
++        return "\(behind) BEHIND №\(group.rank - 1)"
++    }
++
++    /// "COHORT {name} — WEEK {n}" — the group name from the live board (not
++    /// hardcoded), the ISO week of today (not the trend series, which may lag).
++    var boardHead: String {
++        "COHORT \(board?.group?.name ?? "—") — WEEK \(Self.isoWeek(for: Date()))"
++    }
++
++    /// Identifies "your" row without a profile fetch (Task 2 doesn't load
++    /// ProfileService): the submitted gauntlet's own `result.group` carries
++    /// the caller's rank+points for today's C-14 board, which is a unique
++    /// key into `entries`. Pre-submission there's no result, so no row is
++    /// highlighted (honest: we have no other signal for "you" in the board).
++    func isYourRow(_ entry: BoardEntry) -> Bool {
++        guard let group = gauntlet?.result?.group else { return false }
++        return entry.rank == group.rank && entry.points == group.points
++    }
++
++    // MARK: - Ordinal helper ("1ST".."66TH", shared with the board rows)
++
++    static func ordinal(_ n: Int) -> String {
++        let mod100 = n % 100
++        let suffix: String
++        if (11...13).contains(mod100) {
++            suffix = "TH"
++        } else {
++            switch n % 10 {
++            case 1: suffix = "ST"
++            case 2: suffix = "ND"
++            case 3: suffix = "RD"
++            default: suffix = "TH"
++            }
++        }
++        return "\(n)\(suffix)"
++    }
++}
++
++#if DEBUG
++/// Backs the fixture-init VM. The screenshot hatch is documented non-
++/// interactive, so any call here is a misuse — fail loudly instead of
++/// silently hitting the network (mirrors HomeViewModel's NeverCalled pattern).
++private struct NeverCalledDrillsService: GauntletService, BoardService {
++    func gauntlet() async throws -> Gauntlet { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func trends() async throws -> GauntletTrends { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func groupBoard() async throws -> GroupBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func schoolBoard() async throws -> SchoolBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func globalBoard() async throws -> GlobalBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++    func schoolsBoard() async throws -> SchoolsBoard { fatalError("fixture-backed DrillsViewModel must not call the network") }
++}
++#endif
+diff --git a/ios/CaseRoom/Views/DrillsTabStub.swift b/ios/CaseRoom/Views/DrillsTabStub.swift
+deleted file mode 100644
+index 1880188..0000000
+--- a/ios/CaseRoom/Views/DrillsTabStub.swift
++++ /dev/null
+@@ -1,19 +0,0 @@
+-/*
+- * Purpose: Transitional DRILLS tab placeholder — a later phase replaces it.
+- * Inputs: \.dsPalette.
+- * Outputs: none.
+- * Run: rendered by RootShell for DSTab.drills.
+- */
+-
+-import SwiftUI
+-
+-struct DrillsTabStub: View {
+-    @Environment(\.dsPalette) private var palette
+-    var body: some View {
+-        VStack(spacing: 8) {
+-            Text("Drills").dsText(.h1Tab).foregroundStyle(palette.ink)
+-            Text("Arrives in a later phase.").dsText(.meta).foregroundStyle(palette.muted)
+-        }
+-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+-    }
+-}
+diff --git a/ios/CaseRoom/Views/DrillsView.swift b/ios/CaseRoom/Views/DrillsView.swift
+new file mode 100644
+index 0000000..529c902
+--- /dev/null
++++ b/ios/CaseRoom/Views/DrillsView.swift
+@@ -0,0 +1,298 @@
++/*
++ * Purpose: Drills hub — canvas 5b `dIsHub` (phone, .compact CANON for Task 2):
++ *          the ONE glass gauntlet hero (six-types grid, DAY N, begin/see-result,
++ *          RESETS footer + submitted percentile), the 16-bar 4-week trend (I2
++ *          deviation: rendered from raw daily score, not a daily-percentile
++ *          series — see DrillsViewModel), and the C-14 group board (Task 3
++ *          adds the WHARTON/GLOBAL/SCHOOLS scope switcher over `boardsSection`).
++ * Inputs: DrillsViewModel (injectable; DEBUG fixture init for shots).
++ * Outputs: none (navigation via AppRouter.shared).
++ * Run: mounted by RootShell for DSTab.drills.
++ */
++
++import SwiftUI
++
++struct DrillsView: View {
++    @Environment(\.dsPalette) private var palette
++    @State private var viewModel: DrillsViewModel
++
++    // Injectable VM (default = live). The DEBUG -F7Drills hatch injects a
++    // fixture-backed VM so simctl can capture a populated screen.
++    @MainActor
++    init(viewModel: DrillsViewModel? = nil) {
++        _viewModel = State(initialValue: viewModel ?? DrillsViewModel())
++    }
++
++    var body: some View {
++        ZStack {
++            DSBackground()
++            if viewModel.gauntlet == nil {
++                Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
++            } else {
++                content
++            }
++        }
++        .task { await viewModel.load() }
++    }
++
++    private var content: some View {
++        ScrollView {
++            VStack(alignment: .leading, spacing: 22) {
++                header
++                if let errorMessage = viewModel.errorMessage {
++                    errorBanner(errorMessage)
++                }
++                heroSection
++                trendSection
++                boardsSection
++                Color.clear.frame(height: 120)   // room behind the tab bar
++            }
++            .padding(22)
++        }
++        .scrollIndicators(.hidden)
++        .dsHeaderFade()
++    }
++
++    private var header: some View {
++        Text("Drills").dsText(.h1Tab).foregroundStyle(palette.ink)
++    }
++
++    private func errorBanner(_ message: String) -> some View {
++        HStack(spacing: 12) {
++            Text(message).dsText(.meta).foregroundStyle(palette.muted)
++            Button { Task { await viewModel.load() } } label: {
++                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
++            }
++            .buttonStyle(.plain)
++        }
++    }
++
++    // MARK: - 1. Gauntlet hero — the ONLY glass hero on this screen (canvas 5b 916-931)
++
++    private var heroSection: some View {
++        VStack(alignment: .leading, spacing: 10) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("TODAY'S GAUNTLET — SAME SIX FOR EVERYONE").dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                Text("DAY \(viewModel.streakDay)").dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
++            }
++            Text("Six types, five minutes.").dsText(.cardTitle).foregroundStyle(palette.ink)
++                .padding(.bottom, 2)
++            sixTypesGrid
++                .padding(.bottom, 6)
++            beginButton
++            HStack(alignment: .firstTextBaseline) {
++                Text("RESETS 06:00 · STREAK SAFE UNTIL 23:59").dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                if let label = viewModel.hubPercentileLabel {
++                    Text(label).dsText(.kicker).tabularNumbers().foregroundStyle(palette.green)
++                }
++            }
++            .padding(.top, 3)
++        }
++        .padding(.horizontal, 22).padding(.top, 22).padding(.bottom, 18)
++        .glassPanel(cornerRadius: 30)
++    }
++
++    /// 2-col, hairline underline on the first two rows only (4 labels) —
++    /// fixed design-identity copy, NOT bound to live slot drillType (plan
++    /// deviation #3).
++    private var sixTypesGrid: some View {
++        let labels = ["Mental math", "Market sizing", "Structures", "Chart reads", "Synthesis", "Estimates"]
++        return LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible())], spacing: 5) {
++            ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
++                Text(label)
++                    .font(.archivo(11.5, weight: 600))
++                    .foregroundStyle(palette.ink)
++                    .padding(.vertical, 5)
++                    .frame(maxWidth: .infinity, alignment: .leading)
++                    .overlay(alignment: .bottom) {
++                        if index < 4 {
++                            Rectangle().fill(palette.hairline).frame(height: 1)
++                        }
++                    }
++            }
++        }
++    }
++
++    private var beginButton: some View {
++        Button {
++            AppRouter.shared.go(to: .gauntletRun)
++        } label: {
++            Text(viewModel.beginLabel)
++                .dsText(.rowTitle)
++                .foregroundStyle(palette.onInk)
++                .frame(maxWidth: .infinity)
++                .frame(height: 50)
++        }
++        .buttonStyle(DSPressStyle())
++        .background(Capsule().fill(palette.ink))
++    }
++
++    // MARK: - 2. TREND — flat, hairline-top (canvas 5b 933-947)
++
++    private var trendSection: some View {
++        VStack(alignment: .leading, spacing: 12) {
++            HStack(alignment: .firstTextBaseline) {
++                Text("TREND — DAILY PERCENTILE, 4 WEEKS").dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                Text("MOSTLY UP").dsText(.kicker).foregroundStyle(palette.muted)
++            }
++            trendBarsRow
++            weekLabelsRow
++        }
++        .padding(.top, 13)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++
++    /// Square content only (reject-list: no rounded content corners).
++    private var trendBarsRow: some View {
++        HStack(alignment: .bottom, spacing: 5) {
++            ForEach(viewModel.trendBars) { bar in
++                Rectangle()
++                    .fill(bar.isGreen ? palette.green : palette.ink.opacity(bar.opacity))
++                    .frame(maxWidth: .infinity)
++                    .frame(height: max(56 * bar.height, 4))
++            }
++        }
++        .frame(height: 56)
++    }
++
++    private var weekLabelsRow: some View {
++        HStack {
++            ForEach(Array(viewModel.weekLabels.enumerated()), id: \.offset) { index, label in
++                Text(label)
++                    .font(.archivo(8.5, weight: 600))
++                    .tracking(0.12 * 8.5)
++                    .tabularNumbers()
++                    .foregroundStyle(index == viewModel.weekLabels.count - 1 ? palette.muted : palette.faint)
++                if index < viewModel.weekLabels.count - 1 { Spacer() }
++            }
++        }
++    }
++
++    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 2 ships
++    // the complete C-14 group scope; `boardsSection` is the structural seam
++    // Task 3 replaces with the 4-scope switcher.
++
++    private var boardsSection: some View {
++        VStack(alignment: .leading, spacing: 8) {
++            HStack(alignment: .firstTextBaseline) {
++                Text(viewModel.boardHead).dsText(.kicker).foregroundStyle(palette.muted)
++                Spacer()
++                if let note = viewModel.boardNote {
++                    Text(note).font(.archivo(9, weight: 600)).tracking(0.1 * 9)
++                        .tabularNumbers().foregroundStyle(palette.muted)
++                }
++            }
++            boardRows
++            Text("Drill percentiles are public. Session grades stay private.")
++                .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
++                .padding(.top, 10)
++        }
++        .padding(.top, 13)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++
++    private var boardRows: some View {
++        VStack(spacing: 0) {
++            ForEach(viewModel.board?.entries ?? []) { entry in
++                if entry.rank == 6 {
++                    topFiveDivider
++                }
++                boardRow(entry)
++            }
++        }
++        .padding(.top, 8)
++    }
++
++    private var topFiveDivider: some View {
++        HStack(spacing: 8) {
++            Rectangle().fill(palette.hairline).frame(height: 1)
++            Text("TOP FIVE ADVANCE").font(.archivo(8, weight: 600)).tracking(0.15 * 8)
++                .foregroundStyle(palette.muted)
++            Rectangle().fill(palette.hairline).frame(height: 1)
++        }
++        .padding(.vertical, 5)
++    }
++
++    private func boardRow(_ entry: BoardEntry) -> some View {
++        let isYou = viewModel.isYourRow(entry)
++        return HStack(spacing: 8) {
++            Text("\(entry.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            Text(entry.displayName)
++                .font(.archivo(13, weight: isYou ? 700 : 400))
++                .foregroundStyle(palette.ink)
++                .lineLimit(1).truncationMode(.tail)
++                .frame(maxWidth: .infinity, alignment: .leading)
++            Text("\(entry.points)")
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(isYou ? palette.surface.opacity(0.55) : Color.clear)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++}
++
++#if DEBUG
++/// Screenshot/preview-only fixture (the July-16 phone persona, submitted):
++/// streak 12, gauntlet result dailyPercentile 66, C-14 rank 6 / 8 behind №5,
++/// 16 days of upward-trending daily scores, the same C-14 board HomeView's
++/// fixture uses (Amara rank 6).
++enum PreviewDrillsFixture {
++    static let gauntlet = Gauntlet(
++        date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++        slots: (1...6).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
++        streak: 12, submitted: true,
++        result: GauntletResult(
++            score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
++            dailyPercentile: 66,
++            group: GauntletGroup(groupId: 14, name: "C-14", rank: 6, points: 331, pointsBehindNext: 8),
++            schoolPercentile: 71, vsPeersDelta: 3, weakSection: WeakSection(drillType: "market_sizing", label: "market sizing"),
++            streak: 12, setKey: "set-2026-07-16"))
++
++    static let trends = GauntletTrends(
++        daily: Self.trailingDays(16), byType: [], weakest: "market_sizing")
++
++    private static func trailingDays(_ count: Int) -> [TrendPoint] {
++        let formatter = DateFormatter()
++        formatter.locale = Locale(identifier: "en_US_POSIX")
++        formatter.timeZone = TimeZone(identifier: "UTC")
++        formatter.dateFormat = "yyyy-MM-dd"
++        var comps = DateComponents()
++        comps.year = 2026; comps.month = 7; comps.day = 16; comps.hour = 12
++        let end = Calendar.current.date(from: comps)!
++        let scores: [Double] = [2, 3, 3, 4, 3, 4, 5, 4, 5, 4, 5, 6, 5, 6, 5, 5]
++        return (0..<count).map { i in
++            let date = Calendar.current.date(byAdding: .day, value: -(count - 1 - i), to: end)!
++            return TrendPoint(date: formatter.string(from: date), score: scores[i % scores.count])
++        }
++    }
++
++    static let board = GroupBoard(
++        scope: "group", group: GroupRef(id: 14, name: "C-14"),
++        entries: [
++            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
++            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
++            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
++            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
++            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 339, rank: 5, streak: 13),
++            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
++            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
++            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
++            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
++            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
++        ])
++}
++
++#Preview {
++    DrillsView(viewModel: .init(
++        fixtureGauntlet: PreviewDrillsFixture.gauntlet,
++        fixtureTrends: PreviewDrillsFixture.trends,
++        fixtureBoard: PreviewDrillsFixture.board))
++}
++#endif
+diff --git a/ios/CaseRoomTests/DrillsViewModelTests.swift b/ios/CaseRoomTests/DrillsViewModelTests.swift
+new file mode 100644
+index 0000000..04cee2a
+--- /dev/null
++++ b/ios/CaseRoomTests/DrillsViewModelTests.swift
+@@ -0,0 +1,215 @@
++/*
++ * Purpose: Unit tests for DrillsViewModel — streakDay/submitted/beginLabel/
++ *          hubPercentileLabel for submitted vs not-submitted gauntlets,
++ *          16-bar trend derivation (left-pad when <16 points, last bar
++ *          green), week-label suffix gating, the ordinal helper, and the
++ *          C-14 board note derivation from group.pointsBehindNext.
++ * Inputs: fake Gauntlet/Board services (no live network).
++ * Outputs: none.
++ * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
++ */
++
++import XCTest
++@testable import CaseRoom
++
++@MainActor
++final class DrillsViewModelTests: XCTestCase {
++
++    // MARK: - Hero derivation
++
++    func testNotSubmittedDerivesBeginLabelAndHidesPercentile() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertEqual(vm.streakDay, 12)
++        XCTAssertFalse(vm.submitted)
++        XCTAssertEqual(vm.beginLabel, "Begin today's set")
++        XCTAssertNil(vm.hubPercentileLabel)
++    }
++
++    func testSubmittedDerivesSeeResultAndPercentileLabel() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: true, streak: 12, dailyPercentile: 66), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertTrue(vm.submitted)
++        XCTAssertEqual(vm.beginLabel, "See today's result")
++        XCTAssertEqual(vm.hubPercentileLabel, "66TH TODAY")
++    }
++
++    // MARK: - Trend bars
++
++    func testTrendBarsIs16WithLastGreenWhenFullHistory() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture16),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        let bars = vm.trendBars
++        XCTAssertEqual(bars.count, 16)
++        XCTAssertTrue(bars.last!.isGreen)
++        XCTAssertFalse(bars.first!.isPad)
++        // Heights derive from score/6, clamped to a visible floor.
++        for bar in bars {
++            XCTAssertGreaterThan(bar.height, 0)
++            XCTAssertLessThanOrEqual(bar.height, 1)
++        }
++    }
++
++    func testTrendBarsLeftPadsWhenFewerThan16Points() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture(days: 5)),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        let bars = vm.trendBars
++        XCTAssertEqual(bars.count, 16)
++        XCTAssertEqual(bars.prefix(11).filter(\.isPad).count, 11)
++        XCTAssertFalse(bars.last!.isPad)
++        XCTAssertTrue(bars.last!.isGreen)
++    }
++
++    // MARK: - Week labels
++
++    func testWeekLabelsAppendPercentileSuffixOnlyWhenSubmitted() async {
++        let submitted = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: true, streak: 12, dailyPercentile: 66), trends: .fixture16),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await submitted.load()
++        XCTAssertEqual(submitted.weekLabels.count, 4)
++        XCTAssertEqual(submitted.weekLabels.last, "W29 — 66TH")
++
++        let notSubmitted = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture16),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await notSubmitted.load()
++        XCTAssertFalse(notSubmitted.weekLabels.last!.contains("—"))
++    }
++
++    // MARK: - Ordinal helper
++
++    func testOrdinalHelper() {
++        XCTAssertEqual(DrillsViewModel.ordinal(1), "1ST")
++        XCTAssertEqual(DrillsViewModel.ordinal(2), "2ND")
++        XCTAssertEqual(DrillsViewModel.ordinal(3), "3RD")
++        XCTAssertEqual(DrillsViewModel.ordinal(11), "11TH")
++        XCTAssertEqual(DrillsViewModel.ordinal(66), "66TH")
++    }
++
++    // MARK: - C-14 board note
++
++    func testBoardNoteDerivesFromPointsBehindNextWhenSubmitted() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(
++                gauntlet: .fixture(submitted: true, streak: 12, dailyPercentile: 66, pointsBehindNext: 4, rank: 6),
++                trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertEqual(vm.boardNote, "4 BEHIND №5")
++    }
++
++    func testBoardNoteOmittedWhenNotSubmitted() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertNil(vm.boardNote)
++    }
++
++    func testBoardEntriesExposedFromGroupBoard() async {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: FakeDrillsBoardService(board: .fixture))
++        await vm.load()
++        XCTAssertEqual(vm.board?.entries.count, 10)
++        XCTAssertEqual(vm.board?.group?.name, "C-14")
++    }
++}
++
++// MARK: - Fixtures + fakes
++
++private extension Gauntlet {
++    static func fixture(submitted: Bool, streak: Int, dailyPercentile: Double? = nil,
++                         pointsBehindNext: Int? = nil, rank: Int = 6) -> Gauntlet {
++        let result: GauntletResult? = submitted
++            ? GauntletResult(
++                score: 5, slotsCorrect: 5, slots: 6, pointsAwarded: 40,
++                dailyPercentile: dailyPercentile,
++                group: GauntletGroup(groupId: 14, name: "C-14", rank: rank, points: 331, pointsBehindNext: pointsBehindNext),
++                schoolPercentile: nil, vsPeersDelta: nil, weakSection: nil, streak: streak, setKey: "set-2026-07-16")
++            : nil
++        return Gauntlet(
++            date: "2026-07-16", setKey: "set-2026-07-16", provisional: false,
++            slots: (1...6).map { GauntletSlot(slot: $0, drillType: "mental_math", key: "k\($0)", prompt: "p\($0)", numbers: [], choices: nil) },
++            streak: streak, submitted: submitted, result: result)
++    }
++}
++
++private extension GauntletTrends {
++    private static let isoDay: DateFormatter = {
++        let f = DateFormatter()
++        f.locale = Locale(identifier: "en_US_POSIX")
++        f.dateFormat = "yyyy-MM-dd"
++        return f
++    }()
++
++    /// `count` consecutive days ending 2026-07-16 (a Thursday, W29), scores
++    /// trending mildly upward.
++    private static func trailingDays(_ count: Int) -> [TrendPoint] {
++        var comps = DateComponents()
++        comps.year = 2026; comps.month = 7; comps.day = 16; comps.hour = 12
++        let end = Calendar.current.date(from: comps)!
++        return (0..<count).map { i in
++            let date = Calendar.current.date(byAdding: .day, value: -(count - 1 - i), to: end)!
++            return TrendPoint(date: isoDay.string(from: date), score: Double(2 + i % 5))
++        }
++    }
++
++    /// 16 days of upward-trending scores.
++    static let fixture16 = GauntletTrends(daily: trailingDays(16), byType: [], weakest: nil)
++
++    static let fixture = fixture16
++
++    static func fixture(days: Int) -> GauntletTrends {
++        GauntletTrends(daily: trailingDays(days), byType: [], weakest: nil)
++    }
++}
++
++private extension GroupBoard {
++    static let fixture = GroupBoard(
++        scope: "group", group: GroupRef(id: 14, name: "C-14"),
++        entries: [
++            BoardEntry(userId: 10, displayName: "R. Vance", photoKey: nil, points: 400, rank: 1, streak: 20),
++            BoardEntry(userId: 11, displayName: "P. Nair", photoKey: nil, points: 380, rank: 2, streak: 18),
++            BoardEntry(userId: 12, displayName: "K. Chen", photoKey: nil, points: 360, rank: 3, streak: 15),
++            BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
++            BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 335, rank: 5, streak: 13),
++            BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
++            BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
++            BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
++            BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
++            BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
++        ])
++}
++
++private final class FakeDrillsGauntletService: GauntletService, @unchecked Sendable {
++    let gauntletValue: Gauntlet
++    let trendsValue: GauntletTrends
++    init(gauntlet: Gauntlet, trends: GauntletTrends) {
++        self.gauntletValue = gauntlet
++        self.trendsValue = trends
++    }
++    func gauntlet() async throws -> Gauntlet { gauntletValue }
++    func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
++        fatalError("DrillsViewModel never submits the gauntlet")
++    }
++    func trends() async throws -> GauntletTrends { trendsValue }
++}
++
++private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
++    let boardValue: GroupBoard
++    init(board: GroupBoard) { self.boardValue = board }
++    func groupBoard() async throws -> GroupBoard { boardValue }
++    func schoolBoard() async throws -> SchoolBoard { fatalError("Task 2 doesn't call schoolBoard()") }
++    func globalBoard() async throws -> GlobalBoard { fatalError("Task 2 doesn't call globalBoard()") }
++    func schoolsBoard() async throws -> SchoolsBoard { fatalError("Task 2 doesn't call schoolsBoard()") }
++}

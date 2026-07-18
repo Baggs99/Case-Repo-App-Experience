@@ -1,0 +1,885 @@
+diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
+index 9176d5f..948f89b 100644
+--- a/ios/CaseRoom/App/CaseRoomApp.swift
++++ b/ios/CaseRoom/App/CaseRoomApp.swift
+@@ -1,15 +1,16 @@
+ /*
+  * Purpose: App entry point; launches RootShell (the 5-slot floating-glass tab
+  *          shell) and wires the UIKit app delegate needed for APNs device-token
+  *          registration.
+  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
+- *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills, -DevLogin,
+- *         -startTab <tab>, -avatarOpen — see the #if DEBUG blocks).
++ *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills (+ optional
++ *         -F7Board <c14|wharton|global|schools>), -DevLogin, -startTab <tab>,
++ *         -avatarOpen — see the #if DEBUG blocks).
+  * Outputs: none.
+  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
+  */
+ 
+ import SwiftUI
+ import UIKit
+ import UserNotifications
+ 
+@@ -64,21 +65,29 @@ struct CaseRoomApp: App {
+                         fixtureBoard: PreviewHomeFixture.board, fixtureProfile: PreviewHomeFixture.profile,
+                         fixtureTimeline: PreviewHomeFixture.timelineDetail))
+                 }
+             } else if ProcessInfo.processInfo.arguments.contains("-F2HomeTablet") {
+                 // Tablet Home (canvas 2a) fixture hatch: the July-17 persona.
+                 F2HomeTabletHatch()
+             } else if ProcessInfo.processInfo.arguments.contains("-F7Drills") {
+                 // Drills hub (canvas 5b) fixture hatch: the July-16 persona, submitted.
++                // Optional `-F7Board <c14|wharton|global|schools>` (Task 3) presets
++                // the active scope chip; all 4 scope fixtures are always injected so
++                // simctl (which can't tap) can capture any of the 4 board shots
++                // without a dev server.
+                 NavigationStack {
+                     DrillsView(viewModel: .init(
+                         fixtureGauntlet: PreviewDrillsFixture.gauntlet,
+                         fixtureTrends: PreviewDrillsFixture.trends,
+-                        fixtureBoard: PreviewDrillsFixture.board))
++                        fixtureBoard: PreviewDrillsFixture.board,
++                        boardScope: PreviewDrillsFixture.scope(for: Self.launchArgValue(after: "-F7Board")),
++                        fixtureSchoolBoard: PreviewDrillsFixture.schoolBoard,
++                        fixtureGlobalBoard: PreviewDrillsFixture.globalBoard,
++                        fixtureSchoolsBoard: PreviewDrillsFixture.schoolsBoard))
+                 }
+             } else {
+                 rootView
+             }
+             #else
+             rootView
+             #endif
+         }
+@@ -149,16 +158,26 @@ struct CaseRoomApp: App {
+             AppRouter.shared.go(to: .caseDetail(caseId))
+         }
+     }
+     #endif
+ 
+     private static var apiHost: String {
+         APIClient.shared.baseURL.host ?? "127.0.0.1"
+     }
++
++    #if DEBUG
++    /// The token immediately following a launch-arg flag, e.g. `-F7Board
++    /// wharton` → `"wharton"`. nil when the flag is absent or has no value.
++    private static func launchArgValue(after flag: String) -> String? {
++        let args = ProcessInfo.processInfo.arguments
++        guard let idx = args.firstIndex(of: flag), idx + 1 < args.count else { return nil }
++        return args[idx + 1]
++    }
++    #endif
+ }
+ 
+ #if DEBUG
+ /// Standalone scaffold for the `-F2HomeTablet` shot: replicates RootShell's
+ /// `.regular` Home header (wordmark | date+greeting | avatar) above the
+ /// two-column tablet HomeView, so the shot is a faithful canvas-2a frame
+ /// without booting the full authenticated shell. Release-inert.
+ private struct F2HomeTabletHatch: View {
+diff --git a/ios/CaseRoom/State/DrillsViewModel.swift b/ios/CaseRoom/State/DrillsViewModel.swift
+index 236de8d..d928f5a 100644
+--- a/ios/CaseRoom/State/DrillsViewModel.swift
++++ b/ios/CaseRoom/State/DrillsViewModel.swift
+@@ -1,19 +1,24 @@
+ /*
+  * Purpose: Backing state for the Drills hub (canvas 5b `dIsHub`) — concurrently
+  *          loads the gauntlet, the 4-week trend series, and the C-14 group
+  *          board, and derives the hero (streak/submitted/begin label/hub
+  *          percentile), the 16-bar trend (I2 deviation: rendered from raw
+  *          daily SCORE, not a daily-percentile series — see plan), the week
+  *          labels, and the C-14 board note (I3: derived from
+- *          `result.group.pointsBehindNext`, never fabricated).
++ *          `result.group.pointsBehindNext`, never fabricated). Task 3 adds
++ *          the 4-scope board switcher (C-14/WHARTON/GLOBAL/SCHOOLS):
++ *          `boardScope` + `selectBoard(_:)` lazily loads + caches
++ *          school/global/schools boards (C-14 stays eager from `load()`) and
++ *          exposes the per-scope head/note/foot copy + percentile/decimal
++ *          formatting `GauntletBoard` reads.
+  * Inputs: GauntletService/BoardService (default APIClient.shared).
+- * Outputs: POST-free reads only (Task 2 never submits the gauntlet).
+- * Run: owned by DrillsView; call load() from .task.
++ * Outputs: POST-free reads only (Task 2/3 never submit the gauntlet).
++ * Run: owned by DrillsView (via GauntletBoard); call load() from .task.
+  */
+ 
+ import Foundation
+ import Observation
+ 
+ @Observable
+ @MainActor
+ final class DrillsViewModel {
+@@ -40,25 +45,38 @@ final class DrillsViewModel {
+         self.gauntletService = gauntletService
+         self.boardService = boardService
+         self.isFixtureBacked = false
+     }
+ 
+     #if DEBUG
+     /// Screenshot-only: injects fixture data instead of hitting the network
+     /// (mirrors HomeViewModel's fixture init). `load()` is a deliberate no-op
+-    /// on this instance.
+-    init(fixtureGauntlet: Gauntlet, fixtureTrends: GauntletTrends, fixtureBoard: GroupBoard) {
++    /// on this instance. `boardScope` presets the active scope chip (Task 3
++    /// `-F7Board` hatch); the three optional board fixtures pre-populate the
++    /// scope caches so `GauntletBoard` never triggers `selectBoard(_:)`'s
++    /// network path on a fixture-backed VM (which would `fatalError` via
++    /// `NeverCalledDrillsService`) — a tap on any chip just reads an
++    /// already-cached scope.
++    init(fixtureGauntlet: Gauntlet, fixtureTrends: GauntletTrends, fixtureBoard: GroupBoard,
++         boardScope: BoardScope = .c14,
++         fixtureSchoolBoard: SchoolBoard? = nil,
++         fixtureGlobalBoard: GlobalBoard? = nil,
++         fixtureSchoolsBoard: SchoolsBoard? = nil) {
+         let never = NeverCalledDrillsService()
+         self.gauntletService = never
+         self.boardService = never
+         self.isFixtureBacked = true
+         self.gauntlet = fixtureGauntlet
+         self.trends = fixtureTrends
+         self.board = fixtureBoard
++        self.boardScope = boardScope
++        self.schoolBoard = fixtureSchoolBoard
++        self.globalBoard = fixtureGlobalBoard
++        self.schoolsBoard = fixtureSchoolsBoard
+     }
+     #endif
+ 
+     func load() async {
+         guard !isFixtureBacked else { return }
+         errorMessage = nil
+         do {
+             async let g = gauntletService.gauntlet()
+@@ -176,16 +194,123 @@ final class DrillsViewModel {
+     /// the caller's rank+points for today's C-14 board, which is a unique
+     /// key into `entries`. Pre-submission there's no result, so no row is
+     /// highlighted (honest: we have no other signal for "you" in the board).
+     func isYourRow(_ entry: BoardEntry) -> Bool {
+         guard let group = gauntlet?.result?.group else { return false }
+         return entry.rank == group.rank && entry.points == group.points
+     }
+ 
++    // MARK: - Board scope switcher (Task 3 — C-14/WHARTON/GLOBAL/SCHOOLS)
++
++    /// The four board scopes (canvas 5b chips `C-14` `WHARTON` `GLOBAL`
++    /// `SCHOOLS`). C-14 = `scope=group` (loaded eagerly by `load()`); the
++    /// other three are lazily fetched + cached on first `selectBoard(_:)`.
++    enum BoardScope: CaseIterable {
++        case c14, wharton, global, schools
++
++        var chipLabel: String {
++            switch self {
++            case .c14: return "C-14"
++            case .wharton: return "WHARTON"
++            case .global: return "GLOBAL"
++            case .schools: return "SCHOOLS"
++            }
++        }
++    }
++
++    private(set) var boardScope: BoardScope = .c14
++    private(set) var schoolBoard: SchoolBoard?
++    private(set) var globalBoard: GlobalBoard?
++    private(set) var schoolsBoard: SchoolsBoard?
++    var boardErrorMessage: String?
++
++    /// Switches the active scope and lazily loads + caches that scope's
++    /// payload (a repeat select of an already-cached scope makes no network
++    /// call — the "loader called once per scope" invariant tests assert).
++    /// SCHOOLS also ensures `schoolBoard` is cached: B8's schools-vs-schools
++    /// list carries no per-row "is this yours" flag, so identifying "yours"
++    /// needs the caller's own school id, which only `scope=school` exposes
++    /// (that IS "your school" per the B8 Interfaces contract) — an honest
++    /// dependency, not a fabrication, and idempotent like every other cache.
++    func selectBoard(_ scope: BoardScope) async {
++        boardScope = scope
++        boardErrorMessage = nil
++        do {
++            switch scope {
++            case .c14:
++                break
++            case .wharton:
++                if schoolBoard == nil { schoolBoard = try await boardService.schoolBoard() }
++            case .global:
++                if globalBoard == nil { globalBoard = try await boardService.globalBoard() }
++            case .schools:
++                if schoolBoard == nil { schoolBoard = try await boardService.schoolBoard() }
++                if schoolsBoard == nil { schoolsBoard = try await boardService.schoolsBoard() }
++            }
++        } catch {
++            boardErrorMessage = "Couldn't load board."
++        }
++    }
++
++    /// Graceful ordinal for a possibly-nil percentile (WHARTON's "YOUR
++    /// STANDING" row, GLOBAL's percentile hero) — nil → "—", never a crash
++    /// or a fabricated number.
++    func percentileLabel(_ percentile: Double?) -> String {
++        guard let percentile else { return "—" }
++        return Self.ordinal(Int(percentile.rounded()))
++    }
++
++    /// 1dp average — SCHOOLS/WHARTON's `avgMemberPercentile` is a population
++    /// average, not a personal rank, so it renders as a plain decimal
++    /// ("69.8"), never run through `ordinal(_:)`.
++    static func decimal1(_ value: Double) -> String {
++        String(format: "%.1f", value)
++    }
++
++    /// SCHOOLS-list "yours" highlight — matched by school id against the
++    /// caller's own school (from the cached `scope=school` board, per the
++    /// selectBoard(.schools) dependency documented above).
++    func isYourSchool(_ card: SchoolCard) -> Bool {
++        guard let mine = schoolBoard?.school?.schoolId else { return false }
++        return card.schoolId == mine
++    }
++
++    // MARK: - Per-scope head/note/foot copy (canvas tablet DC dScope logic,
++    // verbatim; WEEK numbers are computed via `isoWeek`, not hardcoded, so
++    // they never go stale — the rendered text matches the canvas literal for
++    // any date the canvas's "WEEK 29" applies to).
++
++    var currentBoardHead: String {
++        switch boardScope {
++        case .c14: return boardHead
++        case .wharton: return "THE WHARTON SCHOOL — WEEK \(Self.isoWeek(for: Date()))"
++        case .global: return "ALL PLAYERS — TODAY"
++        case .schools: return "SCHOOL VS SCHOOL — WEEK \(Self.isoWeek(for: Date()))"
++        }
++    }
++
++    var currentBoardNote: String? {
++        switch boardScope {
++        case .c14: return boardNote
++        case .wharton: return "BY WEEKLY PERCENTILE"
++        case .global: return "BY PERCENTILE"
++        case .schools: return "AVG MEMBER PERCENTILE"
++        }
++    }
++
++    var currentBoardFoot: String {
++        switch boardScope {
++        case .c14: return "Drill percentiles are public. Session grades stay private."
++        case .wharton: return "Standing among verified Wharton members, by percentile. Head-counts stay private."
++        case .global: return "Everyone who ran today's gauntlet, placed by percentile — never a head-count."
++        case .schools: return "The average of member percentiles — never a head-count. Carry your school."
++        }
++    }
++
+     // MARK: - Ordinal helper ("1ST".."66TH", shared with the board rows)
+ 
+     static func ordinal(_ n: Int) -> String {
+         let mod100 = n % 100
+         let suffix: String
+         if (11...13).contains(mod100) {
+             suffix = "TH"
+         } else {
+diff --git a/ios/CaseRoom/Views/DrillsView.swift b/ios/CaseRoom/Views/DrillsView.swift
+index 638afa6..878b38e 100644
+--- a/ios/CaseRoom/Views/DrillsView.swift
++++ b/ios/CaseRoom/Views/DrillsView.swift
+@@ -1,15 +1,16 @@
+ /*
+  * Purpose: Drills hub — canvas 5b `dIsHub` (phone, .compact CANON for Task 2):
+  *          the ONE glass gauntlet hero (six-types grid, DAY N, begin/see-result,
+  *          RESETS footer + submitted percentile), the 16-bar 4-week trend (I2
+  *          deviation: rendered from raw daily score, not a daily-percentile
+- *          series — see DrillsViewModel), and the C-14 group board (Task 3
+- *          adds the WHARTON/GLOBAL/SCHOOLS scope switcher over `boardsSection`).
++ *          series — see DrillsViewModel), and the scoped board (Task 3:
++ *          `boardsSection` mounts `GauntletBoard`, the C-14/WHARTON/GLOBAL/
++ *          SCHOOLS scope switcher).
+  * Inputs: DrillsViewModel (injectable; DEBUG fixture init for shots).
+  * Outputs: none (navigation via AppRouter.shared).
+  * Run: mounted by RootShell for DSTab.drills.
+  */
+ 
+ import SwiftUI
+ 
+ struct DrillsView: View {
+@@ -168,80 +169,21 @@ struct DrillsView: View {
+                     .tracking(0.12 * 8.5)
+                     .tabularNumbers()
+                     .foregroundStyle(index == viewModel.weekLabels.count - 1 ? palette.muted : palette.faint)
+                 if index < viewModel.weekLabels.count - 1 { Spacer() }
+             }
+         }
+     }
+ 
+-    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 2 ships
+-    // the complete C-14 group scope; `boardsSection` is the structural seam
+-    // Task 3 replaces with the 4-scope switcher.
++    // MARK: - 3. BOARD — flat, hairline-top (canvas 5b 949-983). Task 3: the
++    // 4-scope switcher (C-14/WHARTON/GLOBAL/SCHOOLS) lives in GauntletBoard.
+ 
+     private var boardsSection: some View {
+-        VStack(alignment: .leading, spacing: 8) {
+-            HStack(alignment: .firstTextBaseline) {
+-                Text(viewModel.boardHead).dsText(.kicker).foregroundStyle(palette.muted)
+-                Spacer()
+-                if let note = viewModel.boardNote {
+-                    Text(note).font(.archivo(9, weight: 600)).tracking(0.1 * 9)
+-                        .tabularNumbers().foregroundStyle(palette.muted)
+-                }
+-            }
+-            boardRows
+-            Text("Drill percentiles are public. Session grades stay private.")
+-                .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
+-                .padding(.top, 10)
+-        }
+-        .padding(.top, 13)
+-        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+-    }
+-
+-    private var boardRows: some View {
+-        VStack(spacing: 0) {
+-            ForEach(viewModel.board?.entries ?? []) { entry in
+-                if entry.rank == 6 {
+-                    topFiveDivider
+-                }
+-                boardRow(entry)
+-            }
+-        }
+-        .padding(.top, 8)
+-    }
+-
+-    private var topFiveDivider: some View {
+-        HStack(spacing: 8) {
+-            Rectangle().fill(palette.hairline).frame(height: 1)
+-            Text("TOP FIVE ADVANCE").font(.archivo(8, weight: 600)).tracking(0.15 * 8)
+-                .foregroundStyle(palette.muted)
+-            Rectangle().fill(palette.hairline).frame(height: 1)
+-        }
+-        .padding(.vertical, 5)
+-    }
+-
+-    private func boardRow(_ entry: BoardEntry) -> some View {
+-        let isYou = viewModel.isYourRow(entry)
+-        return HStack(spacing: 8) {
+-            Text("\(entry.rank)")
+-                .font(.archivo(12.5, weight: 800)).tabularNumbers()
+-                .foregroundStyle(palette.ink)
+-                .frame(width: 28, alignment: .leading)
+-            Text(entry.displayName)
+-                .font(.archivo(13, weight: isYou ? 700 : 400))
+-                .foregroundStyle(palette.ink)
+-                .lineLimit(1).truncationMode(.tail)
+-                .frame(maxWidth: .infinity, alignment: .leading)
+-            Text("\(entry.points)")
+-                .font(.archivo(13, weight: 700)).tabularNumbers()
+-                .foregroundStyle(palette.ink)
+-        }
+-        .padding(.horizontal, 4).padding(.vertical, 11)
+-        .background(isYou ? palette.surface.opacity(0.55) : Color.clear)
+-        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++        GauntletBoard(viewModel: viewModel)
+     }
+ }
+ 
+ #if DEBUG
+ /// Screenshot/preview-only fixture (the July-16 phone persona, submitted):
+ /// streak 12, gauntlet result dailyPercentile 66, C-14 rank 6 / 8 behind №5,
+ /// 16 days of upward-trending daily scores, the same C-14 board HomeView's
+ /// fixture uses (Amara rank 6).
+@@ -284,16 +226,46 @@ enum PreviewDrillsFixture {
+             BoardEntry(userId: 13, displayName: "S. Park", photoKey: nil, points: 350, rank: 4, streak: 14),
+             BoardEntry(userId: 14, displayName: "T. Becker", photoKey: nil, points: 339, rank: 5, streak: 13),
+             BoardEntry(userId: 1, displayName: "Amara Osei", photoKey: nil, points: 331, rank: 6, streak: 12),
+             BoardEntry(userId: 15, displayName: "J. Silva", photoKey: nil, points: 320, rank: 7, streak: 11),
+             BoardEntry(userId: 16, displayName: "M. Lindqvist", photoKey: nil, points: 310, rank: 8, streak: 9),
+             BoardEntry(userId: 17, displayName: "A. Kim", photoKey: nil, points: 300, rank: 9, streak: 7),
+             BoardEntry(userId: 18, displayName: "D. Ortiz", photoKey: nil, points: 290, rank: 10, streak: 5),
+         ])
++
++    // Task 3 scope fixtures (the canvas tablet DC board literals, §"Board
++    // reality vs canvas" — schoolId 1 shared between `schoolBoard` and the
++    // `schoolsBoard` Wharton row so `isYourSchool(_:)` highlights it).
++    static let schoolBoard = SchoolBoard(
++        scope: "school",
++        school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++        yourPercentile: 88)
++
++    static let globalBoard = GlobalBoard(scope: "global", yourPercentile: 66)
++
++    static let schoolsBoard = SchoolsBoard(
++        scope: "schools",
++        schools: [
++            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
++            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
++            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
++        ])
++
++    /// `-F7Board <c14|wharton|global|schools>` → the matching scope; any
++    /// other/absent value defaults to `.c14` (the existing screenshot).
++    static func scope(for raw: String?) -> DrillsViewModel.BoardScope {
++        switch raw {
++        case "wharton": return .wharton
++        case "global": return .global
++        case "schools": return .schools
++        default: return .c14
++        }
++    }
+ }
+ 
+ #Preview {
+     DrillsView(viewModel: .init(
+         fixtureGauntlet: PreviewDrillsFixture.gauntlet,
+         fixtureTrends: PreviewDrillsFixture.trends,
+         fixtureBoard: PreviewDrillsFixture.board))
+ }
+diff --git a/ios/CaseRoom/Views/GauntletBoard.swift b/ios/CaseRoom/Views/GauntletBoard.swift
+new file mode 100644
+index 0000000..8abeebc
+--- /dev/null
++++ b/ios/CaseRoom/Views/GauntletBoard.swift
+@@ -0,0 +1,234 @@
++/*
++ * Purpose: The Drills hub's scoped leaderboard (canvas 5b 949-983 / tablet DC
++ *          dScope 0-3 logic) — chips `C-14` `WHARTON` `GLOBAL` `SCHOOLS`
++ *          (active = ink underline, inactive = faint no-underline), the
++ *          head+note kickers, the per-scope body, and a serif foot line.
++ *          Honors the "board reality vs canvas" deviation (bgap-b8-report
++ *          "Interfaces delivered"): B8 exposes a literal per-member rank+
++ *          points list ONLY for scope=group (C-14). scope=school/global
++ *          return the caller's OWN percentile (a single value), not a
++ *          member list; scope=schools returns the school-vs-school
++ *          avg-percentile list. The canvas's WHARTON/GLOBAL per-member lists
++ *          are aspirational — this view never fabricates one. Every ranking
++ *          is percentile or literal-cohort-rank; no view path here renders a
++ *          count/"of N" (delta §0.2).
++ * Inputs: DrillsViewModel (scope state + the 4 board caches + copy/format
++ *         helpers).
++ * Outputs: none (scope taps call `viewModel.selectBoard(_:)`).
++ * Run: mounted by DrillsView as `boardsSection`.
++ */
++
++import SwiftUI
++
++struct GauntletBoard: View {
++    @Environment(\.dsPalette) private var palette
++    let viewModel: DrillsViewModel
++
++    var body: some View {
++        VStack(alignment: .leading, spacing: 8) {
++            headNoteRow
++            chipsRow
++            scopeBody
++                .padding(.top, 8)
++            Text(viewModel.currentBoardFoot)
++                .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
++                .padding(.top, 10)
++        }
++        .padding(.top, 13)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
++    }
++
++    // MARK: - Head/note kickers + scope chips (canvas 5b 952-961)
++
++    private var headNoteRow: some View {
++        HStack(alignment: .firstTextBaseline) {
++            Text(viewModel.currentBoardHead).dsText(.kicker).foregroundStyle(palette.muted)
++            Spacer()
++            if let note = viewModel.currentBoardNote {
++                Text(note).font(.archivo(9, weight: 600)).tracking(0.1 * 9)
++                    .tabularNumbers().foregroundStyle(palette.muted)
++            }
++        }
++    }
++
++    private var chipsRow: some View {
++        HStack(spacing: 16) {
++            ForEach(DrillsViewModel.BoardScope.allCases, id: \.self) { scope in
++                chipButton(scope)
++            }
++        }
++        .padding(.bottom, 9)
++        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .bottom)
++    }
++
++    /// Active = ink, weight-600, underline. Inactive = `palette.faint`
++    /// (#A9B4C4, owner-locked token), no underline — canvas 5b line 959.
++    private func chipButton(_ scope: DrillsViewModel.BoardScope) -> some View {
++        let isActive = viewModel.boardScope == scope
++        return Button {
++            Task { await viewModel.selectBoard(scope) }
++        } label: {
++            Text(scope.chipLabel)
++                .font(.archivo(10.5, weight: 600))
++                .tracking(0.1 * 10.5)
++                .foregroundStyle(isActive ? palette.ink : palette.faint)
++                .underline(isActive)
++        }
++        .buttonStyle(.plain)
++    }
++
++    @ViewBuilder
++    private var scopeBody: some View {
++        switch viewModel.boardScope {
++        case .c14: c14Body
++        case .wharton: whartonBody
++        case .global: globalBody
++        case .schools: schoolsBody
++        }
++    }
++
++    // MARK: - C-14 (group) — literal rank+points list, unchanged from Task 2:
++    // TOP FIVE ADVANCE divider before rank 6, your row highlighted.
++
++    private var c14Body: some View {
++        VStack(spacing: 0) {
++            ForEach(viewModel.board?.entries ?? []) { entry in
++                if entry.rank == 6 {
++                    topFiveDivider
++                }
++                c14Row(entry)
++            }
++        }
++    }
++
++    private var topFiveDivider: some View {
++        HStack(spacing: 8) {
++            Rectangle().fill(palette.hairline).frame(height: 1)
++            Text("TOP FIVE ADVANCE").font(.archivo(8, weight: 600)).tracking(0.15 * 8)
++                .foregroundStyle(palette.muted)
++            Rectangle().fill(palette.hairline).frame(height: 1)
++        }
++        .padding(.vertical, 5)
++    }
++
++    // `BoardEntry` has no `sub` field (canvas `Sloan`/`Booth`) — renders
++    // blank, a documented deviation (no fiction); per-row `delta` is
++    // similarly omitted (no field on the wire).
++    private func c14Row(_ entry: BoardEntry) -> some View {
++        let isYou = viewModel.isYourRow(entry)
++        return HStack(spacing: 8) {
++            Text("\(entry.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            Text(entry.displayName)
++                .font(.archivo(13, weight: isYou ? 700 : 400))
++                .foregroundStyle(palette.ink)
++                .lineLimit(1).truncationMode(.tail)
++                .frame(maxWidth: .infinity, alignment: .leading)
++            Text("\(entry.points)")
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(isYou ? palette.surface.opacity(0.55) : Color.clear)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++
++    // MARK: - WHARTON (school) — the school card + a single YOUR STANDING
++    // row. NO fabricated member list (B8 gives no per-member school data).
++
++    private var whartonBody: some View {
++        VStack(alignment: .leading, spacing: 0) {
++            if let school = viewModel.schoolBoard?.school {
++                whartonCard(school)
++            } else {
++                Text("No school on file.").dsText(.meta).foregroundStyle(palette.muted)
++                    .padding(.vertical, 11)
++            }
++            yourStandingRow
++        }
++    }
++
++    private func whartonCard(_ school: SchoolCard) -> some View {
++        HStack(spacing: 8) {
++            Text("\(school.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            VStack(alignment: .leading, spacing: 1) {
++                Text(school.name).font(.archivo(13, weight: 700)).foregroundStyle(palette.ink)
++                Text(school.campusCity).font(.archivo(10.5, weight: 400)).foregroundStyle(palette.muted)
++            }
++            .frame(maxWidth: .infinity, alignment: .leading)
++            Text(DrillsViewModel.decimal1(school.avgMemberPercentile))
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++
++    // Highlighted (surface glass bg, weight 700) — ink, not green (greens
++    // budget: the hub already spends its 3).
++    private var yourStandingRow: some View {
++        HStack(spacing: 8) {
++            Text("YOUR STANDING").font(.archivo(10, weight: 600)).tracking(0.12 * 10)
++                .foregroundStyle(palette.muted)
++            Spacer()
++            Text(viewModel.percentileLabel(viewModel.schoolBoard?.yourPercentile))
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(palette.surface.opacity(0.55))
++    }
++
++    // MARK: - GLOBAL — a single percentile hero. Ink, never green (greens
++    // budget); graceful nil → "—" (cold start / no scored history yet).
++
++    private var globalBody: some View {
++        Text(viewModel.percentileLabel(viewModel.globalBoard?.yourPercentile))
++            .font(.archivo(40, weight: 800)).tabularNumbers()
++            .foregroundStyle(palette.ink)
++            .frame(maxWidth: .infinity)
++            .padding(.vertical, 18)
++    }
++
++    // MARK: - SCHOOLS — school-vs-school avg-percentile list, your school
++    // highlighted "· yours" (matched by school id, ink weight 700 — not
++    // green).
++
++    private var schoolsBody: some View {
++        VStack(spacing: 0) {
++            ForEach(viewModel.schoolsBoard?.schools ?? []) { school in
++                schoolsRow(school)
++            }
++        }
++    }
++
++    private func schoolsRow(_ school: SchoolCard) -> some View {
++        let isYours = viewModel.isYourSchool(school)
++        return HStack(spacing: 8) {
++            Text("\(school.rank)")
++                .font(.archivo(12.5, weight: 800)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++                .frame(width: 28, alignment: .leading)
++            HStack(spacing: 4) {
++                Text(school.name).font(.archivo(13, weight: isYours ? 700 : 400))
++                    .foregroundStyle(palette.ink)
++                Text("· \(school.campusCity)\(isYours ? " · yours" : "")")
++                    .font(.archivo(10.5, weight: 400))
++                    .foregroundStyle(palette.muted)
++            }
++            .lineLimit(1)
++            .frame(maxWidth: .infinity, alignment: .leading)
++            Text(DrillsViewModel.decimal1(school.avgMemberPercentile))
++                .font(.archivo(13, weight: 700)).tabularNumbers()
++                .foregroundStyle(palette.ink)
++        }
++        .padding(.horizontal, 4).padding(.vertical, 11)
++        .background(isYours ? palette.surface.opacity(0.55) : Color.clear)
++        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
++    }
++}
+diff --git a/ios/CaseRoomTests/DrillsViewModelTests.swift b/ios/CaseRoomTests/DrillsViewModelTests.swift
+index 0d503d8..d4bdb55 100644
+--- a/ios/CaseRoomTests/DrillsViewModelTests.swift
++++ b/ios/CaseRoomTests/DrillsViewModelTests.swift
+@@ -1,14 +1,19 @@
+ /*
+  * Purpose: Unit tests for DrillsViewModel — streakDay/submitted/beginLabel/
+  *          hubPercentileLabel for submitted vs not-submitted gauntlets,
+  *          16-bar trend derivation (left-pad when <16 points, last bar
+- *          green), week-label suffix gating, the ordinal helper, and the
+- *          C-14 board note derivation from group.pointsBehindNext.
++ *          green), week-label suffix gating, the ordinal helper, the C-14
++ *          board note derivation from group.pointsBehindNext, and (Task 3)
++ *          the scope switcher: selectBoard(_:) lazily loads + caches each of
++ *          WHARTON/GLOBAL/SCHOOLS exactly once, WHARTON exposes the school
++ *          card + ordinal yourPercentile, GLOBAL's nil yourPercentile → "—",
++ *          SCHOOLS marks the caller's own school "yours", and percentile/
++ *          decimal copy formatting (66.0 → "66TH"; avg 69.8 → "69.8").
+  * Inputs: fake Gauntlet/Board services (no live network).
+  * Outputs: none.
+  * Run: xcodebuild -project CaseRoom.xcodeproj -scheme CaseRoom -destination 'platform=iOS Simulator,name=iPhone 17' test
+  */
+ 
+ import XCTest
+ @testable import CaseRoom
+ 
+@@ -121,16 +126,132 @@ final class DrillsViewModelTests: XCTestCase {
+     func testBoardEntriesExposedFromGroupBoard() async {
+         let vm = DrillsViewModel(
+             gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
+             boardService: FakeDrillsBoardService(board: .fixture))
+         await vm.load()
+         XCTAssertEqual(vm.board?.entries.count, 10)
+         XCTAssertEqual(vm.board?.group?.name, "C-14")
+     }
++
++    // MARK: - Board scope switcher (Task 3 — C-14/WHARTON/GLOBAL/SCHOOLS)
++
++    private func makeScopeVM(boardService: FakeCountingBoardService = FakeCountingBoardService()) async -> DrillsViewModel {
++        let vm = DrillsViewModel(
++            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
++            boardService: boardService)
++        await vm.load()
++        return vm
++    }
++
++    func testSelectBoardSwitchesScope() async {
++        let vm = await makeScopeVM()
++        XCTAssertEqual(vm.boardScope, .c14)
++        await vm.selectBoard(.wharton)
++        XCTAssertEqual(vm.boardScope, .wharton)
++        await vm.selectBoard(.global)
++        XCTAssertEqual(vm.boardScope, .global)
++        await vm.selectBoard(.schools)
++        XCTAssertEqual(vm.boardScope, .schools)
++        await vm.selectBoard(.c14)
++        XCTAssertEqual(vm.boardScope, .c14)
++    }
++
++    func testSelectBoardCachesWhartonLoaderCalledOnce() async {
++        let boardService = FakeCountingBoardService()
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.wharton)
++        await vm.selectBoard(.wharton)
++        await vm.selectBoard(.c14)
++        await vm.selectBoard(.wharton)
++        XCTAssertEqual(boardService.schoolBoardCallCount, 1)
++    }
++
++    func testSelectBoardCachesGlobalLoaderCalledOnce() async {
++        let boardService = FakeCountingBoardService()
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.global)
++        await vm.selectBoard(.global)
++        XCTAssertEqual(boardService.globalBoardCallCount, 1)
++    }
++
++    func testSelectBoardCachesSchoolsLoaderCalledOnce() async {
++        let boardService = FakeCountingBoardService()
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.schools)
++        await vm.selectBoard(.schools)
++        // SCHOOLS also needs the caller's own school (to mark "yours"), an
++        // honest dependency on scope=school — also cached, called once.
++        XCTAssertEqual(boardService.schoolsBoardCallCount, 1)
++        XCTAssertEqual(boardService.schoolBoardCallCount, 1)
++    }
++
++    func testWhartonExposesSchoolCardAndYourStandingOrdinal() async {
++        let vm = await makeScopeVM()
++        await vm.selectBoard(.wharton)
++        XCTAssertEqual(vm.schoolBoard?.school?.name, "Wharton")
++        XCTAssertEqual(vm.schoolBoard?.school?.campusCity, "Philadelphia")
++        XCTAssertEqual(vm.schoolBoard?.school?.rank, 2)
++        XCTAssertEqual(vm.percentileLabel(vm.schoolBoard?.yourPercentile), "88TH")
++    }
++
++    func testGlobalYourPercentileOrdinal() async {
++        let vm = await makeScopeVM()
++        await vm.selectBoard(.global)
++        XCTAssertEqual(vm.percentileLabel(vm.globalBoard?.yourPercentile), "66TH")
++    }
++
++    func testGlobalNilYourPercentileRendersEmDash() async {
++        let boardService = FakeCountingBoardService(globalYourPercentile: nil)
++        let vm = await makeScopeVM(boardService: boardService)
++        await vm.selectBoard(.global)
++        XCTAssertNil(vm.globalBoard?.yourPercentile)
++        XCTAssertEqual(vm.percentileLabel(vm.globalBoard?.yourPercentile), "—")
++    }
++
++    func testSchoolsMarksYourSchool() async {
++        let vm = await makeScopeVM()
++        await vm.selectBoard(.schools)
++        let schools = vm.schoolsBoard?.schools ?? []
++        XCTAssertEqual(schools.count, 4)
++        let wharton = try! XCTUnwrap(schools.first { $0.name == "Wharton" })
++        let insead = try! XCTUnwrap(schools.first { $0.name == "INSEAD" })
++        XCTAssertTrue(vm.isYourSchool(wharton))
++        XCTAssertFalse(vm.isYourSchool(insead))
++    }
++
++    func testPercentileAndDecimalFormatting() async {
++        let vm = await makeScopeVM()
++        XCTAssertEqual(vm.percentileLabel(66.0), "66TH")
++        XCTAssertEqual(vm.percentileLabel(nil), "—")
++        XCTAssertEqual(DrillsViewModel.decimal1(69.8), "69.8")
++        XCTAssertEqual(DrillsViewModel.decimal1(71.4), "71.4")
++    }
++
++    func testCurrentBoardCopyPerScope() async {
++        let vm = await makeScopeVM()
++        // GLOBAL's head/note/foot carry no date, so assert exact equality.
++        await vm.selectBoard(.global)
++        XCTAssertEqual(vm.currentBoardHead, "ALL PLAYERS — TODAY")
++        XCTAssertEqual(vm.currentBoardNote, "BY PERCENTILE")
++        XCTAssertEqual(vm.currentBoardFoot, "Everyone who ran today's gauntlet, placed by percentile — never a head-count.")
++
++        // WHARTON/SCHOOLS heads carry a live ISO week number (matches C-14's
++        // existing `boardHead` pattern) — assert the fixed prefix, not the
++        // week number, so this test doesn't go stale after week 29.
++        await vm.selectBoard(.wharton)
++        XCTAssertTrue(vm.currentBoardHead.hasPrefix("THE WHARTON SCHOOL — WEEK "))
++        XCTAssertEqual(vm.currentBoardNote, "BY WEEKLY PERCENTILE")
++        XCTAssertEqual(vm.currentBoardFoot, "Standing among verified Wharton members, by percentile. Head-counts stay private.")
++
++        await vm.selectBoard(.schools)
++        XCTAssertTrue(vm.currentBoardHead.hasPrefix("SCHOOL VS SCHOOL — WEEK "))
++        XCTAssertEqual(vm.currentBoardNote, "AVG MEMBER PERCENTILE")
++        XCTAssertEqual(vm.currentBoardFoot, "The average of member percentiles — never a head-count. Carry your school.")
++    }
+ }
+ 
+ // MARK: - Fixtures + fakes
+ 
+ private extension Gauntlet {
+     static func fixture(submitted: Bool, streak: Int, dailyPercentile: Double? = nil,
+                          pointsBehindNext: Int? = nil, rank: Int = 6) -> Gauntlet {
+         let result: GauntletResult? = submitted
+@@ -211,8 +332,53 @@ private final class FakeDrillsGauntletService: GauntletService, @unchecked Senda
+ private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
+     let boardValue: GroupBoard
+     init(board: GroupBoard) { self.boardValue = board }
+     func groupBoard() async throws -> GroupBoard { boardValue }
+     func schoolBoard() async throws -> SchoolBoard { fatalError("Task 2 doesn't call schoolBoard()") }
+     func globalBoard() async throws -> GlobalBoard { fatalError("Task 2 doesn't call globalBoard()") }
+     func schoolsBoard() async throws -> SchoolsBoard { fatalError("Task 2 doesn't call schoolsBoard()") }
+ }
++
++// Task 3 — call-counting fake so `selectBoard(_:)`'s per-scope caching
++// (loader called once per scope, even across repeat selects) is directly
++// verifiable. `schoolBoardCallCount` also covers SCHOOLS' documented
++// dependency on scope=school (to know the caller's own school id). Fixture
++// values are the canvas tablet DC board literals: WHARTON Wharton/
++// Philadelphia/avg 69.8/rank 2/yourPercentile 88; SCHOOLS INSEAD 71.4 r1,
++// Wharton 69.8 r2 (schoolId 1, matches `schoolBoard.school` → "yours"),
++// LBS 68.9 r3, HBS 67.2 r4.
++private final class FakeCountingBoardService: BoardService, @unchecked Sendable {
++    private(set) var schoolBoardCallCount = 0
++    private(set) var globalBoardCallCount = 0
++    private(set) var schoolsBoardCallCount = 0
++
++    private let globalYourPercentile: Double?
++
++    init(globalYourPercentile: Double? = 66) {
++        self.globalYourPercentile = globalYourPercentile
++    }
++
++    func groupBoard() async throws -> GroupBoard { .fixture }
++
++    func schoolBoard() async throws -> SchoolBoard {
++        schoolBoardCallCount += 1
++        return SchoolBoard(
++            scope: "school",
++            school: SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++            yourPercentile: 88)
++    }
++
++    func globalBoard() async throws -> GlobalBoard {
++        globalBoardCallCount += 1
++        return GlobalBoard(scope: "global", yourPercentile: globalYourPercentile)
++    }
++
++    func schoolsBoard() async throws -> SchoolsBoard {
++        schoolsBoardCallCount += 1
++        return SchoolsBoard(scope: "schools", schools: [
++            SchoolCard(schoolId: 2, name: "INSEAD", campusCity: "Fontainebleau", avgMemberPercentile: 71.4, rank: 1),
++            SchoolCard(schoolId: 1, name: "Wharton", campusCity: "Philadelphia", avgMemberPercentile: 69.8, rank: 2),
++            SchoolCard(schoolId: 3, name: "LBS", campusCity: "London", avgMemberPercentile: 68.9, rank: 3),
++            SchoolCard(schoolId: 4, name: "HBS", campusCity: "Boston", avgMemberPercentile: 67.2, rank: 4),
++        ])
++    }
++}
