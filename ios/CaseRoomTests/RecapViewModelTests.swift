@@ -125,7 +125,9 @@ final class RecapViewModelTests: XCTestCase {
         await vm.loadReport()
 
         XCTAssertNil(vm.interviewerName)
-        XCTAssertEqual(vm.subline, "Feedback from Your interviewer")
+        // Name falls back, but the grade still comes from the report itself
+        // (recapItem?.grade ?? report?.grade), so the rating is never dropped.
+        XCTAssertEqual(vm.subline, "Feedback from Your interviewer · rated 4.1 / 5")
     }
 
     // MARK: - recapViewed on appear (candidate-only; swallow 409/403)

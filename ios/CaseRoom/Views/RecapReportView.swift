@@ -24,6 +24,9 @@ struct RecapReportView: View {
 
     @State private var model: RecapViewModel
     @Environment(\.dsPalette) private var palette
+    #if DEBUG
+    @State private var scrollToTailForShot = false  // -startRecap shot only
+    #endif
 
     init(sessionId: Int, flowService: SessionFlowService = APIClient.shared) {
         self.sessionId = sessionId
@@ -53,7 +56,15 @@ struct RecapReportView: View {
         // threshold (scrollBottom − 16) off its own scroll listener and clears the
         // gate via flowService.recapClose. This placeholder documents the seam.
         .overlay(alignment: .bottom) { EmptyView() /* T7: close-out sheet */ }
-        .task { await model.onAppear() }
+        .task {
+            await model.onAppear()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-startRecap") {
+                try? await Task.sleep(nanoseconds: 500_000_000)  // let the report lay out
+                scrollToTailForShot = true
+            }
+            #endif
+        }
     }
 
     // MARK: - Header (canvas 6b masthead bar)
@@ -81,25 +92,39 @@ struct RecapReportView: View {
     // MARK: - Scroll body
 
     private var scrollBody: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if model.report != nil {
-                    report
-                } else if model.loaded {
-                    unavailable
-                } else {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if model.report != nil {
+                        report
+                    } else if model.loaded {
+                        unavailable
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+                    }
+                    // Tail anchor (above the reserved bottom padding) so the
+                    // -startRecap shot can scroll the ATTACHED row into frame.
+                    Color.clear.frame(height: 1).id(Self.tailAnchor)
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 22)
+                // Generous bottom padding reserves room for T7's floating close-out
+                // sheet so the last content row is never hidden behind it (canvas 6b:
+                // the scroll pads 250px at the bottom for the sheet).
+                .padding(.bottom, 250)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 22)
-            // Generous bottom padding reserves room for T7's floating close-out
-            // sheet so the last content row is never hidden behind it (canvas 6b:
-            // the scroll pads 250px at the bottom for the sheet).
-            .padding(.bottom, 250)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            #if DEBUG
+            // Screenshot-only: -startRecap scrolls to the tail so the ATTACHED row
+            // is captured (the report is taller than one screen). Inert otherwise.
+            .onChange(of: scrollToTailForShot) { _, on in
+                if on { proxy.scrollTo(Self.tailAnchor, anchor: .bottom) }
+            }
+            #endif
         }
     }
+
+    private static let tailAnchor = "recap-tail"
 
     // MARK: - Report content
 
@@ -179,14 +204,9 @@ struct RecapReportView: View {
                 .foregroundStyle(palette.muted)
             HStack(spacing: 14) {
                 RecapStripedThumb(size: CGSize(width: 38, height: 48))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Full case PDF")
-                        .font(.archivo(13, weight: 600))
-                        .foregroundStyle(palette.ink)
-                    Text("The pack you cased from")
-                        .font(.archivo(11, weight: 400))
-                        .foregroundStyle(palette.muted)
-                }
+                Text("Full case PDF")
+                    .font(.archivo(13, weight: 600))
+                    .foregroundStyle(palette.ink)
                 Spacer()
                 Button {
                     // No recap PDF endpoint — "Open" dismisses the recap and pushes

@@ -125,7 +125,10 @@ final class RecapViewModel {
     var items: [FeedbackItem] { report?.items ?? [] }
     var paragraphs: [String] { RecapPresentation.paragraphs(report?.notesMd ?? "") }
     var itemNotes: [(label: String, note: String)] { RecapPresentation.itemNotes(items) }
-    var subline: String { RecapPresentation.subline(name: interviewerName, grade: recapItem?.grade) }
+    // Grade: prefer the recap-list row, fall back to the report's own grade
+    // (authoritative + always present post-finalize) so a recaps() miss never
+    // drops the "· rated X / 5" — mirrors the caseTitle report→recap fallback.
+    var subline: String { RecapPresentation.subline(name: interviewerName, grade: recapItem?.grade ?? report?.grade) }
     var dateKicker: String? { RecapPresentation.dateKicker(report?.finalizedAt) }
     var caseId: Int? { report?.caseId ?? recapItem?.caseId }
 
