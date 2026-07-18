@@ -12,6 +12,7 @@
  */
 
 #if DEBUG
+import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -140,6 +141,157 @@ enum SessionFixtures {
         vm.caseId = caseId
         return vm
     }
+
+    // MARK: - F5-T4 live screenshot fixtures (canvas 4a live + 4b exhibit open)
+
+    static let liveExhibitId = 501
+    static let liveCaseTitle = "Low-cost carrier enters the Nordic market"
+    static let liveKicker = "MARKET ENTRY · D4 · KELLOGG 2019"
+
+    /// A live, remote session row. Names match the takeover persona (Amara Osei
+    /// vs M. Lindqvist). Role varies for the candidate vs interviewer shot.
+    static func liveDetail(role: String) -> SessionDetail {
+        SessionDetail(
+            id: 4040, interviewerId: 16, candidateId: 1, caseId: 91,
+            state: "live", mode: "remote",
+            consentInterviewer: true, consentCandidate: true,
+            scheduledAt: nil, startedAt: nil, endedAt: nil,
+            interviewerName: "M. Lindqvist", candidateName: "Amara Osei",
+            caseTitle: liveCaseTitle, yourRole: role)
+    }
+
+    // Fixed key/nonce → a real AES-GCM ciphertext the untouched ExhibitCrypto
+    // decrypt path opens (exercises the reveal seam byte-for-byte, no server).
+    private static let liveKeyData = Data((0..<32).map { UInt8(($0 &* 7 &+ 11) & 0xFF) })
+    private static let liveIVData  = Data((0..<12).map { UInt8(($0 &* 5 &+ 3) & 0xFF) })
+    static let liveExhibitKeyB64 = liveKeyData.base64EncodedString()
+    static let liveExhibitIVB64  = liveIVData.base64EncodedString()
+
+    private static let liveExhibitJSON = """
+    {
+      "title": "Nordic domestic market — volumes & fares",
+      "releasedAt": "11:58",
+      "table": {
+        "columns": ["COUNTRY", "PAX / YR", "AVG FARE"],
+        "rows": [
+          { "cells": ["Norway", "6.1M", "€92"], "total": false },
+          { "cells": ["Sweden", "5.2M", "€97"], "total": false },
+          { "cells": ["Finland", "2.7M", "€99"], "total": false },
+          { "cells": ["Total", "14.0M", "€95"], "total": true }
+        ]
+      },
+      "bars": {
+        "title": "Competitor unit costs — € cents per seat-km",
+        "scaleMax": 7.0,
+        "items": [
+          { "label": "Skanwing", "value": 4.1, "highlight": true },
+          { "label": "NorAir", "value": 5.3, "highlight": false },
+          { "label": "FinnJet", "value": 6.0, "highlight": false }
+        ],
+        "footnote": "Rotate the phone to read a full-page exhibit."
+      }
+    }
+    """
+
+    static let liveExhibitPlaintext = Data(liveExhibitJSON.utf8)
+
+    /// ciphertext||tag, the layout ExhibitCrypto.decrypt expects.
+    static let liveExhibitBlob: Data = {
+        let sealed = try! AES.GCM.seal(
+            liveExhibitPlaintext,
+            using: SymmetricKey(data: liveKeyData),
+            nonce: try! AES.GCM.Nonce(data: liveIVData))
+        return sealed.ciphertext + sealed.tag
+    }()
+
+    static let liveExhibitMeta = ExhibitMeta(
+        exhibitId: liveExhibitId, idx: 0, sourcePages: "2",
+        width: 1200, height: 800, bytes: liveExhibitBlob.count, ivB64: liveExhibitIVB64)
+
+    /// The interviewer's live rubric — 4 dimensions (canvas debrief bars 8/6/8/7,
+    /// avg 7.2), so the ScoreCells strips and the running-average readout fill.
+    static let liveRubric = RubricState(
+        templateItems: [
+            RubricTemplateItem(id: "structure", label: "Structure", dimension: "structure", maxPoints: 10),
+            RubricTemplateItem(id: "quant", label: "Quant", dimension: "quant", maxPoints: 10),
+            RubricTemplateItem(id: "comm", label: "Communication", dimension: "comm", maxPoints: 10),
+            RubricTemplateItem(id: "synth", label: "Synthesis", dimension: "synth", maxPoints: 10),
+        ],
+        items: [
+            "structure": RubricItemScore(points: 8, note: "Clean issue tree, MECE branches"),
+            "quant": RubricItemScore(points: 6, note: "Sizing setup slow to land"),
+            "comm": RubricItemScore(points: 8, note: "Signposted well"),
+            "synth": RubricItemScore(points: 7, note: "So-what landed at the close"),
+        ],
+        notesMd: "Strong opener. Trust the sizing sooner.",
+        gradePreview: 7.2, grade: nil, finalizedAt: nil)
+
+    @MainActor static func liveExhibitsVM() -> ExhibitsViewModel {
+        ExhibitsViewModel(sessionId: 4040, service: LivePreviewSessionService(detail: liveDetail(role: "candidate")))
+    }
+
+    @MainActor static func liveRubricVM() -> RubricViewModel {
+        RubricViewModel(sessionId: 4040, service: LivePreviewSessionService(detail: liveDetail(role: "interviewer")))
+    }
+
+    /// Standalone candidate LIVE (canvas 4a/4b). Rendered directly — a live,
+    /// remote SessionView would auto-start real WebRTC on load, which the
+    /// simulator can't and this task must not touch; the reveal is instead
+    /// driven straight into the (unchanged) decrypt path after the view's own
+    /// load() has fetched the ciphertext. openExhibit=true → the 4b held-still
+    /// exhibit-open frame (no toast); false → CASE tab with the EX new-dot + toast.
+    @MainActor static func liveCandidateStandalone(openExhibit: Bool) -> some View {
+        LiveCandidateStandalone(viewModel: liveExhibitsVM(), openExhibit: openExhibit)
+    }
+
+    @MainActor static func liveInterviewerStandalone() -> some View {
+        InterviewerLiveView(viewModel: liveRubricVM(), peerName: "Amara Osei", showsInterviewerPane: true)
+    }
+}
+
+/// Drives the LIVE candidate shot: hands CandidateLiveView the shared VM, then
+/// (after its load fetches the ciphertext) reveals through the real decrypt seam.
+struct LiveCandidateStandalone: View {
+    let viewModel: ExhibitsViewModel
+    let openExhibit: Bool
+
+    var body: some View {
+        CandidateLiveView(
+            viewModel: viewModel,
+            caseTitle: SessionFixtures.liveCaseTitle,
+            caseKicker: SessionFixtures.liveKicker,
+            peerName: "M. Lindqvist",
+            showsInterviewerPane: true,
+            autoOpenOnReveal: openExhibit
+        )
+        .task {
+            // CandidateLiveView.task loads the manifest + blobs; give it a beat,
+            // then reveal (fixture key → ExhibitCrypto) so the shot has content.
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            viewModel.handleReveal(exhibitId: SessionFixtures.liveExhibitId, keyB64: SessionFixtures.liveExhibitKeyB64)
+        }
+    }
+}
+
+/// Stub SessionService for the live shots — serves the canned live row, the one
+/// Nordic exhibit (manifest + ciphertext), and the interviewer rubric; unused
+/// endpoints throw (never hit on the screenshot path).
+struct LivePreviewSessionService: SessionService {
+    enum StubError: Error { case unused }
+    let detail: SessionDetail
+
+    func sessionDetail(id: Int) async throws -> SessionDetail { detail }
+    func joinConfig(id: Int) async throws -> JoinConfig { throw StubError.unused }
+    func setConsent(id: Int, consent: Bool) async throws -> SessionDetail { detail }
+    func transition(id: Int, target: String) async throws -> SessionDetail { detail }
+    func rubric(id: Int) async throws -> RubricState { SessionFixtures.liveRubric }
+    func saveRubric(id: Int, items: [String: RubricItemScore], notesMd: String) async throws -> Double { SessionFixtures.liveRubric.gradePreview }
+    func reveal(id: Int, exhibitId: Int) async throws {}
+    func exhibits(id: Int) async throws -> [ExhibitMeta] { [SessionFixtures.liveExhibitMeta] }
+    func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data { SessionFixtures.liveExhibitBlob }
+    func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws {}
+    func completeRecording(id: Int) async throws {}
+    func finalize(id: Int, grade: Double?) async throws -> Finalized { throw StubError.unused }
 }
 
 /// Preview fixtures referenced by NegotiationView's #Preview blocks.

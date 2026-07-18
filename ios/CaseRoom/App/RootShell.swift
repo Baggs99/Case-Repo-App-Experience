@@ -191,7 +191,8 @@ struct RootShell: View {
         let args = ProcessInfo.processInfo.arguments
         if let idx = args.firstIndex(of: "-startTakeover") {
             // Optional variant token after -startTakeover: lobby (default, T2) |
-            // nego | negoInterviewer | negoKept (F5-T3).
+            // nego | negoInterviewer | negoKept (F5-T3) | live-candidate |
+            // live-candidate-exhibit | live-interviewer (F5-T4).
             let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
             switch variant {
             case "nego":
@@ -204,6 +205,12 @@ struct RootShell: View {
                             flowService: SessionFixtures.negoInterviewerFlow)
             case "negoKept":
                 SessionFixtures.negoKeptStandalone()
+            case "live-candidate":
+                SessionFixtures.liveCandidateStandalone(openExhibit: false)
+            case "live-candidate-exhibit":
+                SessionFixtures.liveCandidateStandalone(openExhibit: true)
+            case "live-interviewer":
+                SessionFixtures.liveInterviewerStandalone()
             default:
                 SessionView(sessionId: id, service: SessionFixtures.lobbyService,
                             signaling: SessionFixtures.lobbySignaling)

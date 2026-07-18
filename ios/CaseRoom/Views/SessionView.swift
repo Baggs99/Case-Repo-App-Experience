@@ -137,24 +137,18 @@ struct SessionView: View {
         }
     }
 
+    // MARK: - F5-T4 dark LIVE refit (canvas 4a/4b)
+    //
+    // The live role views own the dark clock header + the compact striped peer
+    // pane. On a remote session the real WebRTC surface (VideoCallView, restyled
+    // dark — its RTC representable untouched) mounts above once local capture is
+    // up; until then (and in the screenshot fixture, which never starts media)
+    // the role view's own striped pane stands in for the peer feed.
     @ViewBuilder
     private var liveContent: some View {
-        if viewModel.mode == "remote" {
-            remoteLiveContent
-        } else {
-            roleLiveContent
-        }
-    }
-
-    // Remote sessions: the video call is the primary surface, with the same
-    // role view (rubric or exhibits) still reachable underneath so the
-    // interviewer keeps scoring and the candidate keeps seeing exhibits
-    // during the call. Polish (e.g. a picture-in-picture layout) is a later
-    // pass.
-    @ViewBuilder
-    private var remoteLiveContent: some View {
+        let remoteVideoActive = viewModel.mode == "remote" && viewModel.localCapture != nil
         VStack(spacing: 0) {
-            if let localCapture = viewModel.localCapture {
+            if remoteVideoActive, let localCapture = viewModel.localCapture {
                 VideoCallView(
                     capture: localCapture,
                     remoteMediaSlot: RemoteMediaSlot(trackHandle: viewModel.remoteTrack),
@@ -163,34 +157,55 @@ struct SessionView: View {
                     onToggleVideo: { viewModel.toggleVideo() },
                     onToggleAudio: { viewModel.toggleAudio() }
                 )
-                .frame(height: 320)
-            } else if let mediaStartError = viewModel.mediaStartError {
-                ContentUnavailableView {
-                    Label(mediaStartError, systemImage: "video.slash")
-                } actions: {
-                    Button("Retry") {
-                        Task { await viewModel.retryStartMedia() }
-                    }
-                }
-                .frame(height: 320)
-            } else {
-                ProgressView()
-                    .frame(height: 320)
+                .frame(height: 300)
+            } else if viewModel.mode == "remote", let mediaStartError = viewModel.mediaStartError {
+                mediaRetry(mediaStartError)
             }
-            roleLiveContent
+            roleLiveContent(showsInterviewerPane: viewModel.mode == "remote" && !remoteVideoActive)
         }
     }
 
     @ViewBuilder
-    private var roleLiveContent: some View {
+    private func roleLiveContent(showsInterviewerPane: Bool) -> some View {
         if viewModel.role == "interviewer", let rubricViewModel {
-            InterviewerLiveView(viewModel: rubricViewModel)
+            InterviewerLiveView(
+                viewModel: rubricViewModel,
+                peerName: peerName,
+                showsInterviewerPane: showsInterviewerPane
+            )
         } else if viewModel.role == "candidate", let exhibitsViewModel {
-            CandidateLiveView(viewModel: exhibitsViewModel)
+            CandidateLiveView(
+                viewModel: exhibitsViewModel,
+                caseTitle: viewModel.caseTitle,
+                caseKicker: liveCaseKicker,
+                peerName: peerName,
+                showsInterviewerPane: showsInterviewerPane
+            )
         } else {
             ProgressView()
         }
     }
+
+    private func mediaRetry(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Text(message)
+                .dsText(.serif(14, italic: true))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Retry") { Task { await viewModel.retryStartMedia() } }
+        }
+        .padding()
+    }
+
+    /// The live peer name (the interviewer sees the candidate; vice versa).
+    private var peerName: String {
+        (viewModel.role == "interviewer" ? viewModel.candidateName : viewModel.interviewerName) ?? "Your peer"
+    }
+
+    /// Case kicker (type · difficulty · source). No production source exists yet
+    /// (not on SessionDetail), so the real live path shows none; the canvas 4a
+    /// kicker is supplied directly by the DEBUG standalone fixture shot.
+    private var liveCaseKicker: String? { nil }
 
     // Lazily builds the role-appropriate sub view model exactly once, and
     // (for the candidate) wires it as SessionViewModel's reveal target so an
