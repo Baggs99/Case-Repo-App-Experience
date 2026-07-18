@@ -8,7 +8,8 @@
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
  *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5),
- *         -OnbWelcome, -OnbEmail, -OnbPasscode, -OnbAccount (F9) — see the #if DEBUG blocks).
+ *         -OnbWelcome, -OnbEmail, -OnbPasscode, -OnbAccount, -OnbGroup, -OnbDone
+ *         (F9) — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -128,6 +129,19 @@ struct CaseRoomApp: App {
                 // VM.startOAuth (mock/fixture-proven — the live native round-trip
                 // is a documented Thomas follow-up, plan KNOWN UNCERTAINTIES #3).
                 OnboardingAccountView(viewModel: OnboardingFixtures.viewModel(step: .account))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbGroup") {
+                // Onboarding group-join (F9-T6) fixture hatch: STEP 4 OF 05,
+                // fixture VM parked at .group, pre-seeded with inviteCode
+                // "C14-XXXX" so the glass field is populated (simctl can't type).
+                // Proves the skippable affordance ("Skip for now" underline) beside
+                // the ink "Join" primary.
+                OnboardingGroupJoinView(viewModel: OnboardingFixtures.viewModel(step: .group))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbDone") {
+                // Onboarding done / "You're in." (F9-T6) fixture hatch: fixture VM
+                // parked at .done. Proves the celebratory full-drawn StaircaseMark
+                // + takeoverDisplay headline + ink "Enter". Terminal payoff — no
+                // Back and no STEP chrome (the big mark IS the fully-inked mark).
+                OnboardingDoneView(viewModel: OnboardingFixtures.viewModel(step: .done))
             } else {
                 rootView
             }
