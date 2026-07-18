@@ -9,9 +9,17 @@ Updated: 2026-07-18 · Branch: fe/f6-console · Worktree: /Users/thomaskgould/de
 - Sims: iPhone 17 942222D4 booted + mic granted (app/tests/xctest); iPad 653F37B8 idle (boot+grant per task); stray F4 iPhone shut.
 
 ## Now
-T1 done + approved. Dispatching T2 (phone console 8b).
+T1+T2 done + approved. Dispatching T3 (tablet hero 1a — chrome + left pane).
 
 ## Done
+- T2 phone console 8b (d53fe1c a6ecd82 3d50f18 2511478): InterviewerConsoleView (phone `.compact`
+  full; `.regular` interim=phone until T3) + SessionView repoint at liveContent level (rv#3, candidate
+  branch byte-identical, no 300h video wrapper) + `-startTakeover console-phone[-scored]` hatches +
+  real-shaped 5-dim fixture. iOS **694**/0. 2 shots (phone-console, phone-console-scored — SENT·mm:ss
+  frame). Opus review APPROVE-WITH-NITS (shots match 8b, light wins, tabular, rv#3 confirmed, reveal-
+  once proven). Nit dispositions: #1 hardcoded "OF 06"→fold into T3 (stages.count); #2 rounded F0
+  ScoreCells RATIFIED as canon (§6 pinned, F5-shipped); #3 no interviewer mute/self-view on phone =
+  owner-visual deviation (canvas-8b-faithful); #4 tablet branch → T3.
 - Plan (f0b5e5e): Opus plan-review REQUEST_CHANGES (2 blocking + 4 important + 5 nits) all folded.
 - T1 console foundation (fff3396, c15308d, +fix 3dcce80): ConsoleScript (7 tablet / 6 phone stages +
   dims name/desc map + 3 authored PDF pages, verbatim) + pure ConsoleViewModel (clocks, laps,
