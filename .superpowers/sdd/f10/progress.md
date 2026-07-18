@@ -44,3 +44,8 @@ Baseline: 655 passed (caserepo_fe_f10, seeded). Branch fe/f10-guestweb @ ae46fed
   Folded M1(case_type)/M2(grade assert)/M3(context). Two review minors fixed in dc9-commit:
   /saved default gates on isGuest; keep kicker not "FEEDBACK SENT" for aborted/missed.
 - Full backend suite: 671 passed (655 baseline + 16 F10). Green.
+- Whole-branch adversarial security review: NO Critical/Important. 3 non-exploitable minors.
+  Hardened tests: +cross-origin 403, +existing-guest re-claim 403 → 18 F10 tests.
+- Full suite: 673 passed (655 baseline + 18). Report written docs/superpowers/sdd/fe-f10-report.md.
+- Curl evidence: .superpowers/sdd/f10/curl-evidence.txt. Dev server killed (8110 free). DB rows cleaned.
+- STATUS: DONE.
