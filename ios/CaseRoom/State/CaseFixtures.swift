@@ -90,13 +90,17 @@ enum CaseFixtures {
     // free-right-now persona T3 already ships in GetCasedNowViewModel.fixture()
     // (S. Park · Wharton · 45 min free, J. Okafor · INSEAD · 20 min free) —
     // reused verbatim for continuity between the "Get cased now" sheet and the
-    // tray board sitting right next to it.
+    // tray board sitting right next to it. A third row (M. Diallo · LBS) is
+    // kept here deliberately (T6-M1 cleanup): a 3-row board is taller than the
+    // verb column, which is what exercises the divider spanning the taller of
+    // the two tray columns rather than the old hardcoded 104pt pin.
     static let liveNow: [FreeUser] = [
         FreeUser(userId: 501, name: "S. Park", freeUntil: Date().addingTimeInterval(45 * 60)),
         FreeUser(userId: 502, name: "J. Okafor", freeUntil: Date().addingTimeInterval(20 * 60)),
+        FreeUser(userId: 503, name: "M. Diallo", freeUntil: Date().addingTimeInterval(30 * 60)),
     ]
 
-    static let liveNowSchools: [Int: String] = [501: "Wharton", 502: "INSEAD"]
+    static let liveNowSchools: [Int: String] = [501: "Wharton", 502: "INSEAD", 503: "LBS"]
 
     private static func date(_ yyyyMMdd: String) -> Date {
         let formatter = DateFormatter()

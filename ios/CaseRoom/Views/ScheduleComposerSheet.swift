@@ -26,21 +26,28 @@ struct ScheduleComposerSheet: View {
     }
 
     var body: some View {
-        card
-            .padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 18)   // canvas 22px 20px 18px
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassSheet(cornerRadius: 34)                                       // §1 sheet recipe, canvas radius 34
-            .padding(.horizontal, 10)                                          // canvas left/right:10
-            .frame(maxHeight: .infinity, alignment: .bottom)                   // bottom-anchored card
-            .dsToast(item: toastBinding)
-            .presentationDetents([.height(560)])
-            .presentationBackground(.clear)                                    // the glass IS the background
-            .presentationDragIndicator(.hidden)
-            .task { await viewModel.load() }
-            // A successful send toasts "Proposal sent", then dismisses.
-            .onChange(of: viewModel.sent) { _, newValue in
-                if newValue { dismiss() }
-            }
+        // ScrollView wrap (T5-M3 fix): the fixed 560pt detent clips on shorter
+        // devices once "Pick a time" reveals the inline DatePicker row — scroll
+        // the card's content instead of growing the detent, so the sheet still
+        // reads as the bottom-anchored glass card at any content height.
+        ScrollView {
+            card
+                .padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 18)   // canvas 22px 20px 18px
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.hidden)
+        .glassSheet(cornerRadius: 34)                                       // §1 sheet recipe, canvas radius 34
+        .padding(.horizontal, 10)                                          // canvas left/right:10
+        .frame(maxHeight: .infinity, alignment: .bottom)                   // bottom-anchored card
+        .dsToast(item: toastBinding)
+        .presentationDetents([.height(560)])
+        .presentationBackground(.clear)                                    // the glass IS the background
+        .presentationDragIndicator(.hidden)
+        .task { await viewModel.load() }
+        // A successful send toasts "Proposal sent", then dismisses.
+        .onChange(of: viewModel.sent) { _, newValue in
+            if newValue { dismiss() }
+        }
     }
 
     // MARK: - Card content (flat)

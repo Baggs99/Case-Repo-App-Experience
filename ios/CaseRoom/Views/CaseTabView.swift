@@ -24,8 +24,9 @@
 
 import SwiftUI
 
-// MARK: - The verb-bar sheet seam (T3/T4/T5 replace CaseSheetPlaceholder's
-// body per sheet — the enum + `.sheet(item:)` wiring below is the stable seam).
+// MARK: - The verb-bar sheet seam — the enum + `.sheet(item:)` wiring below
+// is the stable seam; each case's real sheet body lives in its own file
+// (GetCasedNowSheet / CaseSomeoneSheet / ScheduleComposerSheet).
 enum CaseSheet: Identifiable, Hashable {
     case getCased, caseSomeone, schedule
 
@@ -373,21 +374,25 @@ struct CaseTabView: View {
     // recapGateCard below stays glass too (tablet 1b shows both; canvas §5's
     // "one glass hero" rule is a Part-I/phone rule).
 
-    // A bare `Rectangle()` with only `.frame(width:)` has no bounded height,
-    // so SwiftUI treats it as vertically flexible — inside an HStack that
-    // makes the WHOLE row (and the glassPanel behind it) report as flexible
-    // too, and it balloons to fill the tab's entire available height. Pin the
-    // divider to the verb column's own fixed height (its tallest sibling —
-    // 54pt ink button + 8pt spacing + 42pt glass row = 104) so the row — and
-    // the tray card around it — hugs its real content height instead.
-    private static let tabletVerbColumnHeight: CGFloat = 54 + 8 + 42
-
+    // T6-M1 fix: the divider used to be pinned to the verb column's own fixed
+    // 104pt height, so it stopped short whenever the LIVE-NOW board (3+ free
+    // users) ran taller. A bare `Rectangle()` with only `.frame(maxHeight:
+    // .infinity)` has no bounded height on its own, so inside a plain HStack
+    // that makes the WHOLE row (and the glassPanel behind it) report as
+    // vertically flexible — it balloons to fill the tab's entire available
+    // height (the original bug this 104pt pin worked around). `.fixedSize
+    // (horizontal: false, vertical: true)` on the HStack fixes that: it makes
+    // the row report its children's own ideal (hugging) height rather than
+    // accepting an unbounded proposal, so the row — and the tray card around
+    // it — still hugs its real content height, while `maxHeight: .infinity`
+    // now resolves to the TALLER of the two columns instead of a hardcoded one.
     private var tabletTrayHero: some View {
         HStack(alignment: .center, spacing: 18) {
             tabletVerbColumn
-            Rectangle().fill(palette.ink.opacity(0.12)).frame(width: 1, height: Self.tabletVerbColumnHeight)
+            Rectangle().fill(palette.ink.opacity(0.12)).frame(maxWidth: 1, maxHeight: .infinity)
             tabletLiveNowBoard
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 20).padding(.vertical, 18)
         .glassPanel(cornerRadius: 32)
     }
@@ -895,33 +900,6 @@ private extension View {
             .opacity(appeared ? 1 : 0)
             .offset(y: appeared ? 0 : 16)
             .animation(DSMotion.riseCurve.delay(delay), value: appeared)
-    }
-}
-
-/// The verb-bar sheet placeholder shell — T3/T4/T5 replace the body per
-/// their brief; the enum + `.sheet(item:)` seam in CaseTabView stays stable.
-private struct CaseSheetPlaceholder: View {
-    let kind: CaseSheet
-    @Environment(\.dsPalette) private var palette
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(kind.title).dsText(.cardTitle).foregroundStyle(palette.ink)
-            // MARK: T3/T4/T5 fills this — the real sheet body per its brief.
-            Text("Coming soon.")
-                .dsText(.serif(13.5, italic: true)).foregroundStyle(palette.muted)
-            Button { dismiss() } label: {
-                Text("Close").dsText(.actionLabel).underline().foregroundStyle(palette.muted)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSheet()
-        .padding(.horizontal, 14)
-        .presentationBackground(.clear)
-        .presentationDetents([.medium])
     }
 }
 

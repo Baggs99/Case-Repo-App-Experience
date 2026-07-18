@@ -18,8 +18,8 @@ import Foundation
 import Observation
 
 // The slice of the API the Case-someone sheet needs. APIClient conforms
-// trivially — proposals()/sessions(scope:)/pairClaim(token:) all live on the
-// actor (see APIClient.swift). pairClaim is the shared claim path, recap-gate
+// trivially — proposals()/sessions(scope:)/pairClaim(shortCode:) all live on
+// the actor (see APIClient.swift). pairClaim is the shared claim path, recap-gate
 // wired; interviewing is never gated, but blockedByRecap is caught defensively.
 protocol CaseSomeoneService {
     func proposals() async throws -> [Proposal]
