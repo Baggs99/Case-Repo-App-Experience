@@ -2,7 +2,8 @@
 Updated: 2026-07-17 · Branch: fe/f5-session · Base: 9cff198
 
 ## Now
-Bootstrap done + plan approved (after fixes). Starting task loop at T1.
+PHASE DONE. All 7 tasks + fixes shipped, reviewed, green. Report written. Branch NOT pushed (orchestrator merges).
+Final: iOS 587/0 (baseline 500), backend 655/0 (no backend edits). Head 6f443ae.
 
 ## Baselines (bootstrap gate PASSED)
 - Backend suite: 655 passed / 0 — `pytest tests/ -q` against caserepo_fe_f5 (seeded)
@@ -25,7 +26,7 @@ Bootstrap done + plan approved (after fixes). Starting task loop at T1.
 - [x] T5 Debrief refit light (Opus) — 93b108e; 557/0; Opus APPROVE. `.dsTheme(.light)` override wins over dark seam (verified in shots). DebriefViewModel + DebriefPresentation (13 tests). recapClose REQUIRED-gated. OWNER FLAGS: (a) candidate swap OMITTED per DV-B3-SWAP (design wants it, backend interviewer-only); (b) faint right-side glass ghosting on debrief shots — owner glance; (c) interviewer button "Finalize" vs canvas "finalize & send feedback". Schedule-next reuses ProposeNowView (case_id not threaded — v1).
 - [x] T6 Recap report page (Opus) — 2c413c8 + fix 88db738; 569/0; Opus APPROVE (re-reviewed). RecapReportView + RecapViewModel + RecapPresentation (11 tests). Wired `.recap` route: AppRouter.recapSessionID (additive) + go(to:.recap) + RootShell LIGHT fullScreenCover; AppRouterTests extended. T7 overlay seam left. Fixes: fabricated ATTACHED subtitle removed (canon 6b row), subline grade fallback report.grade. OWNER FLAG: header shows finalized date not "1 OF 1 UNREAD" (population-count avoidance).
 - [x] T7 Recap close-out sheet (Opus) — 46f9b9c; 583/0. RecapCloseOutSheet + RecapCloseOutViewModel + RecapCloseOutPresentation (14 tests: scroll-progress, bottom−16 unlock, required-rating gate, gate-clear + 409-as-cleared, defensive 422). Floats in T6's overlay seam; unlock observed via scroll PreferenceKey (offset+contentH) vs viewport GeometryReader. Shared ScoreCells (not forked). Thumbs = text "Worth it/Thin" (always sendable). DEBUG hatch `-startRecap locked|unlocked|cleared`; 3 shots. DEVIATION: cleared uses `.dsToast` "Gate cleared." + dismiss (brief-directed) instead of dc.html's full-screen done. Locked copy per Decisions §59 "Read to the end — N%".
-- [ ] Close-out: suites + adversarial review + report
+- [x] Close-out: iOS 587/0 + backend 655/0 (authoritative reruns); whole-branch adversarial Opus review = SHIP-WITH-FOLLOWUPS (all gates pass); 3 fixes folded (6f443ae: lobby-flash race, recap 409 parity, §5 square content card); report docs/superpowers/sdd/fe-f5-report.md; 13 phone shots; no dev server started; iPad sim shutdown.
 
 ## Blocked / decisions needed
 - none
