@@ -226,6 +226,32 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   t5-schedule.png. Deferred: orphan legacy PairViewModel/SessionsView
   gate-catch (inert, unmounted). FW5 remains open until F5 merges.
 
+- 2026-07-18 F5 → feature/backend-gap @ 81b0b79 (phase head a519698) + two
+  merge-fix commits. FOUR conflicts (CaseRoomApp docblock, RootShell hatch
+  guards ×2, router state, APIClient F3+F5 blocks) resolved keep-both, PLUS
+  the forecast semantic reconciliation: all recap entry points (gate-card
+  tap, 409 steering helper, Case-someone sheet) retargeted from F3's
+  casePath push → F5's recap cover (AppRouter.recapSessionID/go(.recap));
+  RecapGateStub + its navigationDestination DELETED; steering helper + 3
+  tests moved to the presentation-slot signature. One compile fix: F3 and
+  F5 both ship recaps() on APIClient (same endpoint, different models) —
+  test call annotated; RESIDUAL cleanup: unify RecapItem/RecapListItem +
+  the duplicate method behind one protocol. Fresh integration DB: backend
+  655; iOS FULL **668/0** (581+87 exact). §7 smoke PASS 5/5 (Case/Home/
+  Drills LIVE; dark takeover lobby + light recap report via sanctioned
+  fixture hatches). Crash sweep clean. **FW5 COMPLETE — session-flows demo
+  checkpoint READY for Thomas** (needs signing via ship). F5 owner-gates:
+  dark 4a/4b fidelity; debrief right-side glass ghosting; candidate-swap
+  omitted (canvas wants it, B3 forbids); F3's t5-schedule.png control.
+  F5 deferrals: candidate-counter case picker thin; Finalized case_id not
+  threaded to ProposeNowView; swapAccept service-only (F3 owns invitee UI;
+  its 409 must NOT route to .recap); tablet takeover/recap = phone layout
+  (Decisions §7.6 undesigned).
+
+- 2026-07-18 FW6 DISPATCHED: fe/f6-console (~/dev/fe-f6, DB caserepo_fe_f6,
+  port 8106, sims 942222D4 + iPad 653F37B8) — solo, largest phase, ALL
+  JUDGMENT (opus implementers). Watchdog re-armed.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
