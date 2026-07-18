@@ -7,8 +7,10 @@
  *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
- *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5) — see
- *         the #if DEBUG blocks).
+ *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5),
+ *         -OnbWelcome, -OnbEmail, -OnbPasscode, -OnbAccount, -OnbGroup, -OnbDone,
+ *         -Onboarding <welcome|email|passcode|account|group|done> (F9) — see the
+ *         #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -98,6 +100,58 @@ struct CaseRoomApp: App {
                 // percentile 66, +40 PTS, 5/6 correct, 3RD IN C-14, weak = market
                 // sizing, elapsed 04:12.
                 GauntletRunView(viewModel: PreviewGauntletRunFixture.resultVM)
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbWelcome") {
+                // Onboarding welcome (F9-T3) fixture hatch: the mark-draws hero,
+                // full-screen, VM parked at .welcome. onLogin is a no-op standalone
+                // (the container wires it to LoginView in Task 7).
+                OnboardingWelcomeView(viewModel: OnboardingFixtures.viewModel(step: .welcome))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbEmail") {
+                // Onboarding school-email gate (F9-T3) fixture hatch: STEP 1 OF 05,
+                // fixture VM pre-seeded with amara@yale.edu so the field is populated
+                // (simctl can't type).
+                OnboardingEmailView(viewModel: OnboardingFixtures.viewModel(step: .email))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbPasscode") {
+                // Onboarding passcode (F9-T4) fixture hatch: STEP 2 OF 05, fixture
+                // VM parked at .passcode (email amara@yale.edu shown in the body).
+                // Seed a partial code ("123") DEBUG-locally so the shot proves the
+                // 3-filled/3-empty dots state (simctl can't tap the keypad); the
+                // shared fixture factory stays code-free for the tests.
+                OnboardingPasscodeView(viewModel: {
+                    let vm = OnboardingFixtures.viewModel(step: .passcode)
+                    vm.code = "123"
+                    return vm
+                }())
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbAccount") {
+                // Onboarding account-completion / profile-import (F9-T5) fixture
+                // hatch: STEP 3 OF 05, fixture VM parked at .account, pre-seeded
+                // with displayName "Amara Osei" so the hero field is populated
+                // (simctl can't type). Proves the field + "or" divider + both
+                // OAuth secondary buttons; the OAuth buttons are wired to
+                // VM.startOAuth (mock/fixture-proven — the live native round-trip
+                // is a documented Thomas follow-up, plan KNOWN UNCERTAINTIES #3).
+                OnboardingAccountView(viewModel: OnboardingFixtures.viewModel(step: .account))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbGroup") {
+                // Onboarding group-join (F9-T6) fixture hatch: STEP 4 OF 05,
+                // fixture VM parked at .group, pre-seeded with inviteCode
+                // "C14-XXXX" so the glass field is populated (simctl can't type).
+                // Proves the skippable affordance ("Skip for now" underline) beside
+                // the ink "Join" primary.
+                OnboardingGroupJoinView(viewModel: OnboardingFixtures.viewModel(step: .group))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbDone") {
+                // Onboarding done / "You're in." (F9-T6) fixture hatch: fixture VM
+                // parked at .done. Proves the celebratory full-drawn StaircaseMark
+                // + takeoverDisplay headline + ink "Enter". Terminal payoff — no
+                // Back and no STEP chrome (the big mark IS the fully-inked mark).
+                OnboardingDoneView(viewModel: OnboardingFixtures.viewModel(step: .done))
+            } else if ProcessInfo.processInfo.arguments.contains("-Onboarding") {
+                // Onboarding CONTAINER (F9-T7) fixture hatch: presents the whole
+                // OnboardingRootView seeded to a step so the shot captures the
+                // container chrome + rise transitions (distinct from the per-screen
+                // -Onb* hatches, which render one isolated screen). The token after
+                // -Onboarding maps welcome|email|passcode|account|group|done
+                // (default welcome). Fixture-backed VM → no dev server, no typing.
+                OnboardingRootView(viewModel: OnboardingFixtures.viewModel(
+                    step: Self.onboardingStep(after: "-Onboarding")))
             } else {
                 rootView
             }
@@ -259,6 +313,19 @@ struct CaseRoomApp: App {
         let args = ProcessInfo.processInfo.arguments
         guard let idx = args.firstIndex(of: flag), idx + 1 < args.count else { return nil }
         return args[idx + 1]
+    }
+
+    /// Maps the token after `-Onboarding` to an OnboardingViewModel.Step for the
+    /// full-container hatch; unknown/absent tokens fall back to `.welcome`.
+    private static func onboardingStep(after flag: String) -> OnboardingViewModel.Step {
+        switch launchArgValue(after: flag) {
+        case "email": return .email
+        case "passcode": return .passcode
+        case "account": return .account
+        case "group": return .group
+        case "done": return .done
+        default: return .welcome
+        }
     }
     #endif
 }

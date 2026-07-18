@@ -1,0 +1,9 @@
+1efc8d1 Add F9 onboarding welcome + school-email screens
+67335bb Onboarding fixtures: throw StubError.unused not fatalError (F9 T2 review fix)
+ .superpowers/sdd/f9/shots/t3-email.png             | Bin 0 -> 1536720 bytes
+ .superpowers/sdd/f9/shots/t3-welcome.png           | Bin 0 -> 1488649 bytes
+ ios/CaseRoom/App/CaseRoomApp.swift                 |  14 ++-
+ ios/CaseRoom/State/OnboardingFixtures.swift        |  12 ++-
+ .../Views/Onboarding/OnboardingEmailView.swift     | 110 +++++++++++++++++++++
+ .../Views/Onboarding/OnboardingWelcomeView.swift   |  78 +++++++++++++++
+ 6 files changed, 208 insertions(+), 6 deletions(-)

@@ -119,6 +119,15 @@ protocol CommunityService {
     func schoolStanding() async throws -> SchoolStanding
 }
 
+// Signup onboarding seams (F9, B5 OTP + B6 group-join). All same-origin from
+// the native client (no Origin header needed — matches every other mutating
+// method here). requestOTP is unauth; verifyOTP sets the session cookie.
+protocol OnboardingService {
+    func requestOTP(email: String) async throws
+    func verifyOTP(email: String, code: String) async throws -> User
+    func joinGroup(inviteCode: String) async throws -> JoinedGroup
+}
+
 struct CaseQuery {
     var q: String?
     var difficulty: String?
@@ -167,7 +176,7 @@ protocol SessionFlowService {
 }
 
 actor APIClient: SessionService, SessionFlowService, PairService, DrillService, AvailabilityService, ProfileService,
-    TimelineService, RecommendationService, GauntletService, BoardService, CommunityService {
+    TimelineService, RecommendationService, GauntletService, BoardService, CommunityService, OnboardingService {
     static let shared = APIClient()
 
     // Immutable and Sendable, so safe to read from outside actor isolation
@@ -247,6 +256,41 @@ actor APIClient: SessionService, SessionFlowService, PairService, DrillService, 
 
     func me() async throws -> User {
         try await send(path: "/api/v1/me", method: "GET")
+    }
+
+    // MARK: - Onboarding (OnboardingService, F9)
+
+    // POST /api/v1/auth/otp/request — unauth, same-origin. Server always 202
+    // {"status":"ok"} (no account enumeration); any 2xx is success, so the
+    // no-content helper (which only requires a 2xx) is exactly right.
+    func requestOTP(email: String) async throws {
+        struct OTPRequestBody: Encodable { let email: String }
+        try await sendNoContent(path: "/api/v1/auth/otp/request", method: "POST", body: OTPRequestBody(email: email))
+    }
+
+    // POST /api/v1/auth/otp/verify — unauth, same-origin. 200 {"user":{...}} +
+    // session cookie, or 401 (mapped to APIError.unauthorized in performRaw).
+    // Decodes the {user} wrapper and returns .user, mirroring login(...).
+    func verifyOTP(email: String, code: String) async throws -> User {
+        struct VerifyBody: Encodable { let email: String; let code: String }
+        struct VerifyResponse: Decodable { let user: User }
+        let response: VerifyResponse = try await send(
+            path: "/api/v1/auth/otp/verify", method: "POST", body: VerifyBody(email: email, code: code)
+        )
+        return response.user
+    }
+
+    // POST /api/v1/groups/join (B6) — required, same-origin. body {invite_code}
+    // -> group row, or 404 "Unknown invite code". The generic helper throws
+    // APIError.server(404); catch and rethrow the typed error so the VM can show
+    // an invite-specific message rather than a bare server-error.
+    func joinGroup(inviteCode: String) async throws -> JoinedGroup {
+        struct JoinBody: Encodable { let inviteCode: String }   // -> {"invite_code": ...}
+        do {
+            return try await send(path: "/api/v1/groups/join", method: "POST", body: JoinBody(inviteCode: inviteCode))
+        } catch APIError.server(404) {
+            throw OnboardingError.unknownInviteCode
+        }
     }
 
     // MARK: - Cases

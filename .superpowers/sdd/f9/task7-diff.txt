@@ -1,0 +1,221 @@
+diff --git a/ios/CaseRoom/App/CaseRoomApp.swift b/ios/CaseRoom/App/CaseRoomApp.swift
+index 18ecef0..e300eb0 100644
+--- a/ios/CaseRoom/App/CaseRoomApp.swift
++++ b/ios/CaseRoom/App/CaseRoomApp.swift
+@@ -1,22 +1,23 @@
+ /*
+  * Purpose: App entry point; launches RootShell (the 5-slot floating-glass tab
+  *          shell) and wires the UIKit app delegate needed for APNs device-token
+  *          registration.
+  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
+  *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills (+ optional
+  *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
+  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
+  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
+  *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5),
+- *         -OnbWelcome, -OnbEmail, -OnbPasscode, -OnbAccount, -OnbGroup, -OnbDone
+- *         (F9) — see the #if DEBUG blocks).
++ *         -OnbWelcome, -OnbEmail, -OnbPasscode, -OnbAccount, -OnbGroup, -OnbDone,
++ *         -Onboarding <welcome|email|passcode|account|group|done> (F9) — see the
++ *         #if DEBUG blocks).
+  * Outputs: none.
+  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
+  */
+ 
+ import SwiftUI
+ import UIKit
+ import UserNotifications
+ 
+ @main
+ struct CaseRoomApp: App {
+@@ -135,20 +136,29 @@ struct CaseRoomApp: App {
+                 // "C14-XXXX" so the glass field is populated (simctl can't type).
+                 // Proves the skippable affordance ("Skip for now" underline) beside
+                 // the ink "Join" primary.
+                 OnboardingGroupJoinView(viewModel: OnboardingFixtures.viewModel(step: .group))
+             } else if ProcessInfo.processInfo.arguments.contains("-OnbDone") {
+                 // Onboarding done / "You're in." (F9-T6) fixture hatch: fixture VM
+                 // parked at .done. Proves the celebratory full-drawn StaircaseMark
+                 // + takeoverDisplay headline + ink "Enter". Terminal payoff — no
+                 // Back and no STEP chrome (the big mark IS the fully-inked mark).
+                 OnboardingDoneView(viewModel: OnboardingFixtures.viewModel(step: .done))
++            } else if ProcessInfo.processInfo.arguments.contains("-Onboarding") {
++                // Onboarding CONTAINER (F9-T7) fixture hatch: presents the whole
++                // OnboardingRootView seeded to a step so the shot captures the
++                // container chrome + rise transitions (distinct from the per-screen
++                // -Onb* hatches, which render one isolated screen). The token after
++                // -Onboarding maps welcome|email|passcode|account|group|done
++                // (default welcome). Fixture-backed VM → no dev server, no typing.
++                OnboardingRootView(viewModel: OnboardingFixtures.viewModel(
++                    step: Self.onboardingStep(after: "-Onboarding")))
+             } else {
+                 rootView
+             }
+             #else
+             rootView
+             #endif
+         }
+     }
+ 
+     private var rootView: some View {
+@@ -297,20 +307,33 @@ struct CaseRoomApp: App {
+     }
+ 
+     #if DEBUG
+     /// The token immediately following a launch-arg flag, e.g. `-F7Board
+     /// wharton` → `"wharton"`. nil when the flag is absent or has no value.
+     private static func launchArgValue(after flag: String) -> String? {
+         let args = ProcessInfo.processInfo.arguments
+         guard let idx = args.firstIndex(of: flag), idx + 1 < args.count else { return nil }
+         return args[idx + 1]
+     }
++
++    /// Maps the token after `-Onboarding` to an OnboardingViewModel.Step for the
++    /// full-container hatch; unknown/absent tokens fall back to `.welcome`.
++    private static func onboardingStep(after flag: String) -> OnboardingViewModel.Step {
++        switch launchArgValue(after: flag) {
++        case "email": return .email
++        case "passcode": return .passcode
++        case "account": return .account
++        case "group": return .group
++        case "done": return .done
++        default: return .welcome
++        }
++    }
+     #endif
+ }
+ 
+ #if DEBUG
+ /// Standalone scaffold for the `-F2HomeTablet` shot: replicates RootShell's
+ /// `.regular` Home header (wordmark | date+greeting | avatar) above the
+ /// two-column tablet HomeView, so the shot is a faithful canvas-2a frame
+ /// without booting the full authenticated shell. Release-inert.
+ private struct F2HomeTabletHatch: View {
+     @Environment(\.dsPalette) private var palette
+diff --git a/ios/CaseRoom/App/RootShell.swift b/ios/CaseRoom/App/RootShell.swift
+index 46e659f..4dea49e 100644
+--- a/ios/CaseRoom/App/RootShell.swift
++++ b/ios/CaseRoom/App/RootShell.swift
+@@ -1,12 +1,13 @@
+ /*
+- * Purpose: Root shell — LoginView while logged out; once authenticated, the
++ * Purpose: Root shell — OnboardingRootView while logged out (F9 signup flow, with
++ *          LoginView reachable from welcome); once authenticated, the
+  *          5-slot floating-glass tab shell (HOME · LIBRARY · ⬤CASE · COMMUNITY ·
+  *          DRILLS) with F0 chrome installed. Routes every steering source
+  *          (push taps, App Intents, caseroom:// deep links) through AppRouter
+  *          onto the pinned AppRoute registry. No You tab — the top-trailing
+  *          avatar pill opens the avatar sheet.
+  * Inputs: SessionStore (bootstrap), PushCoordinator (pendingRoute), AppRouter.shared.
+  * Outputs: none.
+  * Run: rendered by CaseRoomApp as the app's root view.
+  */
+ 
+@@ -39,21 +40,25 @@ struct RootShell: View {
+ 
+     // Generalized gate for the three top-pill overlays + the tab bar: true
+     // while ANY tab has a pushed detail route on screen.
+     private var detailOpen: Bool { libraryDetailOpen || communityDetailOpen }
+ 
+     var body: some View {
+         Group {
+             if sessionStore.isAuthenticated {
+                 authenticated
+             } else {
+-                LoginView()
++                // F9: the logged-out entry is the signup onboarding flow; the
++                // existing email/password LoginView stays reachable from welcome's
++                // "Log in". Auth stays false through the flow (VM holds the user
++                // locally) until finish()→bootstrap() flips it and swaps in the shell.
++                OnboardingRootView(sessionStore: sessionStore)
+             }
+         }
+         .onChange(of: pushCoordinator.pendingRoute) { _, newRoute in
+             guard let newRoute else { return }
+             router.handlePush(newRoute)
+             pushCoordinator.pendingRoute = nil
+         }
+         .onChange(of: router.pending) { _, newRoute in
+             guard let newRoute else { return }
+             router.go(to: newRoute)
+diff --git a/ios/CaseRoom/Views/Onboarding/OnboardingRootView.swift b/ios/CaseRoom/Views/Onboarding/OnboardingRootView.swift
+new file mode 100644
+index 0000000..9aac73c
+--- /dev/null
++++ b/ios/CaseRoom/Views/Onboarding/OnboardingRootView.swift
+@@ -0,0 +1,75 @@
++/*
++ * Purpose: The F9 onboarding container — owns the OnboardingViewModel and renders
++ *          a rise-timed switch over the six signup screens (welcome → email →
++ *          passcode → account → group → done), holding auth local until finish().
++ *          Mounted by RootShell's logged-out branch; "Log in" opens LoginView.
++ * Inputs: SessionStore (live init) or a pre-parked OnboardingViewModel (DEBUG hatch).
++ * Outputs: none (the VM drives the flow; auth flips only via finish()→bootstrap()).
++ * Run: RootShell renders it while !isAuthenticated; -Onboarding <step> hatch shots.
++ */
++
++import SwiftUI
++
++struct OnboardingRootView: View {
++    @Environment(\.dsPalette) private var palette
++    // The container owns the VM for the whole flow so field values + the locally
++    // held verified user survive every step change (auth stays false until finish).
++    @State private var viewModel: OnboardingViewModel
++    @State private var showLogin = false
++
++    // Live entry: build the VM against the app's shared APIClient/WebAuth impls,
++    // threading the environment SessionStore (it is NOT a singleton).
++    init(sessionStore: SessionStore) {
++        _viewModel = State(initialValue: OnboardingViewModel(sessionStore: sessionStore))
++    }
++
++    // DEBUG hatch entry: adopt a fixture-parked VM so -Onboarding <step> captures
++    // the container chrome (progress mark + transitions) with no dev server.
++    init(viewModel: OnboardingViewModel) {
++        _viewModel = State(initialValue: viewModel)
++    }
++
++    var body: some View {
++        ZStack {
++            DSBackground()
++            content
++                .transition(.opacity)
++        }
++        // Rise curve (Decisions §1: 0.22,1,0.36,1) crossfades step changes — calm,
++        // nothing bounces; each screen carries its own entrance motion within.
++        .animation(DSMotion.riseCurve, value: viewModel.step)
++        // Existing-user login. A successful sign-in sets sessionStore.user →
++        // RootShell swaps to the shell, unmounting this view (no manual dismiss);
++        // the "‹ Back" affordance lets a user who changed their mind return.
++        .fullScreenCover(isPresented: $showLogin) { loginCover }
++    }
++
++    @ViewBuilder
++    private var content: some View {
++        switch viewModel.step {
++        case .welcome:
++            OnboardingWelcomeView(viewModel: viewModel, onLogin: { showLogin = true })
++        case .email:
++            OnboardingEmailView(viewModel: viewModel)
++        case .passcode:
++            OnboardingPasscodeView(viewModel: viewModel)
++        case .account:
++            OnboardingAccountView(viewModel: viewModel)
++        case .group:
++            OnboardingGroupJoinView(viewModel: viewModel)
++        case .done:
++            OnboardingDoneView(viewModel: viewModel)
++        }
++    }
++
++    private var loginCover: some View {
++        ZStack(alignment: .topLeading) {
++            LoginView()
++            Button { showLogin = false } label: {
++                Text("‹ Back").dsText(.rowTitle).foregroundStyle(palette.ink)
++            }
++            .buttonStyle(.plain)
++            .padding(.leading, 20).padding(.top, 12)
++        }
++    }
++}

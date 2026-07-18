@@ -1,0 +1,12 @@
+b7cfc77 Add onboarding VM, progress mark, passcode keypad + fixtures
+1bf7a30 Ledger: Task 1 complete
+ddeb143 Retain ASWebAuthenticationSession until completion (F9 T1 review fix)
+ .superpowers/sdd/f9/progress.md                    |   2 +-
+ ios/CaseRoom/Networking/OnboardingOAuth.swift      |  10 +-
+ ios/CaseRoom/State/OnboardingFixtures.swift        |  92 +++++++++
+ ios/CaseRoom/State/OnboardingViewModel.swift       | 213 +++++++++++++++++++++
+ .../Views/Onboarding/OnboardingProgressMark.swift  |  55 ++++++
+ ios/CaseRoom/Views/Onboarding/PasscodeKeypad.swift | 109 +++++++++++
+ ios/CaseRoomTests/OnboardingViewModelTests.swift   | 203 ++++++++++++++++++++
+ ios/CaseRoomTests/PasscodeKeypadTests.swift        |  49 +++++
+ 8 files changed, 731 insertions(+), 2 deletions(-)
