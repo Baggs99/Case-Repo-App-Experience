@@ -103,8 +103,16 @@ struct SessionView: View {
                 negotiationContent
             case "live":
                 liveContent
+            // MARK: - F5-T5 — the light debrief. The candidate's released grade
+            // lands under "finalized" too (the interviewer's finalize flips the
+            // server state), so route both here for the candidate; the
+            // interviewer dismisses on finalize (onChange below) and never lingers.
             case "debrief":
-                DebriefView(sessionViewModel: viewModel, rubricViewModel: rubricViewModel)
+                DebriefView(sessionViewModel: viewModel, rubricViewModel: rubricViewModel,
+                            flowService: flowService)
+            case "finalized" where viewModel.role == "candidate":
+                DebriefView(sessionViewModel: viewModel, rubricViewModel: rubricViewModel,
+                            flowService: flowService)
             default:
                 ContentUnavailableView("Session Finalized", systemImage: "checkmark.seal")
             }

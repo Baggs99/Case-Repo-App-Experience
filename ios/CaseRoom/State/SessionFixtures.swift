@@ -247,6 +247,74 @@ enum SessionFixtures {
     @MainActor static func liveInterviewerStandalone() -> some View {
         InterviewerLiveView(viewModel: liveRubricVM(), peerName: "Amara Osei", showsInterviewerPane: true)
     }
+
+    // MARK: - F5-T5 debrief screenshot fixtures (canvas 4a debrief, LIGHT)
+
+    /// The released feedback report shown in the candidate debrief: 7.2 avg over
+    /// 4 dimensions (Structure 8 / Quant 6 / Communication 8 / Synthesis 7 — the
+    /// canvas bars), the serif feedback line, attributed to M. Lindqvist.
+    static let debriefReport = FeedbackReport(
+        grade: 7.2,
+        finalizedAt: "2026-07-16T21:04:00Z",
+        notesMd: "The €90M so-what landed. Next time, get there ninety seconds sooner — the sizing setup cost you the close.",
+        items: [
+            FeedbackItem(id: "structure", label: "Structure", dimension: "structure", maxPoints: 10, points: 8, note: "Clean issue tree, MECE branches"),
+            FeedbackItem(id: "quant", label: "Quant", dimension: "quant", maxPoints: 10, points: 6, note: "Sizing setup slow to land"),
+            FeedbackItem(id: "comm", label: "Communication", dimension: "comm", maxPoints: 10, points: 8, note: "Signposted well"),
+            FeedbackItem(id: "synth", label: "Synthesis", dimension: "synth", maxPoints: 10, points: 7, note: "So-what landed at the close"),
+        ],
+        reveals: [],
+        caseId: 91,
+        caseTitle: "Low-cost carrier enters the Nordic market")
+
+    /// A finalized session row for the debrief shot (role varies).
+    static func debriefDetail(role: String) -> SessionDetail {
+        SessionDetail(
+            id: 4040, interviewerId: 16, candidateId: 1, caseId: 91,
+            state: role == "interviewer" ? "debrief" : "finalized", mode: "remote",
+            consentInterviewer: true, consentCandidate: true,
+            scheduledAt: nil, startedAt: nil, endedAt: nil,
+            interviewerName: "M. Lindqvist", candidateName: "Amara Osei",
+            caseTitle: liveCaseTitle, yourRole: role)
+    }
+
+    static let debriefCandidateFlow = DebriefPreviewFlowService(report: debriefReport)
+    static let debriefInterviewerFlow = DebriefPreviewFlowService(report: nil)
+
+    /// A host SessionViewModel pre-populated for the debrief shot (names + the
+    /// interviewer id the candidate's Schedule-next prefills), with no network.
+    @MainActor
+    static func debriefSessionVM(role: String) -> SessionViewModel {
+        let vm = SessionViewModel(
+            sessionId: 4040,
+            service: LivePreviewSessionService(detail: debriefDetail(role: role)),
+            signaling: NegoPreviewSignaling())
+        vm.role = role
+        vm.state = debriefDetail(role: role).state
+        vm.interviewerId = 16
+        vm.interviewerName = "M. Lindqvist"
+        vm.candidateName = "Amara Osei"
+        vm.caseTitle = liveCaseTitle
+        if role == "candidate" { vm.finalized = true; vm.releasedGrade = 7.2 }
+        return vm
+    }
+
+    /// Standalone candidate debrief (canvas 4a debrief, LIGHT). Rendered inside
+    /// the dark takeover cover by the `-startTakeover debrief` hatch, so it also
+    /// proves the .dsTheme(.light) override wins over the inherited dark seam.
+    @MainActor
+    static func debriefCandidateStandalone() -> some View {
+        DebriefView(sessionViewModel: debriefSessionVM(role: "candidate"),
+                    flowService: debriefCandidateFlow)
+    }
+
+    /// Standalone interviewer debrief (grade preview / override / Finalize + Swap).
+    @MainActor
+    static func debriefInterviewerStandalone() -> some View {
+        DebriefView(sessionViewModel: debriefSessionVM(role: "interviewer"),
+                    rubricViewModel: liveRubricVM(),
+                    flowService: debriefInterviewerFlow)
+    }
 }
 
 /// Drives the LIVE candidate shot: hands CandidateLiveView the shared VM, then
@@ -342,6 +410,30 @@ struct NegoPreviewFlowService: SessionFlowService {
     func recapViewed(id: Int) async throws -> RecapViewedResult { throw StubError.unused }
     func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult { throw StubError.unused }
     func feedbackReport(id: Int) async throws -> FeedbackReport { throw StubError.unused }
+}
+
+/// Stub SessionFlowService for the debrief shots — feedbackReport() returns the
+/// canned released report (nil = the pre-release "waiting" path); recapClose/swap
+/// return canned success so the shot's rating/swap affordances are live; the rest
+/// throw (never hit on the screenshot path).
+struct DebriefPreviewFlowService: SessionFlowService {
+    enum StubError: Error { case unused }
+    let report: FeedbackReport?
+
+    func negotiation(id: Int) async throws -> NegotiationView { throw StubError.unused }
+    func proposeCase(id: Int, caseId: Int) async throws -> NegotiationView { throw StubError.unused }
+    func acceptCase(id: Int, caseId: Int) async throws -> SessionDetail { throw StubError.unused }
+    func swap(id: Int) async throws -> SwapInitiated { SwapInitiated(swapInviteId: 1, inviteeId: 16) }
+    func swapAccept(id: Int) async throws -> SwapAccepted { throw StubError.unused }
+    func recaps() async throws -> [RecapListItem] { throw StubError.unused }
+    func recapViewed(id: Int) async throws -> RecapViewedResult { throw StubError.unused }
+    func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult {
+        RecapCloseResult(closed: true, gateCleared: true)
+    }
+    func feedbackReport(id: Int) async throws -> FeedbackReport {
+        guard let report else { throw StubError.unused }
+        return report
+    }
 }
 
 /// No-op signaling for the negotiation shots — holds the stream open (no

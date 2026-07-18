@@ -192,9 +192,15 @@ struct RootShell: View {
         if let idx = args.firstIndex(of: "-startTakeover") {
             // Optional variant token after -startTakeover: lobby (default, T2) |
             // nego | negoInterviewer | negoKept (F5-T3) | live-candidate |
-            // live-candidate-exhibit | live-interviewer (F5-T4).
+            // live-candidate-exhibit | live-interviewer (F5-T4) | debrief |
+            // debrief-interviewer (F5-T5, LIGHT — rendered inside this dark cover
+            // so the shot proves DebriefView's .dsTheme(.light) override wins).
             let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
             switch variant {
+            case "debrief":
+                SessionFixtures.debriefCandidateStandalone()
+            case "debrief-interviewer":
+                SessionFixtures.debriefInterviewerStandalone()
             case "nego":
                 SessionView(sessionId: id, service: SessionFixtures.negoCandidateService,
                             signaling: SessionFixtures.negoSignaling,

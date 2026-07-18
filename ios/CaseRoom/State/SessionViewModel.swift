@@ -110,6 +110,12 @@ final class SessionViewModel {
     var negotiationTick = 0
     var interviewerName: String?
     var candidateName: String?
+    // MARK: - F5-T5 (additive) — the interviewer's user id, mirrored from
+    // SessionDetail so the candidate debrief's "Schedule your next session" can
+    // prefill the proposal recipient (prefill_proposal.to_user_id == interviewer_id).
+    // Additive only: existing consumers ignore it; the public API is otherwise
+    // unchanged (mirrors the T3 caseId addition).
+    var interviewerId: Int?
 
     var peerPresent = false
     var admitted = false
@@ -224,6 +230,7 @@ final class SessionViewModel {
         role = detail.yourRole
         mode = detail.mode
         caseId = detail.caseId          // F5-T3 additive
+        interviewerId = detail.interviewerId   // F5-T5 additive
         caseTitle = detail.caseTitle
         interviewerName = detail.interviewerName
         candidateName = detail.candidateName
