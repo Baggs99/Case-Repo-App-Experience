@@ -207,9 +207,19 @@ struct RootShell: View {
             // nego | negoInterviewer | negoKept (F5-T3) | live-candidate |
             // live-candidate-exhibit | live-interviewer (F5-T4) | debrief |
             // debrief-interviewer (F5-T5, LIGHT — rendered inside this dark cover
-            // so the shot proves DebriefView's .dsTheme(.light) override wins).
+            // so the shot proves DebriefView's .dsTheme(.light) override wins) |
+            // console-phone | console-phone-scored (F6-T2, LIGHT phone console 8b).
             let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
             switch variant {
+            // F6-T2 — the interviewer phone console (canvas 8b, LIGHT). Rendered
+            // directly (seeded view-local clock + scores) so the shot is a
+            // mid-interview frame; `console-phone-scored` also releases e1 → a
+            // SENT · mm:ss exhibit (rv #8). The .dsTheme(.light) override wins over
+            // this cover's inherited .dark seam.
+            case "console-phone":
+                SessionFixtures.consolePhoneStandalone(released: false)
+            case "console-phone-scored":
+                SessionFixtures.consolePhoneStandalone(released: true)
             case "debrief":
                 SessionFixtures.debriefCandidateStandalone()
             case "debrief-interviewer":

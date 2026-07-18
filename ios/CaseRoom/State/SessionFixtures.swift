@@ -364,6 +364,57 @@ enum SessionFixtures {
     static func recapStandalone() -> some View {
         RecapReportView(sessionId: recapSessionId, flowService: recapFlow)
     }
+
+    // MARK: - F6-T2 phone-console screenshot fixtures (canvas 8b, LIGHT)
+
+    /// The phone console's rubric: the REAL-shaped shipping template (A4 — 5 dims
+    /// / max 5, NOT the 12-dim tablet fixture; the phone assumes ≤6 dims), whose
+    /// ids match the phone script's 1:1 dim map (structure/quant/insight/
+    /// communication/synthesis). Two dims pre-scored so the strip + readout fill.
+    static let consoleRubric = RubricState(
+        templateItems: [
+            RubricTemplateItem(id: "structure", label: "Structuring & framework", dimension: "structure", maxPoints: 5),
+            RubricTemplateItem(id: "quant", label: "Quantitative accuracy", dimension: "quant", maxPoints: 5),
+            RubricTemplateItem(id: "insight", label: "Business insight", dimension: "insight", maxPoints: 5),
+            RubricTemplateItem(id: "communication", label: "Communication & presence", dimension: "communication", maxPoints: 5),
+            RubricTemplateItem(id: "synthesis", label: "Synthesis & recommendation", dimension: "synthesis", maxPoints: 5),
+        ],
+        items: [
+            "structure": RubricItemScore(points: 4, note: "Clean issue tree, MECE branches"),
+            "quant": RubricItemScore(points: 3, note: "Sizing setup slow to land"),
+        ],
+        notesMd: "", gradePreview: 0, grade: nil, finalizedAt: nil)
+
+    /// The console header strings (canvas 8b, verbatim).
+    static let consoleKicker = "CASE 07 · MARKET ENTRY · A. OSEI"
+    static let consoleTitle = "Low-cost carrier · Nordic entry"
+
+    /// A RubricViewModel pre-seeded with the console rubric + the one Nordic
+    /// exhibit (reusing the F5 liveExhibit crypto seam: idx 0 → the script's e1),
+    /// so no dev server is needed. Not loaded from the network for the shot.
+    @MainActor
+    static func consoleRubricVM() -> RubricViewModel {
+        let vm = RubricViewModel(sessionId: 4040, service: ConsolePreviewSessionService())
+        vm.templateItems = consoleRubric.templateItems
+        vm.items = consoleRubric.items
+        vm.exhibits = [liveExhibitMeta]
+        return vm
+    }
+
+    /// Standalone phone console (canvas 8b, LIGHT). Rendered directly (like
+    /// liveInterviewerStandalone) so the view-local clock can be seeded to a
+    /// running value and — when `released` — an exhibit shows SENT · mm:ss (rv #8),
+    /// giving a non-0:00, mid-interview frame. Sits on the QUANT stage (the one
+    /// with exhibit rows + the `quant` score strip). Rendered inside RootShell's
+    /// dark takeover cover, so it also proves the `.dsTheme(.light)` override wins.
+    @MainActor
+    static func consolePhoneStandalone(released: Bool) -> some View {
+        let model = ConsoleViewModel(stages: ConsoleScript.phone, isPhone: true, rubric: consoleRubricVM())
+        model.pickStage(3)              // QUANT — exhibits e1/e2 + the quant dim
+        model.elapsedSeconds = 754      // 12:34 (canvas demo seed)
+        model.isMasterRunning = true
+        return ConsolePhoneStandalone(model: model, releaseE1: released)
+    }
 }
 
 /// Drives the LIVE candidate shot: hands CandidateLiveView the shared VM, then
@@ -388,6 +439,45 @@ struct LiveCandidateStandalone: View {
             viewModel.handleReveal(exhibitId: SessionFixtures.liveExhibitId, keyB64: SessionFixtures.liveExhibitKeyB64)
         }
     }
+}
+
+/// Drives the phone-console shot: renders the console with a pre-seeded model,
+/// then (for the SENT · mm:ss frame) releases e1 through the VM's release path in
+/// .task — the local marker is captured off the seeded master clock.
+struct ConsolePhoneStandalone: View {
+    let model: ConsoleViewModel
+    let releaseE1: Bool
+
+    var body: some View {
+        InterviewerConsoleView(
+            model: model,
+            caseKicker: SessionFixtures.consoleKicker,
+            caseTitle: SessionFixtures.consoleTitle
+        )
+        .task {
+            if releaseE1 { await model.release(scriptId: "e1") }
+        }
+    }
+}
+
+/// Stub SessionService for the phone-console shot — serves the console rubric +
+/// the one Nordic exhibit; reveal/save are recorded no-ops; unused endpoints
+/// throw (never hit on the screenshot path).
+struct ConsolePreviewSessionService: SessionService {
+    enum StubError: Error { case unused }
+
+    func sessionDetail(id: Int) async throws -> SessionDetail { throw StubError.unused }
+    func joinConfig(id: Int) async throws -> JoinConfig { throw StubError.unused }
+    func setConsent(id: Int, consent: Bool) async throws -> SessionDetail { throw StubError.unused }
+    func transition(id: Int, target: String) async throws -> SessionDetail { throw StubError.unused }
+    func rubric(id: Int) async throws -> RubricState { SessionFixtures.consoleRubric }
+    func saveRubric(id: Int, items: [String: RubricItemScore], notesMd: String) async throws -> Double { 0 }
+    func reveal(id: Int, exhibitId: Int) async throws {}
+    func exhibits(id: Int) async throws -> [ExhibitMeta] { [SessionFixtures.liveExhibitMeta] }
+    func exhibitBlob(id: Int, exhibitId: Int) async throws -> Data { throw StubError.unused }
+    func uploadRecordingChunk(id: Int, seq: Int, mime: String, blob: Data) async throws { throw StubError.unused }
+    func completeRecording(id: Int) async throws { throw StubError.unused }
+    func finalize(id: Int, grade: Double?) async throws -> Finalized { throw StubError.unused }
 }
 
 /// Stub SessionService for the live shots — serves the canned live row, the one
