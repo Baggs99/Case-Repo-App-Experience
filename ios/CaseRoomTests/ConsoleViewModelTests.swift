@@ -494,4 +494,32 @@ final class ConsoleViewModelTests: XCTestCase {
         // The QUANT stage carries the two exhibit rows the shot renders.
         XCTAssertEqual(vm.currentStage.exhibitRefs.map(\.scriptId), ["e1", "e2"])
     }
+
+    // MARK: T3 — the tablet-console shot fixture is the canvas 12-dim / max-10 rubric,
+    // fully surfaced across the 7 tablet stages (union + catch-all).
+
+    func testConsoleTabletFixtureRubricCoversEveryDim() {
+        let template = SessionFixtures.consoleTabletRubric.templateItems
+        XCTAssertEqual(template.count, 12)                                   // canvas 12-dim mock (A3)
+        XCTAssertTrue(template.allSatisfy { $0.maxPoints == 10 })           // max-10 scale, not literal-5
+        let (rvm, _) = makeRubric(template: template)
+        let vm = ConsoleViewModel(stages: ConsoleScript.tablet, isPhone: false, rubric: rvm)
+        assertFullCoverageNoDrops(vm, template: template)
+        // The QUANT fixture stage (the shot's stage) surfaces exactly quant +
+        // judgment (insight is absent from the 12-dim canvas template).
+        vm.pickStage(4)
+        XCTAssertEqual(Set(vm.stageItems(template).map(\.id)), ["quant", "judgment"])
+        XCTAssertEqual(vm.currentStage.exhibitRefs.map(\.scriptId), ["e1", "e2"])
+        // Every canvas dim id resolves to a name + desc via the authored dims map.
+        for item in template {
+            XCTAssertNotNil(ConsoleScript.dims[item.id], "missing dims entry for \(item.id)")
+        }
+    }
+
+    // MARK: T3 — tablet fixture exhibit metas map e1/e2/e3 → idx 0/1/2
+
+    func testConsoleTabletExhibitMetasCoverThreeExhibits() {
+        let metas = SessionFixtures.consoleTabletExhibitMetas
+        XCTAssertEqual(metas.map(\.idx), [0, 1, 2])
+    }
 }
