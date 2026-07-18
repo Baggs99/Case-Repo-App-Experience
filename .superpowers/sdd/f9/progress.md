@@ -14,7 +14,7 @@ Branch: fe/f9-onboarding · Worktree: /Users/thomaskgould/dev/fe-f9 · Cut at ae
 ## Tasks
 - Task 1 (plumbing: OnboardingService + OAuthStarter + SessionStore hook): COMPLETE (34b336c; review APPROVE both axes; fix c... session-retain committed). Suite 708/0 (+9). Reviewer IMPORTANT (dormant session-retain) fixed; MINORs = xcodeproj folder-globbed (no pbxproj change expected), thin transport coverage on verify/join (optional).
 - Task 2 (VM + progress mark + passcode keypad + fixtures): COMPLETE (b7cfc77; review APPROVE/APPROVE). Suite 726/0 (+18). Fixes: StubError.unused convention (committed). OWNER-VISUAL FLAG: progress kicker renders "STEP 01 OF 05" (zero-padded to align with "05") vs plan's unpadded "STEP 1 OF 05" — kept padded, Thomas gate. Judgment: startOAuth success → .group (skips display-name write). Nit deferred: finish() lacks re-entry guard (terminal, idempotent).
-- Task 3 (Welcome + Email screens): PENDING
+- Task 3 (Welcome + Email screens): COMPLETE (1efc8d1; review APPROVE code / A REQUEST_CHANGES fixed). Suite 726/0. Shots t3-welcome.png (lead-eyeballed: clean, on-brand), t3-email.png (reshot after fix). FIX: OnboardingProgressMark now ghosts the full staircase (hairline) behind the ink→green trim so it reads as a mark filling in (was a stray dash at step 1) — shared component, benefits Tasks 4-6. Authored copy: lede "Where your cohort preps for the case.", placeholder "you@school.edu", aside "We'll check your school's on the list." Deviation: text wordmark lockup on welcome (avoids double-mark) — approved.
 - Task 4 (Passcode screen): PENDING
 - Task 5 (Account completion + OAuth buttons): PENDING
 - Task 6 (Group join + Done): PENDING
