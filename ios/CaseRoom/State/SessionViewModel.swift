@@ -100,6 +100,14 @@ final class SessionViewModel {
     var state: String = ""
     var role: String?
     var caseTitle: String?
+    // MARK: - F5-T3 (additive) — the current/stamped case id, mirrored from
+    // SessionDetail. NegotiationView reads it to detect which case was accepted
+    // once the interviewer resolves (negotiating → lobby stamps caseId).
+    var caseId: Int?
+    // MARK: - F5-T3 (additive) — a monotonic tick bumped on every peer-driven
+    // session_update so NegotiationView can re-fetch the negotiation view when
+    // the peer proposes/counters/accepts. Additive: existing consumers ignore it.
+    var negotiationTick = 0
     var interviewerName: String?
     var candidateName: String?
 
@@ -199,11 +207,23 @@ final class SessionViewModel {
         await endLiveActivityIfNeeded()
     }
 
+    // MARK: - F5-T3 (additive) — re-fetch + re-apply the session detail without
+    // touching signaling/media. NegotiationView calls this after an accept
+    // stamps the case (negotiating → lobby) so SessionView advances to the
+    // lobby. apply(_:) is idempotent, so this is safe if a broadcast already
+    // advanced us.
+    func refreshDetail() async {
+        if let detail = try? await service.sessionDetail(id: sessionId) {
+            await apply(detail)
+        }
+    }
+
     private func apply(_ detail: SessionDetail) async {
         let previousState = state
         state = detail.state
         role = detail.yourRole
         mode = detail.mode
+        caseId = detail.caseId          // F5-T3 additive
         caseTitle = detail.caseTitle
         interviewerName = detail.interviewerName
         candidateName = detail.candidateName
@@ -332,6 +352,7 @@ final class SessionViewModel {
             if let detail = try? await service.sessionDetail(id: sessionId) {
                 await apply(detail)
             }
+            negotiationTick &+= 1   // F5-T3 additive: nudge NegotiationView to re-fetch
         case .sdp, .ice:
             // Media negotiation frames — routed to the remote-mode media
             // session's Negotiator. Only ever set for mode == "remote".

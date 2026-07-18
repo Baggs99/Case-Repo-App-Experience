@@ -188,9 +188,26 @@ struct RootShell: View {
     @ViewBuilder
     private func takeoverSession(id: Int) -> some View {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-startTakeover") {
-            SessionView(sessionId: id, service: SessionFixtures.lobbyService,
-                        signaling: SessionFixtures.lobbySignaling)
+        let args = ProcessInfo.processInfo.arguments
+        if let idx = args.firstIndex(of: "-startTakeover") {
+            // Optional variant token after -startTakeover: lobby (default, T2) |
+            // nego | negoInterviewer | negoKept (F5-T3).
+            let variant = idx + 1 < args.count ? args[idx + 1] : "lobby"
+            switch variant {
+            case "nego":
+                SessionView(sessionId: id, service: SessionFixtures.negoCandidateService,
+                            signaling: SessionFixtures.negoSignaling,
+                            flowService: SessionFixtures.negoCandidateFlow)
+            case "negoInterviewer":
+                SessionView(sessionId: id, service: SessionFixtures.negoInterviewerService,
+                            signaling: SessionFixtures.negoSignaling,
+                            flowService: SessionFixtures.negoInterviewerFlow)
+            case "negoKept":
+                SessionFixtures.negoKeptStandalone()
+            default:
+                SessionView(sessionId: id, service: SessionFixtures.lobbyService,
+                            signaling: SessionFixtures.lobbySignaling)
+            }
         } else {
             SessionView(sessionId: id)
         }
