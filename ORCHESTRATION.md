@@ -252,6 +252,29 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   port 8106, sims 942222D4 + iPad 653F37B8) — solo, largest phase, ALL
   JUDGMENT (opus implementers). Watchdog re-armed.
 
+- 2026-07-18 F6 → feature/backend-gap @ 81fd115 (phase head 329df9b, 26
+  commits). ZERO conflicts. Fresh integration DB: backend 655; iOS FULL
+  **699/0** (668 + 31). Transport boundary grep-clean (0 files under
+  Media/, SignalingClient, ExhibitCrypto, VideoCallView). §7 smoke PASS
+  5/5 (phone + tablet consoles via -startTakeover console-*-scored
+  hatches; Home/Case LIVE; F5 dark takeover regression clean); crash
+  sweeps clean both sims. **FW6 COMPLETE.** F6 owner-visual flags for the
+  demo: console supersedes F5's dark InterviewerLiveView; real rubric is
+  5-dim/max-5 vs canvas 12-dim/1–10; blank vs numbered RUBRIC—LIVE rail
+  cells. Deviations: authored client-side script/PDF (no backend source);
+  recall = local un-mark; phone console has no mute/self-view (8b-
+  faithful); phone PDF no anchor. Residuals: RailVideoView render-only
+  duplication (VideoCallView representable private — adjudicated correct
+  side of the transport rule); phone console drops dims outside its 1:1
+  map (all 5 real dims covered today). Smoke gotcha recorded: -startTab
+  value is `caseTab`, `case` silently no-ops.
+
+- 2026-07-18 FW7 DISPATCHED (final wave): fe/f9-onboarding (~/dev/fe-f9,
+  DB caserepo_fe_f9, port 8109, sims 942222D4 + iPad 653F37B8) + fe/f10-
+  guestweb (~/dev/fe-f10, DB caserepo_fe_f10, port 8110, no sims — web).
+  Opus leads; F9 style-retrofit JUDGMENT, F10 mostly sonnet. Watchdog
+  re-armed.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
