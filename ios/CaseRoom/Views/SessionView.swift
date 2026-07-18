@@ -26,6 +26,9 @@ struct SessionView: View {
     @State private var negotiationViewModel: NegotiationViewModel?
 
     @Environment(\.dismiss) private var dismiss
+    // F6 (A1) — picks the interviewer console layout: tablet hero (1a) on
+    // .regular, phone console (8b) on .compact.
+    @Environment(\.horizontalSizeClass) private var hSize
 
     private let service: SessionService
     private let flowService: SessionFlowService   // F5-T3 additive (negotiation endpoints)
@@ -170,7 +173,9 @@ struct SessionView: View {
             InterviewerConsoleView(
                 rubric: rubricViewModel,
                 caseKicker: consoleKicker,
-                caseTitle: viewModel.caseTitle ?? "Session"
+                caseTitle: viewModel.caseTitle ?? "Session",
+                candidateName: viewModel.candidateName ?? "",
+                isTablet: CaseTabLayout.isTablet(hSize)
             )
         } else {
             candidateLiveContent
