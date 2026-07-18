@@ -175,7 +175,13 @@ struct SessionView: View {
                 caseKicker: consoleKicker,
                 caseTitle: viewModel.caseTitle ?? "Session",
                 candidateName: viewModel.candidateName ?? "",
-                isTablet: CaseTabLayout.isTablet(hSize)
+                isTablet: CaseTabLayout.isTablet(hSize),
+                // Display-only feed handles (A7) — the SAME already-published
+                // track/capture VideoCallView consumes; the console renders them
+                // read-only in its 224h feed and never touches transport.
+                remoteTrack: viewModel.remoteTrack,
+                localCapture: viewModel.localCapture,
+                videoEnabled: viewModel.videoEnabled
             )
         } else {
             candidateLiveContent

@@ -23,6 +23,7 @@
  */
 
 import SwiftUI
+import WebRTC   // display-only: RTCMTLVideoView/RTCVideoTrack for the candidate feed (A7); no transport use
 
 struct InterviewerConsoleView: View {
     @State private var model: ConsoleViewModel
@@ -37,31 +38,54 @@ struct InterviewerConsoleView: View {
     /// matches the VM's script/resolution mode chosen at init.
     private let isTablet: Bool
 
+    // DISPLAY-ONLY media handles for the tablet candidate feed (A7). These are the
+    // SAME already-published handles SessionView threads into VideoCallView — the
+    // candidate's remote track, the interviewer's local capture, and the camera
+    // flag — mounted read-only in the 224h feed / self-view. Nil on the phone, the
+    // in-person/local mode, and the DEBUG shot fixtures (which never start media) →
+    // the striped placeholder stands in. The console NEVER drives capture/transport
+    // (no toggle callbacks here); audio + signaling stay on the untouched seam.
+    private let remoteTrack: MediaTrackHandle?
+    private let localCapture: MediaCapturing?
+    private let videoEnabled: Bool
+
     // Drives the view-local clocks (A6): tick() advances only the running clocks.
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     /// SessionView entry — builds the console VM from the shared rubric. The size
     /// class picks the script + resolution mode: tablet (7-stage union) on
-    /// `.regular`, phone (6-stage 1:1) on `.compact`.
+    /// `.regular`, phone (6-stage 1:1) on `.compact`. The media handles (default
+    /// nil) bind the tablet feed to the live candidate/self video for real remote
+    /// sessions; omitted → striped placeholder.
     init(rubric: RubricViewModel, caseKicker: String, caseTitle: String,
-         candidateName: String = "", isTablet: Bool = false) {
+         candidateName: String = "", isTablet: Bool = false,
+         remoteTrack: MediaTrackHandle? = nil, localCapture: MediaCapturing? = nil,
+         videoEnabled: Bool = true) {
         let stages = isTablet ? ConsoleScript.tablet : ConsoleScript.phone
         _model = State(initialValue: ConsoleViewModel(stages: stages, isPhone: !isTablet, rubric: rubric))
         self.caseKicker = caseKicker
         self.caseTitle = caseTitle
         self.candidateName = candidateName
         self.isTablet = isTablet
+        self.remoteTrack = remoteTrack
+        self.localCapture = localCapture
+        self.videoEnabled = videoEnabled
     }
 
     /// Fixture/standalone entry — accepts a pre-seeded model (clock running,
     /// scores, a released exhibit) so the shot isn't a cold 0:00 frame (rv #8).
-    /// The layout follows the model's mode (`isPhone`).
+    /// The layout follows the model's mode (`isPhone`). No media handles → the
+    /// candidate feed renders its striped placeholder (the shot path never starts
+    /// media, same as the F5 fixtures).
     init(model: ConsoleViewModel, caseKicker: String, caseTitle: String, candidateName: String = "") {
         _model = State(initialValue: model)
         self.caseKicker = caseKicker
         self.caseTitle = caseTitle
         self.candidateName = candidateName
         self.isTablet = !model.isPhone
+        self.remoteTrack = nil
+        self.localCapture = nil
+        self.videoEnabled = true
     }
 
     var body: some View {
@@ -80,9 +104,11 @@ struct InterviewerConsoleView: View {
         // Dispatch on the stored flag (set from the size class at the SessionView
         // seam, A1) so the rendered layout always matches the VM's script.
         if isTablet {
-            // Tablet hero — canvas 1a chrome + LEFT pane (T3); RIGHT rail = T4 stub.
+            // Tablet hero — canvas 1a chrome + LEFT pane (T3) + RIGHT rail (T4).
             TabletConsole(model: model, caseKicker: caseKicker, caseTitle: caseTitle,
-                          candidateName: candidateName)
+                          candidateName: candidateName,
+                          remoteTrack: remoteTrack, localCapture: localCapture,
+                          videoEnabled: videoEnabled)
         } else {
             // Phone (.compact) — the shipped canvas 8b layout.
             PhoneConsole(model: model, caseKicker: caseKicker, caseTitle: caseTitle)
@@ -414,6 +440,10 @@ private struct TabletConsole: View {
     let caseKicker: String
     let caseTitle: String
     let candidateName: String
+    // Display-only live-video handles forwarded to the candidate feed (A7).
+    var remoteTrack: MediaTrackHandle? = nil
+    var localCapture: MediaCapturing? = nil
+    var videoEnabled: Bool = true
     @Environment(\.dsPalette) private var palette
 
     private var stage: ConsoleStage { model.currentStage }
@@ -827,7 +857,9 @@ private struct TabletConsole: View {
     // RUBRIC — LIVE (fills the remaining height, scrolls). Border-left hairline.
     private var rightRail: some View {
         VStack(spacing: 0) {
-            CandidateFeedPane(candidateName: candidateName).dsTheme(.dark)   // dark pane inside the light console (A7)
+            CandidateFeedPane(candidateName: candidateName, remoteTrack: remoteTrack,
+                              localCapture: localCapture, videoEnabled: videoEnabled)
+                .dsTheme(.dark)   // dark pane inside the light console (A7)
             segmentTimerBlock
             segmentsLoggedBlock
             rubricLiveHeader
@@ -1011,6 +1043,15 @@ private struct TabletConsole: View {
 /// stands in otherwise and in the shots.
 private struct CandidateFeedPane: View {
     let candidateName: String
+    // Display-only handles (A7). The pane BINDS to these for a real remote
+    // session — `remoteTrack` is the candidate's live video, `localCapture` the
+    // interviewer's self-view — mounting the same WebRTC render surface
+    // VideoCallView uses. The stripes are the NO-MEDIA fallback (in-person/local
+    // mode, track nil, camera off, or the DEBUG shot fixtures). Nothing here
+    // drives capture or transport.
+    var remoteTrack: MediaTrackHandle? = nil
+    var localCapture: MediaCapturing? = nil
+    var videoEnabled: Bool = true
     @Environment(\.dsPalette) private var palette
 
     /// The candidate's short name for the bottom-left tag ("Amara Osei · Wharton
@@ -1021,17 +1062,36 @@ private struct CandidateFeedPane: View {
         return first.isEmpty ? "Candidate" : first
     }
 
+    /// The candidate's live video track, if a remote track has arrived (same cast
+    /// VideoCallView uses). Nil → striped placeholder.
+    private var remoteVideoTrack: RTCVideoTrack? {
+        (remoteTrack as? RTCPeerConnectionWrapper.TrackHandle)?.track as? RTCVideoTrack
+    }
+
+    /// The interviewer's self-view track when the camera is on. Nil → striped
+    /// "You" placeholder.
+    private var localVideoTrack: RTCVideoTrack? {
+        guard videoEnabled else { return nil }
+        return localCapture?.localTrackHandles
+            .compactMap { ($0 as? RTCPeerConnectionWrapper.TrackHandle)?.track as? RTCVideoTrack }
+            .first
+    }
+
     var body: some View {
         ZStack {
-            // Feed backdrop: candidate-feed navy (#0D1C31, theme-independent) +
-            // faint chalk stripes — the striped placeholder until video mounts.
+            // Feed backdrop: candidate-feed navy (#0D1C31, theme-independent).
             Color.dsShadowInk
-            DiagonalStripes(color: palette.ink.opacity(0.045))
 
-            // Centered faint "CANDIDATE FEED" watermark.
-            Text("CANDIDATE FEED")
-                .font(.archivo(9, weight: 600)).tracking(9 * 0.2)
-                .foregroundStyle(palette.ink.opacity(0.32))
+            if let track = remoteVideoTrack {
+                // Live candidate video fills the 224h pane (display-only).
+                RailVideoView(track: track)
+            } else {
+                // No-media fallback: faint chalk stripes + centered watermark.
+                DiagonalStripes(color: palette.ink.opacity(0.045))
+                Text("CANDIDATE FEED")
+                    .font(.archivo(9, weight: 600)).tracking(9 * 0.2)
+                    .foregroundStyle(palette.ink.opacity(0.32))
+            }
 
             // Top-left LIVE chip (dark pill + green blink dot).
             VStack {
@@ -1069,11 +1129,16 @@ private struct CandidateFeedPane: View {
         .clipped()
     }
 
-    // 118×66 self-view inset — darker navy + tighter stripes + "You" tag.
+    // 118×66 self-view inset — live self-view when the camera is on, else darker
+    // navy + tighter stripes; "You" tag overlaid either way.
     private var selfView: some View {
         ZStack(alignment: .bottomLeading) {
             palette.page                                   // #081222 self-view navy
-            DiagonalStripes(color: palette.ink.opacity(0.06))
+            if let track = localVideoTrack {
+                RailVideoView(track: track)
+            } else {
+                DiagonalStripes(color: palette.ink.opacity(0.06))
+            }
             Text("You")
                 .font(.archivo(9, weight: 600))
                 .foregroundStyle(palette.ink)
@@ -1087,5 +1152,38 @@ private struct CandidateFeedPane: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(palette.ink.opacity(0.16), lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Rail video surface (display-only render wrapper)
+
+/// A minimal SwiftUI wrapper around `RTCMTLVideoView` that attaches a live video
+/// track for the tablet candidate feed / self-view. It mirrors the render-only
+/// logic in VideoCallView's `RTCVideoRepresentable` (detach the previous track
+/// before attaching the new one to avoid a double-render), duplicated here ONLY
+/// because that type is `private` to VideoCallView — editing VideoCallView is
+/// off-limits under the transport HARD RULE. Pure presentation: it renders frames
+/// the untouched media/transport layer already produces; it never creates,
+/// captures, negotiates, or mutates a track.
+private struct RailVideoView: UIViewRepresentable {
+    let track: RTCVideoTrack
+
+    func makeUIView(context: Context) -> RTCMTLVideoView {
+        let view = RTCMTLVideoView()
+        view.videoContentMode = .scaleAspectFill
+        return view
+    }
+
+    func updateUIView(_ uiView: RTCMTLVideoView, context: Context) {
+        guard context.coordinator.attached !== track else { return }
+        context.coordinator.attached?.remove(uiView)
+        track.add(uiView)
+        context.coordinator.attached = track
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var attached: RTCVideoTrack?
     }
 }
