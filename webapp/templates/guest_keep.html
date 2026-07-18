@@ -21,7 +21,7 @@
 
 {% if boot.isGuest %}
 <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 30px;position:relative;max-width:480px;margin:0 auto;width:100%;box-sizing:border-box">
-  <div style="font-weight:600;font-size:10px;letter-spacing:.18em;color:var(--green);margin-bottom:14px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) both">FEEDBACK SENT — {{ boot.peerName|upper }} HAS IT</div>
+  <div style="font-weight:600;font-size:10px;letter-spacing:.18em;color:var(--green);margin-bottom:14px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) both">{% if boot.finalized %}FEEDBACK SENT — {{ boot.peerName|upper }} HAS IT{% else %}SESSION ENDED{% endif %}</div>
   <h1 style="margin:0 0 10px;font-weight:800;font-size:30px;letter-spacing:-0.035em;line-height:1.08;color:#0D1C31;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .12s both">Keep this session on a record?</h1>
   <p style="margin:0 0 22px;font-family:'Source Serif 4',serif;font-size:14.5px;line-height:1.5;color:#515A66;max-width:290px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .24s both">An account holds your interviewer log — sessions run, feedback quality, the cases you own.</p>
   <div style="animation:rise .42s cubic-bezier(0.22,1,0.36,1) .36s both">

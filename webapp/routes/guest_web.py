@@ -145,6 +145,9 @@ def guest_keep(session_id: int, request: Request,
         "peerName": session["candidate_name"],
         "caseTitle": session["case_title"],
         "isGuest": user.is_guest,
+        # Only a finalized session actually sent feedback; aborted/missed
+        # reach here too, so the kicker must not overstate (reviewer note).
+        "finalized": session["state"] == "finalized",
     }
     return render(request, "guest_keep.html", {"boot": boot})
 
