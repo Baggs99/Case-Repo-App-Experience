@@ -183,6 +183,32 @@ Thomas demo checkpoints: after FW2, FW5, FW7.
   Retry re-runs board load, not progress fetch. F7 still in flight —
   FW4 closes at its merge.
 
+- 2026-07-17 F7 → feature/backend-gap @ 0923b71 (phase head 9391ff3). THREE
+  conflicts vs F8 (both extended the same seams), all resolved keep-both:
+  APIClient.swift (Community block + boards block), RootShell.swift (group
+  sheets + makeGauntletRun), CaseRoomApp docblock (launch-arg union).
+  Fresh integration DB: backend 655; iOS FULL **500/0** (413+42+45 exact
+  union — resolution compile-proven). §7 smoke PASS 4/4 live (Home "Begin"
+  → gauntlet rewire visible; Drills tab live w/ hero+6 types+boards+cold
+  trend; Community + Library regressions clean); run screen not smoke-
+  reachable without tap-scripting (fixture-arg only — phase shots cover
+  it). Crash sweep clean. **FW4 COMPLETE.** F7 owner-gates at demo: trend
+  "DAILY PERCENTILE" wording over score bars; derived result serif/cold-
+  start copy. F7 backend follow-ups: per-member school/global percentile
+  rows; daily-percentile trend series; elapsed field on gauntlet result.
+  F7 added AppRoute case .gauntletRun (brief-sanctioned: the timed run is
+  its core deliverable; .drillRun/FM path untouched — diff-verified empty
+  on ios/CaseRoom/Drills/). Recurring failure mode flagged by the lead:
+  implementer subagents stranding on background xcodebuild waits — leads
+  must keep enforcing foreground/polled builds.
+
+- 2026-07-17 FW5 DISPATCHED: fe/f3-case (~/dev/fe-f3, DB caserepo_fe_f3,
+  port 8103, sims 942222D4 + iPad 653F37B8) + fe/f5-session (~/dev/fe-f5,
+  DB caserepo_fe_f5, port 8105, sims 49C5BC31 + iPad 7D87AA5A). Opus
+  leads; F5 ALL-JUDGMENT (opus implementers), F3 sheets JUDGMENT / spine
+  sonnet. §6 contract in play: F3 routes blocked_by_recap 409 → .recap
+  (F5's screens). Watchdog re-armed.
+
 ## Escalations queued for Thomas
 
 - B5 THOMAS MANUAL (bgap-b5-report.md): create Google Cloud + LinkedIn
