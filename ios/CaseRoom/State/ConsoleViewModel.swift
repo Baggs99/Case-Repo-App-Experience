@@ -113,6 +113,11 @@ final class ConsoleViewModel {
     /// entry (local un-mark only — reveal is one-way, A5).
     private(set) var releasedAt: [String: String] = [:]
 
+    /// scriptIds already broadcast through `reveal`. Kept across a recall (which
+    /// only clears the local marker) so re-releasing never re-broadcasts a
+    /// one-way reveal.
+    private var broadcastScriptIds: Set<String> = []
+
     /// All script exhibit refs across every stage, keyed by scriptId (deduped).
     private var exhibitRefsByScriptId: [String: ConsoleExhibitRef] {
         var map: [String: ConsoleExhibitRef] = [:]
@@ -132,9 +137,12 @@ final class ConsoleViewModel {
     /// .exhibitId). A missing meta still records the local marker (the shot /
     /// script row updates) but sends nothing.
     func release(scriptId: String) async {
+        guard releasedAt[scriptId] == nil else { return }  // already showing SENT — idempotent
         releasedAt[scriptId] = mmss
         guard let ref = exhibitRefsByScriptId[scriptId],
               let meta = rubric.exhibits.first(where: { $0.idx == ref.idx }) else { return }
+        guard !broadcastScriptIds.contains(scriptId) else { return }  // reveal is one-way (A5)
+        broadcastScriptIds.insert(scriptId)
         await rubric.reveal(exhibitId: meta.exhibitId)
     }
 
@@ -214,6 +222,12 @@ final class ConsoleViewModel {
         guard let avg = runningAvg(items) else { return "NO SCORES YET" }
         return String(format: "%.1f AVG", avg)
     }
+
+    /// The RUBRIC — LIVE rail avg: a GLOBAL mean across ALL scored template dims
+    /// (canvas `scAvg`), NOT the current stage's. Bound to `rubric.templateItems`
+    /// so T2/T3 can't accidentally feed `stageItems(...)`.
+    var overallAvg: Double? { runningAvg(rubric.templateItems) }
+    var overallAvgText: String { avgText(rubric.templateItems) }
 
     // MARK: Finalize — the single close path (A2)
 

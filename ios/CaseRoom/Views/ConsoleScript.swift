@@ -1,12 +1,13 @@
 /*
  * Purpose: Authored, client-side stage script + PDF case-pack for the
  *          interviewer console (F6, decision A4 — no backend stage/case-pack
- *          endpoint exists). Verbatim from the Tablet 1a canvas `STAGES`/`DIMS`
- *          and its PDF-mode markup (Case-07 Nordic). Consumed by the console
+ *          endpoint exists). Verbatim from the Tablet 1a canvas `STAGES`,
+ *          `DIMS`, and PDF-mode markup (Case-07 Nordic). Consumed by the console
  *          view-model (stage nav, exhibit-ref→reveal mapping, dim resolution)
- *          and the T5 PDF view. Pure value types — no I/O, no view code.
+ *          and the T2/T3/T5 views. Pure value types — no I/O, no view code.
  * Inputs: none (all content is compiled-in).
  * Outputs: ConsoleScript.tablet (7 stages) / .phone (6-stage subset) /
+ *          .dims (dim id → name+desc, since RubricTemplateItem carries no desc) /
  *          .pdfPages (3 authored pages) / CAP.
  * Run: `ConsoleViewModel(stages: ConsoleScript.tablet, isPhone: false, ...)`.
  */
@@ -89,6 +90,32 @@ enum ConsoleScript {
         let s = max(0, seconds)
         return String(format: "%02d:%02d", s / 60, s % 60)
     }
+
+    // MARK: Dim names + descriptions (RubricTemplateItem carries no desc)
+    //
+    // Verbatim from the canvas `DIMS` (the 12 canvas keys) plus the real backend
+    // ids not covered there (insight, communication) so BOTH the 12-dim shot
+    // fixture and the shipping 5-dim template render name + one-line desc.
+    // Contract for T2/T3: name = dims[id]?.name ?? templateItem.label;
+    // desc = dims[id]?.desc.
+    static let dims: [String: (name: String, desc: String)] = [
+        // Canvas DIMS (lines 1037-1049), verbatim.
+        "fit": ("Fit", "Motivation and self-awareness — would you staff them"),
+        "star": ("STAR", "Situation, task, action, result — led with the result"),
+        "summary": ("Summary", "Accurate, brief recaps at transitions"),
+        "comm": ("Communication", "Top-down, concise, composed"),
+        "questions": ("Questions", "Clarifying questions that earn new facts"),
+        "structure": ("Structure", "MECE, hypothesis-led, tailored to the case"),
+        "quant": ("Quant accuracy", "Setup, arithmetic, sanity checks"),
+        "judgment": ("Business judgment", "So-whats, practical insight"),
+        "creativity": ("Creativity", "Breadth and originality of ideas"),
+        "synthesis": ("Synthesis", "Answer-first close with next steps"),
+        "leading": ("Leading required", "Steering needed — 10 means none"),
+        "time": ("Time management", "Paced the case within the caps"),
+        // Real backend ids absent from the canvas DIMS — authored to match.
+        "insight": ("Business insight", "So-whats and practical insight"),
+        "communication": ("Communication", "Top-down, concise, composed"),
+    ]
 
     // MARK: Exhibit references (e1/e2/e3 → idx 0/1/2)
 

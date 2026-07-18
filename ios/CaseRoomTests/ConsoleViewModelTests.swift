@@ -388,6 +388,64 @@ final class ConsoleViewModelTests: XCTestCase {
         XCTAssertEqual(ConsoleScript.pdfPages[2].corner, .interviewerOnly)
     }
 
+    // MARK: Authored dims map (name + desc)
+
+    func testDimsMapCoversRealAndCanvasKeys() {
+        // Every real backend id resolves to a name + desc.
+        for id in ["structure", "quant", "insight", "communication", "synthesis"] {
+            let d = ConsoleScript.dims[id]
+            XCTAssertNotNil(d, "missing dims entry for real id \(id)")
+            XCTAssertFalse(d?.name.isEmpty ?? true)
+            XCTAssertFalse(d?.desc.isEmpty ?? true)
+        }
+        // Every canvas DIM key resolves too (12-dim shot fixture).
+        for id in ["fit", "star", "summary", "comm", "questions", "structure",
+                   "quant", "judgment", "creativity", "synthesis", "leading", "time"] {
+            XCTAssertNotNil(ConsoleScript.dims[id], "missing dims entry for canvas key \(id)")
+        }
+        // Spot verbatim canvas content + the authored insight desc.
+        XCTAssertEqual(ConsoleScript.dims["structure"]?.desc, "MECE, hypothesis-led, tailored to the case")
+        XCTAssertEqual(ConsoleScript.dims["insight"]?.name, "Business insight")
+        XCTAssertEqual(ConsoleScript.dims["insight"]?.desc, "So-whats and practical insight")
+        // Contract: name falls back to the template label when no dims entry.
+        let item = RubricTemplateItem(id: "novel", label: "Novel dim", dimension: "novel", maxPoints: 5)
+        XCTAssertNil(ConsoleScript.dims["novel"])
+        XCTAssertEqual(ConsoleScript.dims["novel"]?.name ?? item.label, "Novel dim")
+    }
+
+    // MARK: Release idempotency (nit #3)
+
+    func testReleaseIsIdempotentAndRecallDoesNotRebroadcast() async {
+        let meta0 = ExhibitMeta(exhibitId: 501, idx: 0, sourcePages: "2", width: 1, height: 1, bytes: 1, ivB64: "")
+        let (vm, svc) = tabletVM(template: realTemplate(), exhibits: [meta0])
+        vm.elapsedSeconds = 60
+        await vm.release(scriptId: "e1")
+        await vm.release(scriptId: "e1")                  // re-tap while SENT → no-op
+        XCTAssertEqual(svc.recordedRevealExhibitIds, [501])   // broadcast once
+
+        vm.elapsedSeconds = 120
+        vm.recall(scriptId: "e1")
+        await vm.release(scriptId: "e1")                  // re-release after recall
+        XCTAssertEqual(vm.sentAt(scriptId: "e1"), "02:00")    // local marker restored
+        XCTAssertEqual(svc.recordedRevealExhibitIds, [501])   // still NOT re-broadcast (one-way)
+    }
+
+    // MARK: Overall (rail) avg uses the full template, not the stage (nit #2)
+
+    func testOverallAvgUsesFullTemplate() {
+        let (vm, _) = tabletVM(template: realTemplate())
+        XCTAssertNil(vm.overallAvg)
+        XCTAssertEqual(vm.overallAvgText, "NO SCORES YET")
+        // Score dims from DIFFERENT stages — the current stage's stageItems would
+        // miss them; the rail avg must not.
+        vm.score(dimId: "structure", points: 8)          // FRAMEWORK
+        vm.score(dimId: "synthesis", points: 6)          // CLOSE
+        vm.pickStage(0)                                  // BEHAVIORAL (neither dim)
+        XCTAssertTrue(vm.stageItems(realTemplate()).isEmpty)
+        XCTAssertEqual(vm.overallAvg!, 7.0, accuracy: 0.0001)
+        XCTAssertEqual(vm.overallAvgText, "7.0 AVG")
+    }
+
     // MARK: Finalize → moveToDebrief (single close path, A2)
 
     func testFinalizeAndSendMovesToDebrief() async {
