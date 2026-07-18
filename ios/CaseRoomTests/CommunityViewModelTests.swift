@@ -131,4 +131,50 @@ final class CommunityViewModelTests: XCTestCase {
 
         XCTAssertNil(vm.errorMessage)
     }
+
+    // MARK: - selectedGroup (Task 4 tablet 2d right pane) — defaults to the
+    // first loaded group, tracks an explicit tap-selection, and falls back
+    // to first again if the selected id no longer matches a loaded group
+    // (mirrors LibraryViewModel.selectedCase's selectedID-else-first-row rule).
+
+    private static let twoGroups: [GroupSummary] = [
+        GroupSummary(id: 14, name: "C-14", schoolId: 1, inviteCode: "C14-7QK2", role: "member"),
+        GroupSummary(id: 20, name: "C-20", schoolId: 1, inviteCode: "C20-1AAA", role: "admin"),
+    ]
+
+    func testSelectedGroupDefaultsToFirstGroup() {
+        let vm = CommunityViewModel(
+            fixtureStanding: SchoolStanding(school: nil, yourPercentile: nil),
+            fixtureGroups: Self.twoGroups, fixtureConnections: [])
+
+        XCTAssertNil(vm.selectedGroupID)
+        XCTAssertEqual(vm.selectedGroup?.id, 14)
+    }
+
+    func testSelectedGroupTracksAnExplicitTapSelection() {
+        let vm = CommunityViewModel(
+            fixtureStanding: SchoolStanding(school: nil, yourPercentile: nil),
+            fixtureGroups: Self.twoGroups, fixtureConnections: [])
+
+        vm.selectedGroupID = 20
+        XCTAssertEqual(vm.selectedGroup?.id, 20)
+        XCTAssertEqual(vm.selectedGroup?.name, "C-20")
+    }
+
+    func testSelectedGroupFallsBackToFirstWhenSelectionNoLongerMatches() {
+        let vm = CommunityViewModel(
+            fixtureStanding: SchoolStanding(school: nil, yourPercentile: nil),
+            fixtureGroups: Self.twoGroups, fixtureConnections: [])
+
+        vm.selectedGroupID = 999
+        XCTAssertEqual(vm.selectedGroup?.id, 14)
+    }
+
+    func testSelectedGroupIsNilWhenThereAreNoGroups() {
+        let vm = CommunityViewModel(
+            fixtureStanding: SchoolStanding(school: nil, yourPercentile: nil),
+            fixtureGroups: [], fixtureConnections: [])
+
+        XCTAssertNil(vm.selectedGroup)
+    }
 }

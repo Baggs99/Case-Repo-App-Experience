@@ -64,6 +64,33 @@ final class GroupPageViewModelTests: XCTestCase {
         XCTAssertEqual(vm.leaderboard.last?.displayName, "D. Ortiz")
     }
 
+    // MARK: - reload() (Task 4: GroupPageContent's Retry action, which has no
+    // groupId of its own to hand back — reload() reuses the last-loaded one.)
+
+    func testReloadReusesTheLastLoadedGroupId() async {
+        let stub = StubCommunityService()
+        stub.groupResult = .success(Self.tenMemberDetail)
+
+        let vm = GroupPageViewModel(service: stub, currentUserId: 10)
+        await vm.load(groupId: 14)
+        XCTAssertNotNil(vm.detail)
+
+        stub.groupResult = .failure(StubError())
+        await vm.reload()
+
+        XCTAssertNil(vm.detail)
+        XCTAssertNotNil(vm.errorMessage)
+    }
+
+    func testReloadIsANoOpBeforeAnyLoad() async {
+        let stub = StubCommunityService()
+        let vm = GroupPageViewModel(service: stub, currentUserId: 10)
+
+        await vm.reload()
+
+        XCTAssertFalse(vm.hasLoaded)
+    }
+
     func testTopFiveSplitPutsRanksOneThroughFiveAboveTheDivider() {
         let split = GroupPageViewModel.topFiveSplit(Self.tenMemberDetail.leaderboard)
 

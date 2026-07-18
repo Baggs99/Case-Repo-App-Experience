@@ -2,6 +2,9 @@
  * Purpose: Backing state for the Community tab (canvas 6a phone / 2d tablet) —
  *          concurrently loads school standing, the user's groups, and their
  *          connections for the hero card + YOUR GROUPS + CONNECTIONS sections.
+ *          Also owns `selectedGroupID` (Task 4, tablet 2d right pane) — the
+ *          YOUR GROUPS selector's source of truth, mirroring LibraryViewModel.
+ *          selectedID/selectedCase's selectedID-else-first-row pattern.
  * Inputs: CommunityService (default APIClient.shared).
  * Outputs: none (reads only; writes live in GroupPageViewModel/
  *          GroupCreateViewModel, later F8 tasks).
@@ -21,6 +24,11 @@ final class CommunityViewModel {
     // (the latter is a legitimate dev-seed state, not a loading placeholder).
     private(set) var hasLoaded = false
     var errorMessage: String?
+
+    // Task 4 (tablet 2d right pane): the YOUR GROUPS selector's raw
+    // selection — nil until the first tap. `selectedGroup` below resolves
+    // this against `groups`, defaulting to the first group.
+    var selectedGroupID: Int?
 
     private let service: CommunityService
     private let isFixtureBacked: Bool
@@ -62,6 +70,16 @@ final class CommunityViewModel {
             errorMessage = "Couldn't load Community. Try again."
         }
         hasLoaded = true
+    }
+
+    // Tablet fallback: the selected group if it's still in the loaded set,
+    // else the first loaded group (mirrors LibraryViewModel.selectedCase).
+    // nil only when there are no groups at all.
+    var selectedGroup: GroupSummary? {
+        if let selectedGroupID, let match = groups.first(where: { $0.id == selectedGroupID }) {
+            return match
+        }
+        return groups.first
     }
 }
 

@@ -93,6 +93,16 @@ final class GroupPageViewModel {
         }
     }
 
+    /// Re-runs load() against the last-loaded groupId — Task 4's
+    /// GroupPageContent Retry action doesn't otherwise have a groupId to
+    /// hand back (it's a shared content view, not the chrome that owns the
+    /// original call site). load() always sets `self.groupId` first, even on
+    /// a failed attempt, so this works after the very first load too.
+    func reload() async {
+        guard let groupId else { return }
+        await load(groupId: groupId)
+    }
+
     /// Admin-only; a no-op guard for non-admins (defense-in-depth alongside
     /// the view's own isAdmin gate and the backend's 403).
     func loadProgress(groupId: Int) async {

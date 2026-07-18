@@ -1,13 +1,11 @@
 /*
- * Purpose: Group page (canvas 6a C-14 detail push) — the weekly points board
- *          (rank · name · streak · points, tabular numerals; streak column
- *          renders ink/muted, NEVER green — a green column would blow the
- *          ≤3-greens ceiling), the TOP FIVE ADVANCE divider (ranks 1–5 above,
- *          the rest greyed/demoted below), a serif note on admin-only member
- *          progress + leadership transfers, and (admin-only, gated on
- *          `isAdmin` — defense-in-depth over the backend 403) the "Transfer
- *          leadership" affordance + member-progress surface. Non-admins never
- *          see the admin section.
+ * Purpose: Group page CHROME (canvas 6a C-14 detail push) — the `‹ Back` +
+ *          slate context-label header (Design §1 Recurring chrome) around
+ *          GroupPageContent, which owns the actual board/admin-note/
+ *          transfer/progress body (content/chrome split, mirrors
+ *          CaseDetailView wrapping CaseDetailContent). Kept byte-for-byte
+ *          identical in rendered output to the pre-split view (Task 4 —
+ *          the phone screenshot must not regress).
  * Inputs: GroupPageViewModel (default live). RootShell's `.groupPage`
  *         destination passes `currentUserId: sessionStore.user?.id` on the
  *         live path, or an injected fixture-backed VM under `-GroupPageFixtures`
@@ -17,7 +15,9 @@
  *          same idiom as CaseDetailView popping libraryPath).
  * Run: pushed via `NavigationLink(value: AppRoute.groupPage(id))` from
  *      CommunityView's YOUR GROUPS rows; RootShell's `communityDetailOpen`
- *      gate hides the top pills/tab bar while this is on screen.
+ *      gate hides the top pills/tab bar while this is on screen. Task 4's
+ *      tablet right pane embeds GroupPageContent directly (layout: .tablet)
+ *      with NO back chrome / no top pills instead of this view.
  */
 
 import SwiftUI
@@ -26,7 +26,6 @@ struct GroupPageView: View {
     let groupId: Int
     @Environment(\.dsPalette) private var palette
     @State private var viewModel: GroupPageViewModel
-    @State private var showTransferPicker = false
 
     // Injectable VM (default = live, built from currentUserId). The DEBUG
     // -GroupPageFixtures hatch (wired in RootShell) passes a fixture-backed
@@ -72,6 +71,10 @@ struct GroupPageView: View {
 
     // MARK: - Content
 
+    // The loaded board/admin-note/transfer/progress body now lives in
+    // GroupPageContent (Task 4 content/chrome split) — this stays a thin
+    // ScrollView wrapper so the rendered output (padding, scroll fade,
+    // bottom tab-bar spacer) is byte-for-byte identical to before the split.
     @ViewBuilder
     private var content: some View {
         if !viewModel.hasLoaded {
@@ -81,19 +84,8 @@ struct GroupPageView: View {
             errorState
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    if let errorMessage = viewModel.errorMessage {
-                        errorBanner(errorMessage)
-                    }
-                    boardSection
-                    adminNote
-                    if viewModel.isAdmin {
-                        transferSection
-                        progressSection
-                    }
-                    Color.clear.frame(height: 120)   // room behind the (suppressed) tab bar
-                }
-                .padding(22)
+                GroupPageContent(viewModel: viewModel, layout: .phone)
+                    .padding(22)
             }
             .scrollIndicators(.hidden)
             .dsHeaderFade()
@@ -111,152 +103,6 @@ struct GroupPageView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, 40)
-    }
-
-    // Shown over an already-loaded board when a later action (transfer/
-    // progress load) fails — mirrors CommunityView's errorBanner + Retry.
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: 12) {
-            Text(message).dsText(.meta).foregroundStyle(palette.muted)
-            Button { Task { await viewModel.load(groupId: groupId) } } label: {
-                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: - 1. Weekly points board — rank · name · streak · points
-    // (all numerals tabular). The ONE sanctioned literal-population surface
-    // (joined cohort) — still no "of N" headcount anywhere on this screen.
-
-    private var boardSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("WEEKLY POINTS").dsText(.kicker).foregroundStyle(palette.muted)
-                .padding(.bottom, 6)
-            ForEach(viewModel.topFive) { entry in
-                boardRow(entry, demoted: false)
-            }
-            topFiveDivider
-            ForEach(viewModel.restOfBoard) { entry in
-                boardRow(entry, demoted: true)
-            }
-        }
-        .padding(.top, 12)
-        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
-    }
-
-    // Verbatim canvas copy. Ranks 6+ render greyed/demoted below this line.
-    private var topFiveDivider: some View {
-        HStack(spacing: 10) {
-            Rectangle().fill(palette.hairline).frame(height: 1)
-            Text("TOP FIVE ADVANCE").dsText(.kicker).foregroundStyle(palette.muted).fixedSize()
-            Rectangle().fill(palette.hairline).frame(height: 1)
-        }
-        .padding(.vertical, 10)
-    }
-
-    private func boardRow(_ entry: GroupLeaderboardEntry, demoted: Bool) -> some View {
-        HStack(spacing: 12) {
-            Text("\(entry.rank)")
-                .dsText(.rowTitle).tabularNumbers()
-                .foregroundStyle(demoted ? palette.faint : palette.ink)
-                .frame(width: 22, alignment: .leading)
-            Text(entry.displayName).dsText(.rowTitle)
-                .foregroundStyle(demoted ? palette.muted : palette.ink)
-            Spacer(minLength: 12)
-            // Streak column — ink/muted, deliberately NOT green (the green
-            // "DAY streak" tag elsewhere in the system is a single-tag
-            // concession, not a full column; a green column here would blow
-            // the ≤3-greens ceiling).
-            Text("\(entry.streak)D").dsText(.meta).tabularNumbers()
-                .foregroundStyle(palette.muted)
-            Text("\(entry.points)")
-                .dsText(.rowTitleStrong).tabularNumbers()
-                .foregroundStyle(demoted ? palette.muted : palette.ink)
-                .frame(width: 48, alignment: .trailing)
-        }
-        .padding(.vertical, 10)
-        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
-    }
-
-    // MARK: - 2. Serif admin-only note — visible to every member, explaining
-    // that full member progress is admin-only and that leadership transfers
-    // between members (the copy itself, not the note's visibility, is what's
-    // admin-gated — the admin surfaces below are the actual gate).
-
-    private var adminNote: some View {
-        Text(viewModel.isAdmin
-             ? "As admin you can see everyone's progress below, and hand leadership to another member."
-             : "Full member progress is visible to your group's admin. Admins can transfer leadership to another member.")
-            .dsText(.serif(13.5, italic: true)).foregroundStyle(palette.muted)
-    }
-
-    // MARK: - 3. Admin-only: transfer leadership (secondary = underline text)
-
-    private var transferSection: some View {
-        Button {
-            showTransferPicker = true
-        } label: {
-            Text("Transfer leadership").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
-        }
-        .buttonStyle(.plain)
-        .confirmationDialog(
-            "Transfer leadership to…", isPresented: $showTransferPicker, titleVisibility: .visible
-        ) {
-            ForEach(transferCandidates) { member in
-                Button(member.displayName) {
-                    Task { await viewModel.transfer(toUserId: member.userId) }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-    }
-
-    // members[] minus self — the caller's own row is the current admin (the
-    // pinned schema has exactly one admin per group), so filtering out the
-    // "admin" role is equivalent to filtering out self.
-    private var transferCandidates: [GroupMember] {
-        (viewModel.detail?.members ?? []).filter { $0.role != "admin" }
-    }
-
-    // MARK: - 4. Admin-only: member-progress surface (tabular)
-
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("MEMBER PROGRESS").dsText(.kicker).foregroundStyle(palette.muted)
-                .padding(.bottom, 6)
-            if let progress = viewModel.progress {
-                ForEach(progress) { member in
-                    progressRow(member)
-                }
-            } else {
-                Text("Loading…").dsText(.meta).foregroundStyle(palette.muted)
-                    .padding(.vertical, 10)
-            }
-        }
-        .padding(.top, 12)
-        .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
-    }
-
-    private func progressRow(_ member: GroupProgressMember) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(member.displayName).dsText(.rowTitle).foregroundStyle(palette.ink)
-            HStack(spacing: 18) {
-                statPair(label: "CASES", value: "\(member.casesDone)")
-                statPair(label: "MEAN GRADE", value: member.meanGrade.map { String(format: "%.1f", $0) } ?? "—")
-                statPair(label: "DRILLS 30D", value: "\(member.drillAttempts30D)")
-                statPair(label: "STREAK", value: "\(member.streak)D")
-            }
-        }
-        .padding(.vertical, 10)
-        .overlay(Rectangle().fill(palette.hairlineSoft).frame(height: 1), alignment: .bottom)
-    }
-
-    private func statPair(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).dsText(.rowTitleStrong).tabularNumbers().foregroundStyle(palette.ink)
-            Text(label).dsText(.kicker).foregroundStyle(palette.muted)
-        }
     }
 }
 
