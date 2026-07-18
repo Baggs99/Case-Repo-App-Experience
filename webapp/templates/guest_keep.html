@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>myCase — Keep this session on a record?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root{--green:#1B9A5F}
+  body{margin:0;min-height:100vh;background:#F3F5F8;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;position:relative;overflow-x:hidden}
+  button{cursor:pointer}
+  input{font-family:'Archivo',sans-serif}
+  input::placeholder{color:#A9B4C4}
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<svg width="480" height="400" viewBox="0 0 48 40" aria-hidden="true" style="position:absolute;top:120px;right:-200px;opacity:.4;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
+
+{% if boot.isGuest %}
+<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 30px;position:relative;max-width:480px;margin:0 auto;width:100%;box-sizing:border-box">
+  <div style="font-weight:600;font-size:10px;letter-spacing:.18em;color:var(--green);margin-bottom:14px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) both">{% if boot.finalized %}FEEDBACK SENT — {{ boot.peerName|upper }} HAS IT{% else %}SESSION ENDED{% endif %}</div>
+  <h1 style="margin:0 0 10px;font-weight:800;font-size:30px;letter-spacing:-0.035em;line-height:1.08;color:#0D1C31;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .12s both">Keep this session on a record?</h1>
+  <p style="margin:0 0 22px;font-family:'Source Serif 4',serif;font-size:14.5px;line-height:1.5;color:#515A66;max-width:290px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .24s both">An account holds your interviewer log — sessions run, feedback quality, the cases you own.</p>
+  <div style="animation:rise .42s cubic-bezier(0.22,1,0.36,1) .36s both">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid #C9D2DF;padding:10px 0">
+      <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">THIS SESSION</span>
+      <span style="font-weight:600;font-size:12.5px;color:#0D1C31">{{ boot.caseTitle }}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid #C9D2DF;border-bottom:1px solid #C9D2DF;padding:10px 0;margin-bottom:24px">
+      <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">OTHERWISE</span>
+      <span style="font-weight:600;font-size:12.5px;color:#0D1C31">It vanishes when you close this tab</span>
+    </div>
+    <button id="g-create" type="button" style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;height:50px;cursor:pointer;margin-bottom:8px;transition:transform .16s ease,opacity .16s ease">Create an account</button>
+    <button id="g-notnow" type="button" style="width:100%;background:none;border:none;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:6px">Not now</button>
+
+    <form id="g-upgrade-form" hidden style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+      <input id="up-email" name="email" type="email" required placeholder="you@school.edu" style="height:46px;border:1px solid #C9D2DF;background:#FFFFFF;padding:0 14px;font-size:13.5px;color:#0D1C31;box-sizing:border-box">
+      <input id="up-pass" name="password" type="password" required placeholder="Password" style="height:46px;border:1px solid #C9D2DF;background:#FFFFFF;padding:0 14px;font-size:13.5px;color:#0D1C31;box-sizing:border-box">
+      <div id="up-err" style="font-weight:600;font-size:12px;color:#B3261E;min-height:14px"></div>
+      <button type="submit" style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;height:50px;cursor:pointer">Create account</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 28px;text-align:center;position:relative">
+  <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-0.03em;color:#0D1C31">Saved to your record.</h1>
+  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:14.5px;color:#515A66">This session is already part of your interviewer log.</div>
+</div>
+{% endif %}
+
+<script type="module">
+{% if boot.isGuest %}
+const createBtn = document.getElementById('g-create');
+const form = document.getElementById('g-upgrade-form');
+const notNowBtn = document.getElementById('g-notnow');
+const errEl = document.getElementById('up-err');
+
+createBtn.addEventListener('click', () => {
+  form.hidden = !form.hidden;
+});
+
+notNowBtn.addEventListener('click', () => {
+  location.assign('/g/session/{{ boot.sessionId }}/saved?guest=1');
+});
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  errEl.textContent = '';
+  const email = document.getElementById('up-email').value;
+  const password = document.getElementById('up-pass').value;
+  try {
+    const res = await fetch('/api/v1/auth/upgrade', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (res.ok) {
+      location.assign('/g/session/{{ boot.sessionId }}/saved');
+      return;
+    }
+    const data = await res.json();
+    errEl.textContent = data.detail || 'Could not create the account — try again.';
+  } catch (err) {
+    errEl.textContent = 'Could not create the account — try again.';
+  }
+});
+{% endif %}
+</script>
+</body>
+</html>

@@ -263,6 +263,42 @@ def list_for_api(user_id: int) -> list[dict]:
             return cur.fetchall()
 
 
+def get_open_by_claim_token(token: str) -> Optional[dict]:
+    """Read-only preview for the guest link-gate (F10 Task 1, GET/POST
+    /g/claim/{token}). Restricted to a token THIS path may claim: instant (no
+    proposed_times), case-set, candidate-role, unclaimed — so the claimer
+    always becomes the interviewer. A scheduled / case-less / already-claimed
+    / interviewer-role token returns None → the gate 404s it for everyone
+    (closes I3: claim_proposal's instant-only guard is guest-only, so without
+    this a logged-in user could claim a scheduled token and 303 to a broken
+    /g/session/None).
+
+    "Instant" is IS NULL OR empty array, not IS NULL alone: create_proposal
+    always writes Jsonb(times), so a "now" proposal created via the real
+    POST /api/proposals path (ProposalBody.proposed_times defaults to []) is
+    stored as JSONB '[]', never SQL NULL — confirmed against the seeded dev
+    DB. This matches the same instant-proposal check already used by
+    sweep_expired and claim_proposal's guest guard (both treat a falsy/empty
+    proposed_times_json as "now")."""
+    sql = """
+        SELECT p.id AS proposal_id,
+               COALESCE(u.display_name, split_part(u.email::text, '@', 1)) AS from_name,
+               p.case_id, c.case_title
+        FROM proposals p
+        JOIN users u ON u.id = p.from_user_id
+        JOIN cases c ON c.id = p.case_id
+        WHERE p.claim_token = %s AND p.state = 'pending' AND p.to_user_id IS NULL
+          AND (p.proposed_times_json IS NULL
+               OR jsonb_array_length(p.proposed_times_json) = 0)
+          AND p.case_id IS NOT NULL
+          AND p.from_role = 'candidate';
+    """
+    with get_pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(sql, (token,))
+            return cur.fetchone()
+
+
 def pending_count(user_id: int) -> int:
     """Nav badge. Uses idx_proposals_inbox; called on every page render."""
     with get_pool().connection() as conn:

@@ -1,0 +1,544 @@
+diff --git a/tests/test_f10_guest_web.py b/tests/test_f10_guest_web.py
+index 424a4b6..0e9d7ea 100644
+--- a/tests/test_f10_guest_web.py
++++ b/tests/test_f10_guest_web.py
+@@ -1,20 +1,21 @@
+ """
+ F10 Task 1: the guest link-gate (/g/claim/{token}) — GET renders the 8a gate
+ bound to a real open, instant, candidate-role, case-set proposal; POST claims
+ it (minting a guest when unauthenticated) and 303-redirects to the console.
+ Follows the login/cookie + open-link idiom of tests/test_b1_proposals_open.py.
+ """
+ 
+ from __future__ import annotations
+ 
+ import unittest
++import uuid
+ from datetime import datetime, timedelta, timezone
+ 
+ from tests.test_ws_integration import _DB_URL, _HTTPX, _READY
+ 
+ 
+ @unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
+ @unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
+ class TestGuestLinkGate(unittest.TestCase):
+     @classmethod
+     def setUpClass(cls):
+@@ -336,24 +337,254 @@ class TestGuestConsole(unittest.TestCase):
+                            json={"exhibit_id": self.exhibit_id}, headers=origin)
+             self.assertEqual(r.status_code, 200, r.text)
+ 
+             r = guest.post(f"/api/practice/{sid}/state", json={"target": "debrief"},
+                            headers=origin)
+             self.assertEqual(r.status_code, 200, r.text)
+ 
+             r = guest.post(f"/api/practice/{sid}/finalize", json={"grade": 4},
+                            headers=origin)
+             self.assertEqual(r.status_code, 200, r.text)
++            # M2 — regression guard for DV-F10-3: a scored finalize must never
++            # silently record a computed 0.0 (the console's End action always
++            # carries an explicit 1-5 grade).
++            self.assertEqual(r.json()["grade"], 4.0)
+ 
+             r = guest.get(f"/api/practice/{sid}")
+             self.assertEqual(r.status_code, 200, r.text)
+             self.assertEqual(r.json()["state"], "finalized")
+ 
+             r = guest.get(f"/g/session/{sid}", follow_redirects=False)
+             self.assertEqual(r.status_code, 303, r.text)
+             self.assertEqual(r.headers["location"], f"/g/session/{sid}/keep")
+         finally:
+             self._cleanup_session(self._guest_id_for(sid), sid)
+ 
+ 
++@unittest.skipUnless(_READY, "requires seeded dev Postgres (scripts/seed_caseroom_dev.py)")
++@unittest.skipUnless(_HTTPX, "requires httpx for TestClient")
++class TestGuestKeepUpgrade(unittest.TestCase):
++    """F10 Task 3 — /g/session/{id}/keep (gIsPost), the existing
++    /api/v1/auth/upgrade consumed by its inline JS, and /g/session/{id}/saved
++    (gIsMade / the honest 'not now' close state)."""
++
++    @classmethod
++    def setUpClass(cls):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        from webapp.auth.sessions import SESSION_COOKIE_NAME, create_session
++
++        cls._alice_ctx = TestClient(app)
++        cls.alice = cls._alice_ctx.__enter__()   # a@yale.edu — candidate poster (guest scenarios)
++        cls._bob_ctx = TestClient(app)
++        cls.bob = cls._bob_ctx.__enter__()       # b@yale.edu — real (non-guest) claimer
++        cls._carol_ctx = TestClient(app)
++        cls.carol = cls._carol_ctx.__enter__()   # c@yale.edu — candidate poster (non-guest scenario)
++
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("SELECT email, id FROM users WHERE email = ANY(%s);",
++                            (["a@yale.edu", "b@yale.edu", "c@yale.edu"],))
++                ids = dict(cur.fetchall())
++                cur.execute(
++                    "INSERT INTO cases (case_title, normalized_title, source_school,"
++                    " source_year, industry, case_type, difficulty, difficulty_score,"
++                    " page_count, pdf_path) VALUES ('F10 Keep Case', 'f10 keep case',"
++                    " 'DevSchool', 2091, 'Technology', 'Profitability', 'Easy', 3.0,"
++                    " 2, 'output/none.pdf') RETURNING id;")
++                cls.case_id = cur.fetchone()[0]
++        cls.aid, cls.bid, cls.cid = ids["a@yale.edu"], ids["b@yale.edu"], ids["c@yale.edu"]
++
++        for user_id, ctx in ((cls.aid, cls.alice), (cls.bid, cls.bob), (cls.cid, cls.carol)):
++            s = create_session(user_id, user_agent="f10-test", ip_address=None)
++            ctx.cookies.set(SESSION_COOKIE_NAME, s.id)
++
++    @classmethod
++    def tearDownClass(cls):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM proposals WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE case_id = %s;", (cls.case_id,))
++                cur.execute("DELETE FROM cases WHERE id = %s;", (cls.case_id,))
++        cls._alice_ctx.__exit__(None, None, None)
++        cls._bob_ctx.__exit__(None, None, None)
++        cls._carol_ctx.__exit__(None, None, None)
++
++    # ── helpers ──────────────────────────────────────────────────────────────
++
++    def _mk_open(self, poster_ctx):
++        """poster_ctx posts an open, instant, candidate-role proposal — the
++        gate's SQL restriction means whoever claims it becomes interviewer."""
++        payload = {"case_id": self.case_id, "from_role": "candidate"}
++        r = poster_ctx.post("/api/proposals", json=payload)
++        self.assertEqual(r.status_code, 200, r.text)
++        return r.json()["claim_token"]
++
++    def _claim_as_guest(self, token):
++        from fastapi.testclient import TestClient
++        from webapp.main import app
++        anon = TestClient(app, follow_redirects=False)
++        r = anon.post(f"/g/claim/{token}", headers={"Origin": "http://testserver"})
++        self.assertEqual(r.status_code, 303, r.text)
++        session_id = int(r.headers["location"].rsplit("/", 1)[1])
++        return anon, session_id
++
++    def _guest_id_for(self, session_id):
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++            cur.execute("SELECT interviewer_id FROM practice_sessions WHERE id = %s;",
++                        (session_id,))
++            return cur.fetchone()[0]
++
++    def _drive_to_finalized(self, interviewer_ctx, candidate_ctx, session_id, grade=4):
++        """Drives the VERIFIED lifecycle (see plan's Key data facts) to
++        `finalized` via the real endpoints — no mocking, no exhibit release
++        (not required to reach finalize)."""
++        origin = {"Origin": "http://testserver"}
++        r = interviewer_ctx.post(f"/api/practice/{session_id}/consent",
++                                 json={"consent": True}, headers=origin)
++        self.assertEqual(r.status_code, 200, r.text)
++        r = interviewer_ctx.post(f"/api/practice/{session_id}/state",
++                                 json={"target": "lobby"}, headers=origin)
++        self.assertEqual(r.status_code, 200, r.text)
++        r = candidate_ctx.post(f"/api/practice/{session_id}/consent",
++                               json={"consent": True}, headers=origin)
++        self.assertEqual(r.status_code, 200, r.text)
++        r = interviewer_ctx.post(f"/api/practice/{session_id}/state",
++                                 json={"target": "live"}, headers=origin)
++        self.assertEqual(r.status_code, 200, r.text)
++        r = interviewer_ctx.post(f"/api/practice/{session_id}/state",
++                                 json={"target": "debrief"}, headers=origin)
++        self.assertEqual(r.status_code, 200, r.text)
++        r = interviewer_ctx.post(f"/api/practice/{session_id}/finalize",
++                                 json={"grade": grade}, headers=origin)
++        self.assertEqual(r.status_code, 200, r.text)
++
++    def _cleanup_guest_session(self, guest_id, session_id):
++        """Unconditional user delete (not `AND is_guest = TRUE`): a session
++        that reached the upgrade happy path has already flipped is_guest to
++        FALSE, and this id was only ever minted for this one test."""
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM burned WHERE session_id = %s;", (session_id,))
++                cur.execute("DELETE FROM proposals WHERE session_id = %s;", (session_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (session_id,))
++                cur.execute("DELETE FROM sessions WHERE user_id = %s;", (guest_id,))
++                cur.execute("DELETE FROM users WHERE id = %s;", (guest_id,))
++
++    def _cleanup_real_session(self, session_id):
++        """Session driven by the seeded, persistent b/c users — drop only the
++        session-scoped rows, never their users/sessions rows (reused by every
++        test in this class)."""
++        import psycopg
++        with psycopg.connect(_DB_URL) as conn:
++            with conn.cursor() as cur:
++                cur.execute("DELETE FROM burned WHERE session_id = %s;", (session_id,))
++                cur.execute("DELETE FROM proposals WHERE session_id = %s;", (session_id,))
++                cur.execute("DELETE FROM practice_sessions WHERE id = %s;", (session_id,))
++
++    # ── GET /g/session/{id}/keep ─────────────────────────────────────────────
++
++    def test_keep_before_finalize_redirects_to_console(self):
++        tok = self._mk_open(self.alice)
++        guest, sid = self._claim_as_guest(tok)
++        try:
++            r = guest.get(f"/g/session/{sid}/keep", follow_redirects=False)
++            self.assertEqual(r.status_code, 303, r.text)
++            self.assertEqual(r.headers["location"], f"/g/session/{sid}")
++        finally:
++            self._cleanup_guest_session(self._guest_id_for(sid), sid)
++
++    def test_keep_after_finalize_guest_shows_upgrade_ask(self):
++        tok = self._mk_open(self.alice)
++        guest, sid = self._claim_as_guest(tok)
++        try:
++            self._drive_to_finalized(guest, self.alice, sid)
++            r = guest.get(f"/g/session/{sid}/keep")
++            self.assertEqual(r.status_code, 200, r.text)
++            self.assertIn("Keep this session on a record?", r.text)
++            self.assertIn("Create an account", r.text)
++            import psycopg
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("SELECT COALESCE(display_name, split_part(email, '@', 1))"
++                            " FROM users WHERE id = %s;", (self.aid,))
++                peer_name = cur.fetchone()[0]
++            self.assertIn(f"FEEDBACK SENT — {peer_name.upper()} HAS IT", r.text)
++        finally:
++            self._cleanup_guest_session(self._guest_id_for(sid), sid)
++
++    def test_non_guest_claimer_sees_saved_variant(self):
++        # Carol posts as candidate; Bob (already logged in, not a guest)
++        # claims the link — the "already on the record" branch (no upgrade
++        # form, login variant of the gate not designed per canvas note).
++        tok = self._mk_open(self.carol)
++        r = self.bob.post(f"/g/claim/{tok}", headers={"Origin": "http://testserver"},
++                          follow_redirects=False)
++        self.assertEqual(r.status_code, 303, r.text)
++        sid = int(r.headers["location"].rsplit("/", 1)[1])
++        try:
++            self._drive_to_finalized(self.bob, self.carol, sid)
++            r = self.bob.get(f"/g/session/{sid}/keep")
++            self.assertEqual(r.status_code, 200, r.text)
++            self.assertIn("Saved to your record.", r.text)
++            self.assertNotIn("Create an account", r.text)
++        finally:
++            self._cleanup_real_session(sid)
++
++    # ── POST /api/v1/auth/upgrade (existing endpoint, consumed by keep's JS) ──
++
++    def test_upgrade_happy_path_flips_is_guest_then_saved_shows_on_record(self):
++        tok = self._mk_open(self.alice)
++        guest, sid = self._claim_as_guest(tok)
++        guest_id = self._guest_id_for(sid)
++        email = f"guestkeep+{uuid.uuid4().hex[:12]}@yale.edu"
++        try:
++            self._drive_to_finalized(guest, self.alice, sid)
++            r = guest.post("/api/v1/auth/upgrade",
++                           json={"email": email, "password": "correct horse battery staple"},
++                           headers={"Origin": "http://testserver"})
++            self.assertEqual(r.status_code, 200, r.text)
++            self.assertTrue(r.json()["upgraded"])
++            self.assertEqual(r.json()["user_id"], guest_id)
++
++            import psycopg
++            with psycopg.connect(_DB_URL) as conn, conn.cursor() as cur:
++                cur.execute("SELECT is_guest FROM users WHERE id = %s;", (guest_id,))
++                self.assertFalse(cur.fetchone()[0])
++
++            r = guest.get(f"/g/session/{sid}/saved")
++            self.assertEqual(r.status_code, 200, r.text)
++            self.assertIn("On the record.", r.text)
++        finally:
++            self._cleanup_guest_session(guest_id, sid)
++
++    def test_upgrade_bad_domain_400(self):
++        tok = self._mk_open(self.alice)
++        guest, sid = self._claim_as_guest(tok)
++        try:
++            r = guest.post("/api/v1/auth/upgrade",
++                           json={"email": "foo@gmail.com", "password": "correct horse battery staple"},
++                           headers={"Origin": "http://testserver"})
++            self.assertEqual(r.status_code, 400, r.text)
++            self.assertTrue(r.json()["detail"])  # B2's message surfaces to #up-err
++        finally:
++            self._cleanup_guest_session(self._guest_id_for(sid), sid)
++
++    # ── GET /g/session/{id}/saved ─────────────────────────────────────────────
++
++    def test_saved_guest1_shows_not_now_copy(self):
++        tok = self._mk_open(self.alice)
++        guest, sid = self._claim_as_guest(tok)
++        try:
++            r = guest.get(f"/g/session/{sid}/saved?guest=1")
++            self.assertEqual(r.status_code, 200, r.text)
++            self.assertIn("Kept for now.", r.text)
++            self.assertNotIn("On the record.", r.text)
++        finally:
++            self._cleanup_guest_session(self._guest_id_for(sid), sid)
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/webapp/routes/guest_web.py b/webapp/routes/guest_web.py
+index 8b543e8..127f8fa 100644
+--- a/webapp/routes/guest_web.py
++++ b/webapp/routes/guest_web.py
+@@ -1,38 +1,44 @@
+ """
+-Purpose: F10 Task 1/2 — the guest interviewer link-gate (canvas 8a `gIsGate`)
+-         and console-lite (`gIsLive`): zero-chrome pages for a claimed link
+-         through a running, finalized session.
+-Inputs:  GET/POST /g/claim/{claim_token}; GET /g/session/{session_id}; the
+-         open-proposal preview from webapp.repositories.proposals; the
++Purpose: F10 Task 1/2/3 — the guest interviewer link-gate (canvas 8a `gIsGate`),
++         console-lite (`gIsLive`), and post-session keep/upgrade/on-the-record
++         (`gIsPost`/`gIsMade`): zero-chrome pages for a claimed link through a
++         running, finalized session, and afterward.
++Inputs:  GET/POST /g/claim/{claim_token}; GET /g/session/{session_id};
++         GET /g/session/{session_id}/keep; GET /g/session/{session_id}/saved;
++         the open-proposal preview from webapp.repositories.proposals; the
+          session row from webapp.repositories.practice_sessions.
+-Outputs: Renders templates/guest_gate.html, templates/guest_console.html; on
+-         a successful claim, 303s to /g/session/{id}; on finalize (client
+-         JS), the console 303s to the (not-yet-built) /g/session/{id}/keep.
++Outputs: Renders templates/guest_gate.html, templates/guest_console.html,
++         templates/guest_keep.html, templates/guest_saved.html; on a
++         successful claim, 303s to /g/session/{id}; on finalize (client JS),
++         the console 303s to /g/session/{id}/keep; the keep page's own JS
++         POSTs to the existing /api/v1/auth/upgrade, then navigates to
++         /g/session/{id}/saved.
+ Run:     included from webapp.main via app.include_router(guest_web_routes.router)
+ """
+ 
+ from __future__ import annotations
+ 
+ from fastapi import APIRouter, Depends, Request, Response
+ from fastapi.responses import RedirectResponse
+ 
+ from webapp.auth.guest import (
+     discard_minted_guest,
+     require_auth_or_mint_guest,
+     require_session_participant,
+ )
+ from webapp.auth.users import User
+ from webapp.csrf import require_same_origin
+ from webapp.practice_states import TransitionError
+ from webapp.repositories import proposals as proposals_repo
+ from webapp.repositories.case_exhibits import list_manifest
++from webapp.repositories.cases import get_case_by_id
+ from webapp.routes.practice import _session_or_404
+ from webapp.templating import render
+ 
+ router = APIRouter(tags=["guest-web"])
+ 
+ 
+ @router.get("/g/claim/{claim_token}")
+ def guest_gate(claim_token: str, request: Request):
+     """Public — the unguessable token is the capability, no auth dependency.
+     404s a non-open/non-instant/claimed token with a neutral message (no
+@@ -96,25 +102,64 @@ def guest_console(session_id: int, request: Request,
+     if role != "interviewer":
+         return RedirectResponse(f"/session/{session_id}", status_code=303)
+     if session["state"] in ("finalized", "aborted", "missed"):
+         return RedirectResponse(f"/g/session/{session_id}/keep", status_code=303)
+ 
+     # First exhibit only (the console releases ONE); `id`->`exhibit_id`
+     # aliased for the JS's /reveals payload (M2 — list_manifest's own key
+     # is `id`, ambiguous once it sits next to the session's exhibit_id use).
+     exhibits = [{"exhibit_id": e["id"], "idx": e["idx"]}
+                 for e in list_manifest(session["case_id"])][:1]
++    # case_type isn't one of get_practice_session's joined columns — one
++    # extra lookup for the kicker word rather than touching the shared
++    # session query (M1; was a hardcoded "CASE" placeholder, DV-F10-1).
++    case = get_case_by_id(session["case_id"])
+     boot = {
+         "sessionId": session["id"],
+         "caseId": session["case_id"],
+         "caseTitle": session["case_title"],
+-        # case_type isn't one of get_practice_session's joined columns —
+-        # generic label rather than a second query for a kicker word (DV-F10-1).
+-        "caseType": session.get("case_type") or "CASE",
++        "caseType": (case["case_type"] if case and case.get("case_type") else "CASE"),
+         "peerName": session["candidate_name"],
+         "state": session["state"],
+         "consentInterviewer": session["consent_interviewer"],
+         "consentCandidate": session["consent_candidate"],
+         "startedAt": session["started_at"].isoformat() if session["started_at"] else None,
+         "exhibits": exhibits,
+     }
+-    return render(request, "guest_console.html", {"session": session, "boot": boot})
++    return render(request, "guest_console.html", {"boot": boot})
++
++
++@router.get("/g/session/{session_id}/keep")
++def guest_keep(session_id: int, request: Request,
++              user: User = Depends(require_session_participant)):
++    """Post-session (canvas 8a `gIsPost`). Only reachable once the session is
++    over — a still-running session redirects back to the console rather than
++    rendering a premature "keep this?" ask. If `user.is_guest`, the template
++    shows the upgrade ask; a logged-in claimer is already on the record, so it
++    shows the plain acknowledgement instead (login variant not designed,
++    canvas note)."""
++    session, _role = _session_or_404(session_id, user.id)
++    if session["state"] not in ("finalized", "aborted", "missed"):
++        return RedirectResponse(f"/g/session/{session_id}", status_code=303)
++    boot = {
++        "sessionId": session_id,
++        "peerName": session["candidate_name"],
++        "caseTitle": session["case_title"],
++        "isGuest": user.is_guest,
++    }
++    return render(request, "guest_keep.html", {"boot": boot})
++
++
++@router.get("/g/session/{session_id}/saved")
++def guest_saved(session_id: int, request: Request,
++               user: User = Depends(require_session_participant)):
++    """On-the-record confirmation (canvas 8a `gIsMade`). `notNow` renders the
++    honest "closed for now, still a guest" variant instead of a false
++    on-the-record claim when the visitor arrived via "Not now" rather than a
++    completed upgrade."""
++    _session_or_404(session_id, user.id)
++    boot = {
++        "sessionId": session_id,
++        "isGuest": user.is_guest,
++        "notNow": request.query_params.get("guest") == "1",
++    }
++    return render(request, "guest_saved.html", {"boot": boot})
+diff --git a/webapp/templates/guest_keep.html b/webapp/templates/guest_keep.html
+new file mode 100644
+index 0000000..b34bc2e
+--- /dev/null
++++ b/webapp/templates/guest_keep.html
+@@ -0,0 +1,94 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++<meta charset="UTF-8">
++<meta name="viewport" content="width=device-width, initial-scale=1.0">
++<title>myCase — Keep this session on a record?</title>
++<link rel="preconnect" href="https://fonts.googleapis.com">
++<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
++<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
++<style>
++  :root{--green:#1B9A5F}
++  body{margin:0;min-height:100vh;background:#F3F5F8;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;position:relative;overflow-x:hidden}
++  button{cursor:pointer}
++  input{font-family:'Archivo',sans-serif}
++  input::placeholder{color:#A9B4C4}
++  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
++</style>
++</head>
++<body>
++<svg width="480" height="400" viewBox="0 0 48 40" aria-hidden="true" style="position:absolute;top:120px;right:-200px;opacity:.4;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
++
++{% if boot.isGuest %}
++<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 30px;position:relative;max-width:480px;margin:0 auto;width:100%;box-sizing:border-box">
++  <div style="font-weight:600;font-size:10px;letter-spacing:.18em;color:var(--green);margin-bottom:14px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) both">FEEDBACK SENT — {{ boot.peerName|upper }} HAS IT</div>
++  <h1 style="margin:0 0 10px;font-weight:800;font-size:30px;letter-spacing:-0.035em;line-height:1.08;color:#0D1C31;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .12s both">Keep this session on a record?</h1>
++  <p style="margin:0 0 22px;font-family:'Source Serif 4',serif;font-size:14.5px;line-height:1.5;color:#515A66;max-width:290px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .24s both">An account holds your interviewer log — sessions run, feedback quality, the cases you own.</p>
++  <div style="animation:rise .42s cubic-bezier(0.22,1,0.36,1) .36s both">
++    <div style="display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid #C9D2DF;padding:10px 0">
++      <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">THIS SESSION</span>
++      <span style="font-weight:600;font-size:12.5px;color:#0D1C31">{{ boot.caseTitle }}</span>
++    </div>
++    <div style="display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid #C9D2DF;border-bottom:1px solid #C9D2DF;padding:10px 0;margin-bottom:24px">
++      <span style="font-weight:600;font-size:9.5px;letter-spacing:.15em;color:#515A66">OTHERWISE</span>
++      <span style="font-weight:600;font-size:12.5px;color:#0D1C31">It vanishes when you close this tab</span>
++    </div>
++    <button id="g-create" type="button" style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;height:50px;cursor:pointer;margin-bottom:8px;transition:transform .16s ease,opacity .16s ease">Create an account</button>
++    <button id="g-notnow" type="button" style="width:100%;background:none;border:none;font-family:'Archivo',sans-serif;font-weight:600;font-size:12.5px;color:#515A66;text-decoration:underline;text-underline-offset:4px;cursor:pointer;padding:6px">Not now</button>
++
++    <form id="g-upgrade-form" hidden style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
++      <input id="up-email" name="email" type="email" required placeholder="you@school.edu" style="height:46px;border:1px solid #C9D2DF;background:#FFFFFF;padding:0 14px;font-size:13.5px;color:#0D1C31;box-sizing:border-box">
++      <input id="up-pass" name="password" type="password" required placeholder="Password" style="height:46px;border:1px solid #C9D2DF;background:#FFFFFF;padding:0 14px;font-size:13.5px;color:#0D1C31;box-sizing:border-box">
++      <div id="up-err" style="font-weight:600;font-size:12px;color:#B3261E;min-height:14px"></div>
++      <button type="submit" style="width:100%;background:#0D1C31;color:#F3F5F8;border:none;border-radius:999px;font-family:'Archivo',sans-serif;font-weight:600;font-size:13.5px;height:50px;cursor:pointer">Create account</button>
++    </form>
++  </div>
++</div>
++{% else %}
++<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 28px;text-align:center;position:relative">
++  <h1 style="margin:0 0 8px;font-weight:800;font-size:26px;letter-spacing:-0.03em;color:#0D1C31">Saved to your record.</h1>
++  <div style="font-family:'Source Serif 4',serif;font-style:italic;font-size:14.5px;color:#515A66">This session is already part of your interviewer log.</div>
++</div>
++{% endif %}
++
++<script type="module">
++{% if boot.isGuest %}
++const createBtn = document.getElementById('g-create');
++const form = document.getElementById('g-upgrade-form');
++const notNowBtn = document.getElementById('g-notnow');
++const errEl = document.getElementById('up-err');
++
++createBtn.addEventListener('click', () => {
++  form.hidden = !form.hidden;
++});
++
++notNowBtn.addEventListener('click', () => {
++  location.assign('/g/session/{{ boot.sessionId }}/saved?guest=1');
++});
++
++form.addEventListener('submit', async (event) => {
++  event.preventDefault();
++  errEl.textContent = '';
++  const email = document.getElementById('up-email').value;
++  const password = document.getElementById('up-pass').value;
++  try {
++    const res = await fetch('/api/v1/auth/upgrade', {
++      method: 'POST',
++      credentials: 'same-origin',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify({ email, password }),
++    });
++    if (res.ok) {
++      location.assign('/g/session/{{ boot.sessionId }}/saved');
++      return;
++    }
++    const data = await res.json();
++    errEl.textContent = data.detail || 'Could not create the account — try again.';
++  } catch (err) {
++    errEl.textContent = 'Could not create the account — try again.';
++  }
++});
++{% endif %}
++</script>
++</body>
++</html>
+diff --git a/webapp/templates/guest_saved.html b/webapp/templates/guest_saved.html
+new file mode 100644
+index 0000000..c411c36
+--- /dev/null
++++ b/webapp/templates/guest_saved.html
+@@ -0,0 +1,31 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++<meta charset="UTF-8">
++<meta name="viewport" content="width=device-width, initial-scale=1.0">
++<title>myCase — {% if boot.notNow %}Kept for now{% else %}On the record{% endif %}</title>
++<link rel="preconnect" href="https://fonts.googleapis.com">
++<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
++<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400;1,8..60,600&display=swap" rel="stylesheet">
++<style>
++  :root{--green:#1B9A5F}
++  body{margin:0;min-height:100vh;background:#F3F5F8;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;position:relative;overflow-x:hidden}
++  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
++  @keyframes drawpath{to{stroke-dashoffset:0}}
++</style>
++</head>
++<body>
++<svg width="480" height="400" viewBox="0 0 48 40" aria-hidden="true" style="position:absolute;top:120px;right:-200px;opacity:.4;pointer-events:none"><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="#C9D2DF" stroke-width="0.6"></path></svg>
++
++<div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:0 32px;position:relative;max-width:480px;margin:0 auto;width:100%;box-sizing:border-box">
++  {% if boot.notNow %}
++  <h1 style="margin:0 0 10px;font-weight:800;font-size:30px;letter-spacing:-0.035em;color:#0D1C31;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .1s both">Kept for now.</h1>
++  <p style="margin:0;font-family:'Source Serif 4',serif;font-size:14.5px;line-height:1.5;color:#515A66;max-width:270px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .25s both">This tab holds it until you close it — create an account any time to keep it for good.</p>
++  {% else %}
++  <svg width="104" height="87" viewBox="0 0 48 40" aria-hidden="true" style="margin-bottom:20px"><defs><linearGradient id="g26" gradientUnits="userSpaceOnUse" x1="0" y1="15" x2="0" y2="4"><stop offset="0" stop-color="#0D1C31"></stop><stop offset="1" style="stop-color:var(--green)"></stop></linearGradient></defs><path d="M4 35 H15 V25 H26 V15 H37 V4 H45" fill="none" stroke="url(#g26)" stroke-width="4" stroke-dasharray="74" stroke-dashoffset="74" style="animation:drawpath .9s cubic-bezier(0.22,1,0.36,1) .1s forwards"></path></svg>
++  <h1 style="margin:0 0 10px;font-weight:800;font-size:30px;letter-spacing:-0.035em;color:#0D1C31;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .25s both">On the record.</h1>
++  <p style="margin:0;font-family:'Source Serif 4',serif;font-size:14.5px;line-height:1.5;color:#515A66;max-width:270px;animation:rise .42s cubic-bezier(0.22,1,0.36,1) .4s both">Session one of your interviewer log. Onboarding picks up from here — school optional for interviewers.</p>
++  {% endif %}
++</div>
++</body>
++</html>
