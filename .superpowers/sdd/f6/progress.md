@@ -9,9 +9,17 @@ Updated: 2026-07-18 · Branch: fe/f6-console · Worktree: /Users/thomaskgould/de
 - Sims: iPhone 17 942222D4 booted + mic granted (app/tests/xctest); iPad 653F37B8 idle (boot+grant per task); stray F4 iPhone shut.
 
 ## Now
-T1–T3 done + approved. Dispatching T4 (tablet hero 1a — right rail).
+T1–T4 done + approved. Dispatching T5 (PDF mode — tablet left-overlay + phone).
 
 ## Done
+- T4 tablet hero RIGHT rail (68d5750, +fix 9be1e6d): candidate feed (dark pane, LIVE chip, self-view
+  118×66, dark tokens) + SEGMENT TIMER (34pt tabular, RUNNING chip, Start/Pause, Stop·log) + SEGMENTS
+  LOGGED laps + RUBRIC — LIVE (all dims, 16pt mini-cells sharing score handler, ink/slate split,
+  overallAvgText green). iOS **697**/0. Shots tablet-console-full/-rail (portrait). Opus review
+  APPROVE-WITH-NITS → all 3 fixed: (1) tablet SCORE unscored "0/10"→"— /10" [was a real miss];
+  (2) rail cells BLANK via new `ScoreCells.showsNumbers` param (default true — F5 usages byte-
+  identical); (3) rail readout compact "—"/"8/10" vs left-pane spaced. OWNER-GATE flagged: numbered
+  vs blank live-cells (matched canvas blank; confirm at demo).
 - T3 tablet hero chrome + LEFT pane (4ffd565 15194bc 8a5640a d038adb): top bar (mark/wordmark | case |
   CANDIDATE | tap-run master-clock chip MM:SS+N LEFT green<5 | Finalize & send), 2px cap bar, 7 stage
   chips, READ ALOUD, exhibit rows, GUIDANCE, SCORE THIS STAGE stacked dims (name+desc+{pts}/{max}+24pt
