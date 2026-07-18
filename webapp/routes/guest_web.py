@@ -1,13 +1,18 @@
 """
-Purpose: F10 Task 1/2 — the guest interviewer link-gate (canvas 8a `gIsGate`)
-         and console-lite (`gIsLive`): zero-chrome pages for a claimed link
-         through a running, finalized session.
-Inputs:  GET/POST /g/claim/{claim_token}; GET /g/session/{session_id}; the
-         open-proposal preview from webapp.repositories.proposals; the
+Purpose: F10 Task 1/2/3 — the guest interviewer link-gate (canvas 8a `gIsGate`),
+         console-lite (`gIsLive`), and post-session keep/upgrade/on-the-record
+         (`gIsPost`/`gIsMade`): zero-chrome pages for a claimed link through a
+         running, finalized session, and afterward.
+Inputs:  GET/POST /g/claim/{claim_token}; GET /g/session/{session_id};
+         GET /g/session/{session_id}/keep; GET /g/session/{session_id}/saved;
+         the open-proposal preview from webapp.repositories.proposals; the
          session row from webapp.repositories.practice_sessions.
-Outputs: Renders templates/guest_gate.html, templates/guest_console.html; on
-         a successful claim, 303s to /g/session/{id}; on finalize (client
-         JS), the console 303s to the (not-yet-built) /g/session/{id}/keep.
+Outputs: Renders templates/guest_gate.html, templates/guest_console.html,
+         templates/guest_keep.html, templates/guest_saved.html; on a
+         successful claim, 303s to /g/session/{id}; on finalize (client JS),
+         the console 303s to /g/session/{id}/keep; the keep page's own JS
+         POSTs to the existing /api/v1/auth/upgrade, then navigates to
+         /g/session/{id}/saved.
 Run:     included from webapp.main via app.include_router(guest_web_routes.router)
 """
 
@@ -26,6 +31,7 @@ from webapp.csrf import require_same_origin
 from webapp.practice_states import TransitionError
 from webapp.repositories import proposals as proposals_repo
 from webapp.repositories.case_exhibits import list_manifest
+from webapp.repositories.cases import get_case_by_id
 from webapp.routes.practice import _session_or_404
 from webapp.templating import render
 
@@ -103,13 +109,15 @@ def guest_console(session_id: int, request: Request,
     # is `id`, ambiguous once it sits next to the session's exhibit_id use).
     exhibits = [{"exhibit_id": e["id"], "idx": e["idx"]}
                 for e in list_manifest(session["case_id"])][:1]
+    # case_type isn't one of get_practice_session's joined columns — one
+    # extra lookup for the kicker word rather than touching the shared
+    # session query (M1; was a hardcoded "CASE" placeholder, DV-F10-1).
+    case = get_case_by_id(session["case_id"])
     boot = {
         "sessionId": session["id"],
         "caseId": session["case_id"],
         "caseTitle": session["case_title"],
-        # case_type isn't one of get_practice_session's joined columns —
-        # generic label rather than a second query for a kicker word (DV-F10-1).
-        "caseType": session.get("case_type") or "CASE",
+        "caseType": (case["case_type"] if case and case.get("case_type") else "CASE"),
         "peerName": session["candidate_name"],
         "state": session["state"],
         "consentInterviewer": session["consent_interviewer"],
@@ -117,4 +125,41 @@ def guest_console(session_id: int, request: Request,
         "startedAt": session["started_at"].isoformat() if session["started_at"] else None,
         "exhibits": exhibits,
     }
-    return render(request, "guest_console.html", {"session": session, "boot": boot})
+    return render(request, "guest_console.html", {"boot": boot})
+
+
+@router.get("/g/session/{session_id}/keep")
+def guest_keep(session_id: int, request: Request,
+              user: User = Depends(require_session_participant)):
+    """Post-session (canvas 8a `gIsPost`). Only reachable once the session is
+    over — a still-running session redirects back to the console rather than
+    rendering a premature "keep this?" ask. If `user.is_guest`, the template
+    shows the upgrade ask; a logged-in claimer is already on the record, so it
+    shows the plain acknowledgement instead (login variant not designed,
+    canvas note)."""
+    session, _role = _session_or_404(session_id, user.id)
+    if session["state"] not in ("finalized", "aborted", "missed"):
+        return RedirectResponse(f"/g/session/{session_id}", status_code=303)
+    boot = {
+        "sessionId": session_id,
+        "peerName": session["candidate_name"],
+        "caseTitle": session["case_title"],
+        "isGuest": user.is_guest,
+    }
+    return render(request, "guest_keep.html", {"boot": boot})
+
+
+@router.get("/g/session/{session_id}/saved")
+def guest_saved(session_id: int, request: Request,
+               user: User = Depends(require_session_participant)):
+    """On-the-record confirmation (canvas 8a `gIsMade`). `notNow` renders the
+    honest "closed for now, still a guest" variant instead of a false
+    on-the-record claim when the visitor arrived via "Not now" rather than a
+    completed upgrade."""
+    _session_or_404(session_id, user.id)
+    boot = {
+        "sessionId": session_id,
+        "isGuest": user.is_guest,
+        "notNow": request.query_params.get("guest") == "1",
+    }
+    return render(request, "guest_saved.html", {"boot": boot})
