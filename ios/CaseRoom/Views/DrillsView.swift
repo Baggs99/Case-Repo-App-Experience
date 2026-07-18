@@ -34,7 +34,11 @@ struct DrillsView: View {
         ZStack {
             DSBackground()
             if viewModel.gauntlet == nil {
-                Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
+                if let errorMessage = viewModel.errorMessage {
+                    errorBanner(errorMessage)
+                } else {
+                    Text("Loading today's gauntlet…").dsText(.meta).foregroundStyle(palette.muted)
+                }
             } else if hSize == .regular {
                 regularContent
             } else {

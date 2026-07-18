@@ -123,6 +123,61 @@ final class DrillsViewModelTests: XCTestCase {
         XCTAssertNil(vm.boardNote)
     }
 
+    // MARK: - Load/select failure paths (I1/I2 fix — dead-end regression locks)
+
+    /// Locks in that the view must key recovery off `errorMessage`, not a
+    /// non-nil `gauntlet` — I1 was DrillsView gating its whole screen on
+    /// `gauntlet == nil` while a load failure never populates `gauntlet`,
+    /// stranding the user on "Loading…" forever with no reachable Retry.
+    func testLoadFailureSetsErrorMessage() async {
+        let vm = DrillsViewModel(
+            gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture, shouldThrow: true),
+            boardService: FakeDrillsBoardService(board: .fixture))
+        await vm.load()
+        XCTAssertNotNil(vm.errorMessage)
+        XCTAssertNil(vm.gauntlet)
+    }
+
+    /// A successful retry after a failure must clear `errorMessage` (so the
+    /// error banner disappears once the gauntlet loads).
+    func testLoadSuccessClearsErrorMessage() async {
+        let service = FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture, shouldThrow: true)
+        let vm = DrillsViewModel(gauntletService: service, boardService: FakeDrillsBoardService(board: .fixture))
+        await vm.load()
+        XCTAssertNotNil(vm.errorMessage)
+        service.shouldThrow = false
+        await vm.load()
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertNotNil(vm.gauntlet)
+    }
+
+    /// Locks in that GauntletBoard must key its error row off
+    /// `boardErrorMessage`, not a non-nil `schoolBoard` — I2 was a failed
+    /// WHARTON/GLOBAL/SCHOOLS fetch falling through to misleading empty-state
+    /// copy ("No school on file.") instead of an error + Retry.
+    func testSelectBoardFailureSetsBoardError() async {
+        let boardService = FakeCountingBoardService()
+        boardService.shouldThrowSchoolBoard = true
+        let vm = await makeScopeVM(boardService: boardService)
+        await vm.selectBoard(.wharton)
+        XCTAssertNotNil(vm.boardErrorMessage)
+        XCTAssertNil(vm.schoolBoard)
+    }
+
+    /// A successful retry after a failure must clear `boardErrorMessage` (so
+    /// the board's error row disappears once the scope loads).
+    func testSelectBoardSuccessClearsBoardError() async {
+        let boardService = FakeCountingBoardService()
+        boardService.shouldThrowSchoolBoard = true
+        let vm = await makeScopeVM(boardService: boardService)
+        await vm.selectBoard(.wharton)
+        XCTAssertNotNil(vm.boardErrorMessage)
+        boardService.shouldThrowSchoolBoard = false
+        await vm.selectBoard(.wharton)
+        XCTAssertNil(vm.boardErrorMessage)
+        XCTAssertNotNil(vm.schoolBoard)
+    }
+
     func testBoardEntriesExposedFromGroupBoard() async {
         let vm = DrillsViewModel(
             gauntletService: FakeDrillsGauntletService(gauntlet: .fixture(submitted: false, streak: 12), trends: .fixture),
@@ -315,18 +370,30 @@ private extension GroupBoard {
         ])
 }
 
+private struct FakeLoadError: Error {}
+
 private final class FakeDrillsGauntletService: GauntletService, @unchecked Sendable {
     let gauntletValue: Gauntlet
     let trendsValue: GauntletTrends
-    init(gauntlet: Gauntlet, trends: GauntletTrends) {
+    /// When true, both `gauntlet()` and `trends()` throw — covers the I1
+    /// regression test ("gauntlet() (or trends()) throws").
+    var shouldThrow: Bool
+    init(gauntlet: Gauntlet, trends: GauntletTrends, shouldThrow: Bool = false) {
         self.gauntletValue = gauntlet
         self.trendsValue = trends
+        self.shouldThrow = shouldThrow
     }
-    func gauntlet() async throws -> Gauntlet { gauntletValue }
+    func gauntlet() async throws -> Gauntlet {
+        if shouldThrow { throw FakeLoadError() }
+        return gauntletValue
+    }
     func submitGauntlet(_ answers: [GauntletAttempt]) async throws -> GauntletResult {
         fatalError("DrillsViewModel never submits the gauntlet")
     }
-    func trends() async throws -> GauntletTrends { trendsValue }
+    func trends() async throws -> GauntletTrends {
+        if shouldThrow { throw FakeLoadError() }
+        return trendsValue
+    }
 }
 
 private final class FakeDrillsBoardService: BoardService, @unchecked Sendable {
@@ -351,6 +418,12 @@ private final class FakeCountingBoardService: BoardService, @unchecked Sendable 
     private(set) var globalBoardCallCount = 0
     private(set) var schoolsBoardCallCount = 0
 
+    /// When true, `schoolBoard()` throws instead of returning — covers the
+    /// I2 regression test ("a fake board service whose schoolBoard() throws").
+    /// Does not increment `schoolBoardCallCount` on the thrown attempt (the
+    /// count tracks successful loads, matching the existing cache-count tests).
+    var shouldThrowSchoolBoard = false
+
     private let globalYourPercentile: Double?
 
     init(globalYourPercentile: Double? = 66) {
@@ -360,6 +433,7 @@ private final class FakeCountingBoardService: BoardService, @unchecked Sendable 
     func groupBoard() async throws -> GroupBoard { .fixture }
 
     func schoolBoard() async throws -> SchoolBoard {
+        if shouldThrowSchoolBoard { throw FakeLoadError() }
         schoolBoardCallCount += 1
         return SchoolBoard(
             scope: "school",

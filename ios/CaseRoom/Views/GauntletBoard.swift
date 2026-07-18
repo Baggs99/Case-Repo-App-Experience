@@ -28,14 +28,37 @@ struct GauntletBoard: View {
         VStack(alignment: .leading, spacing: 8) {
             headNoteRow
             chipsRow
-            scopeBody
-                .padding(.top, 8)
+            if let boardErrorMessage = viewModel.boardErrorMessage {
+                boardErrorRow(boardErrorMessage)
+                    .padding(.top, 8)
+            } else {
+                scopeBody
+                    .padding(.top, 8)
+            }
             Text(viewModel.currentBoardFoot)
                 .dsText(.serif(12, italic: true)).foregroundStyle(palette.muted)
                 .padding(.top, 10)
         }
         .padding(.top, 13)
         .overlay(Rectangle().fill(palette.hairline).frame(height: 1), alignment: .top)
+    }
+
+    // MARK: - Board scope-fetch failure (mirrors DrillsView's `errorBanner`).
+    // Renders INSTEAD of `scopeBody` so a failed WHARTON/GLOBAL/SCHOOLS fetch
+    // never falls through to misleading empty-state copy ("No school on
+    // file.", "—", an empty schools list). Retry re-fetches the CURRENT
+    // scope (`boardScope` is set before the fetch attempt in
+    // `selectBoard(_:)`, so it always matches whichever scope's fetch failed).
+
+    private func boardErrorRow(_ message: String) -> some View {
+        HStack(spacing: 12) {
+            Text(message).dsText(.meta).foregroundStyle(palette.muted)
+            Button { Task { await viewModel.selectBoard(viewModel.boardScope) } } label: {
+                Text("Retry").dsText(.actionLabel).underline().foregroundStyle(palette.ink)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 11)
     }
 
     // MARK: - Head/note kickers + scope chips (canvas 5b 952-961)
