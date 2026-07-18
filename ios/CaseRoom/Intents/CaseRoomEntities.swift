@@ -144,7 +144,7 @@ struct ProposalEntity: AppEntity {
 
     init(from proposal: Proposal) {
         id = proposal.id
-        caseTitle = proposal.caseTitle
+        caseTitle = proposal.caseTitle ?? "Untitled case"
         fromName = proposal.fromName
     }
 
