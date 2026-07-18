@@ -339,6 +339,49 @@ actor APIClient: SessionService, PairService, DrillService, AvailabilityService,
         _ = try await performRaw(request)
     }
 
+    // MARK: F3 — Scheduled proposal (Schedule composer, canvas sheetLater3).
+    // Sibling to createProposal: the composer proposes one-or-more times and a
+    // case_id that may be EXPLICITLY null ("Interviewer decides"). Swift's
+    // JSONEncoder drops nil optionals, so ScheduledProposalBody hand-encodes to
+    // ALWAYS emit `case_id` (the server distinguishes "no case chosen" from an
+    // absent key). from_role is "candidate" here (Amara proposes to be cased).
+    // Discard-body: a 2xx is success, matching createProposal (the bare row
+    // shape doesn't decode into the enriched Proposal model).
+    func sendScheduledProposal(toUserId: Int, caseId: Int?, fromRole: String, proposedTimes: [Date]) async throws {
+        struct ScheduledProposalBody: Encodable {
+            let toUserId: Int
+            let caseId: Int?
+            let fromRole: String
+            let proposedTimes: [Date]
+
+            // Explicit snake_case keys — this body hand-encodes, so it doesn't
+            // rely on the encoder's .convertToSnakeCase strategy.
+            enum CodingKeys: String, CodingKey {
+                case toUserId = "to_user_id"
+                case caseId = "case_id"
+                case fromRole = "from_role"
+                case proposedTimes = "proposed_times"
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(toUserId, forKey: .toUserId)
+                // Plain encode (NOT encodeIfPresent) emits `case_id: null` when
+                // nil — the server needs the key present for "Interviewer decides".
+                try container.encode(caseId, forKey: .caseId)
+                try container.encode(fromRole, forKey: .fromRole)
+                try container.encode(proposedTimes, forKey: .proposedTimes)
+            }
+        }
+        let body = ScheduledProposalBody(
+            toUserId: toUserId, caseId: caseId, fromRole: fromRole, proposedTimes: proposedTimes
+        )
+        var request = try makeRequest(path: "/api/proposals", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        _ = try await performRaw(request)
+    }
+
     // MARK: - Availability (AvailabilityService)
 
     func availability() async throws -> AvailabilityStatus {

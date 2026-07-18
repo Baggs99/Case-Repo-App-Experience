@@ -198,8 +198,8 @@ struct CaseTabView: View {
                     // T4 — the real Case-someone glass sheet (canvas `sheetSomeone3`).
                     CaseSomeoneSheet(viewModel: makeCaseSomeoneViewModel())
                 case .schedule:
-                    // T5 still fills this body; the seam stays stable.
-                    CaseSheetPlaceholder(kind: sheet)
+                    // T5 — the real Schedule-later composer glass sheet (canvas `sheetLater3`).
+                    ScheduleComposerSheet(viewModel: makeScheduleViewModel())
                 }
             }
             .sheet(item: $counterTarget) { proposal in
@@ -265,6 +265,19 @@ struct CaseTabView: View {
         )
     }
 
+    /// Schedule-later composer VM: live by default; the `-CaseFixtures`
+    /// screenshot hatch swaps in the canvas-persona stub (S. Park / T. Becker /
+    /// M. Lindqvist + the EV-charging recommendation, a ready-to-send composer).
+    @MainActor
+    private func makeScheduleViewModel() -> ScheduleComposerViewModel {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-CaseFixtures") {
+            return .fixture()
+        }
+        #endif
+        return ScheduleComposerViewModel()
+    }
+
     /// DEBUG screenshot hatch: `-CaseSheet getCased` (only under `-CaseFixtures`)
     /// opens the sheet on appear so simctl can capture the OPEN sheet with no
     /// dev server and no tapping. Release-inert.
@@ -276,6 +289,7 @@ struct CaseTabView: View {
         switch args[index + 1] {
         case "getCased": activeSheet = .getCased
         case "caseSomeone": activeSheet = .caseSomeone
+        case "schedule": activeSheet = .schedule
         default: break
         }
         #endif
