@@ -1,5 +1,6 @@
 /*
- * Purpose: Root shell — LoginView while logged out; once authenticated, the
+ * Purpose: Root shell — OnboardingRootView while logged out (F9 signup flow, with
+ *          LoginView reachable from welcome); once authenticated, the
  *          5-slot floating-glass tab shell (HOME · LIBRARY · ⬤CASE · COMMUNITY ·
  *          DRILLS) with F0 chrome installed. Routes every steering source
  *          (push taps, App Intents, caseroom:// deep links) through AppRouter
@@ -46,7 +47,11 @@ struct RootShell: View {
             if sessionStore.isAuthenticated {
                 authenticated
             } else {
-                LoginView()
+                // F9: the logged-out entry is the signup onboarding flow; the
+                // existing email/password LoginView stays reachable from welcome's
+                // "Log in". Auth stays false through the flow (VM holds the user
+                // locally) until finish()→bootstrap() flips it and swaps in the shell.
+                OnboardingRootView(sessionStore: sessionStore)
             }
         }
         .onChange(of: pushCoordinator.pendingRoute) { _, newRoute in
