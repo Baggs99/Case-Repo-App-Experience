@@ -8,7 +8,7 @@
  *         -F7Result, -DevLogin, -startTab <tab>, -avatarOpen, -LibraryFixtures,
  *         -CommunityFixtures, -GroupPageFixtures, -GroupCreateFixtures,
  *         -CaseFixtures (F3), -startTakeover [variant], -startRecap (F5),
- *         -OnbWelcome, -OnbEmail (F9) — see the #if DEBUG blocks).
+ *         -OnbWelcome, -OnbEmail, -OnbPasscode (F9) — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
  */
@@ -108,6 +108,17 @@ struct CaseRoomApp: App {
                 // fixture VM pre-seeded with amara@yale.edu so the field is populated
                 // (simctl can't type).
                 OnboardingEmailView(viewModel: OnboardingFixtures.viewModel(step: .email))
+            } else if ProcessInfo.processInfo.arguments.contains("-OnbPasscode") {
+                // Onboarding passcode (F9-T4) fixture hatch: STEP 2 OF 05, fixture
+                // VM parked at .passcode (email amara@yale.edu shown in the body).
+                // Seed a partial code ("123") DEBUG-locally so the shot proves the
+                // 3-filled/3-empty dots state (simctl can't tap the keypad); the
+                // shared fixture factory stays code-free for the tests.
+                OnboardingPasscodeView(viewModel: {
+                    let vm = OnboardingFixtures.viewModel(step: .passcode)
+                    vm.code = "123"
+                    return vm
+                }())
             } else {
                 rootView
             }
