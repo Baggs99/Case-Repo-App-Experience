@@ -23,12 +23,17 @@ final class StubCaseTabService: CaseTabService {
     )
     var declineError: Error?
     var counterError: Error?
+    // MARK: F3 T6 — availability()/createNowInvite() added to CaseTabService
+    // for the tablet tray's LIVE NOW board.
+    var availabilityResult: Result<AvailabilityStatus, Error> = .success(AvailabilityStatus(freeUntil: nil, others: []))
+    var pingError: Error?
 
     private(set) var recordedAcceptIds: [Int] = []
     private(set) var recordedAcceptTimes: [Date] = []
     private(set) var recordedDeclineIds: [Int] = []
     private(set) var recordedCounterIds: [Int] = []
     private(set) var recordedCounterTimes: [[Date]] = []
+    private(set) var recordedPingUserIds: [Int] = []
 
     func recaps() async throws -> [RecapItem] { try recapsResult.get() }
     func proposals() async throws -> [Proposal] { try proposalsResult.get() }
@@ -56,6 +61,13 @@ final class StubCaseTabService: CaseTabService {
         recordedCounterIds.append(id)
         recordedCounterTimes.append(times)
         if let counterError { throw counterError }
+    }
+
+    func availability() async throws -> AvailabilityStatus { try availabilityResult.get() }
+
+    func createNowInvite(toUserId: Int) async throws {
+        recordedPingUserIds.append(toUserId)
+        if let pingError { throw pingError }
     }
 }
 
@@ -229,5 +241,82 @@ final class CaseTabViewModelTests: XCTestCase {
         XCTAssertEqual(calendar.recordedTitles, ["Widget Co"])
         XCTAssertEqual(calendar.recordedNotes, ["with Bob"])
         XCTAssertEqual(calendar.recordedStartDates, [at])
+    }
+
+    // MARK: - F3 T6 — tablet tray's LIVE NOW board (availability + ping)
+
+    func testLoadPopulatesLiveNowFromAvailabilityOthers() async {
+        let service = StubCaseTabService()
+        let freeUntil = Date().addingTimeInterval(45 * 60)
+        service.availabilityResult = .success(
+            AvailabilityStatus(freeUntil: nil, others: [FreeUser(userId: 501, name: "S. Park", freeUntil: freeUntil)])
+        )
+        let fixedNow = Date()
+        let vm = CaseTabViewModel(
+            service: service, calendar: StubCalendarAdding(), now: { fixedNow }, schools: [501: "Wharton"]
+        )
+
+        await vm.load()
+
+        XCTAssertEqual(vm.liveNow.count, 1)
+        XCTAssertEqual(vm.liveNow.first?.name, "S. Park")
+        XCTAssertEqual(vm.liveNow.first?.school, "Wharton")
+        XCTAssertEqual(vm.liveNow.first?.minutesFree, 45)
+    }
+
+    func testLoadLeavesLiveNowEmptyAndDoesNotFailWhenAvailabilityErrors() async {
+        struct Boom: Error {}
+        let service = StubCaseTabService()
+        service.availabilityResult = .failure(Boom())
+        service.upcomingResult = .success([makeSession(id: 50, scheduledAt: Date())])
+        let vm = CaseTabViewModel(service: service, calendar: StubCalendarAdding())
+
+        await vm.load()
+
+        XCTAssertTrue(vm.liveNow.isEmpty)
+        // The phone spine's data still loads fine — an availability failure
+        // is non-fatal (F3 T6: unused by the phone, best-effort on tablet).
+        XCTAssertNil(vm.errorMessage)
+        XCTAssertEqual(vm.nextUp?.id, 50)
+    }
+
+    func testPingSendsNowInviteAndReturnsTrueOnSuccess() async {
+        let service = StubCaseTabService()
+        let vm = CaseTabViewModel(service: service, calendar: StubCalendarAdding())
+
+        let result = await vm.ping(userId: 501)
+
+        XCTAssertTrue(result)
+        XCTAssertEqual(service.recordedPingUserIds, [501])
+        XCTAssertNil(vm.errorMessage)
+    }
+
+    func testPingReturnsFalseAndSetsErrorMessageOnFailure() async {
+        struct Boom: Error {}
+        let service = StubCaseTabService()
+        service.pingError = Boom()
+        let vm = CaseTabViewModel(service: service, calendar: StubCalendarAdding())
+
+        let result = await vm.ping(userId: 501)
+
+        XCTAssertFalse(result)
+        XCTAssertNotNil(vm.errorMessage)
+    }
+
+    // MARK: - F3 T6 — July-17 tablet fixture (Decisions §7 day-advance)
+
+    func testTabletFixtureClearsGateAndKeepsBeckerPendingUntilAccepted() async {
+        let vm = CaseFixtures.makeTabletViewModel()
+
+        await vm.load()
+
+        // Gate cleared: last night's Nordic recap is already rated 5/5.
+        XCTAssertNil(vm.gateRecap)
+        // T. Becker's dental-roll-up ask + S. Park's tonight ask, same ids as
+        // the phone's July-16 persona for continuity.
+        XCTAssertEqual(Set(vm.pendingReceived.map(\.id)), Set([201, 202]))
+        // Nordic already happened last night — it's in history (7.2), not upcoming.
+        XCTAssertTrue(vm.history.contains { $0.otherUser == "M. Lindqvist" && $0.grade == 7.2 })
+        XCTAssertFalse(vm.upcoming.contains { $0.otherUser == "M. Lindqvist" } || vm.nextUp?.otherUser == "M. Lindqvist")
     }
 }

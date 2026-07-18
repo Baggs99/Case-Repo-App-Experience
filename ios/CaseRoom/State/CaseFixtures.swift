@@ -86,6 +86,18 @@ enum CaseFixtures {
                         scheduledAt: nil, state: "done", endedAt: date("2026-06-30"), grade: 3.8),
     ]
 
+    // MARK: F3 T6 — tablet tray's LIVE NOW board (canvas Tablet 1b): the same
+    // free-right-now persona T3 already ships in GetCasedNowViewModel.fixture()
+    // (S. Park · Wharton · 45 min free, J. Okafor · INSEAD · 20 min free) —
+    // reused verbatim for continuity between the "Get cased now" sheet and the
+    // tray board sitting right next to it.
+    static let liveNow: [FreeUser] = [
+        FreeUser(userId: 501, name: "S. Park", freeUntil: Date().addingTimeInterval(45 * 60)),
+        FreeUser(userId: 502, name: "J. Okafor", freeUntil: Date().addingTimeInterval(20 * 60)),
+    ]
+
+    static let liveNowSchools: [Int: String] = [501: "Wharton", 502: "INSEAD"]
+
     private static func date(_ yyyyMMdd: String) -> Date {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -123,18 +135,74 @@ enum CaseFixtures {
     private enum Weekday: Int {
         case sunday = 1, monday, tuesday, wednesday, thursday, friday, saturday
     }
+
+    // MARK: F3 T6 — tablet July-17 day-advance (Decisions §7: "one day after
+    // Part I; keep both frames' internal consistency... Mobile file stays on
+    // July 16 — don't cross-pollinate"). Everything above this mark is the
+    // UNCHANGED phone (July-16) persona.
+    //
+    // - Gate CLEARED: last night's Nordic session (M. Lindqvist, the phone's
+    //   `nextUp`) is done — 7.2 avg, recap already rated 5/5 — so it no
+    //   longer gates. `history` above already carries that finalized row
+    //   (id 101, grade 7.2), reused verbatim.
+    // - `upcoming` scope drops Nordic (it already happened) and keeps only
+    //   the further-out R. Vance row (`CaseFixtures.upcoming`), so tablet's
+    //   initial nextUp is R. Vance — until...
+    // - ...T. Becker's dental-roll-up proposal is re-timed from the phone's
+    //   "Thu 18:00" to tonight's "TODAY 18:00" per §7 — the accepted-state
+    //   endpoint of "accept crosses columns" (Tablet 1b). Note: against the
+    //   LIVE service, CaseTabViewModel.accept() genuinely produces this move
+    //   (pendingReceived shrinks, refreshUpcoming() refetches and re-sorts —
+    //   see testAcceptRemovesFromPendingReceivedRefreshesUpcomingAndAddsToCalendarOnce);
+    //   FixtureCaseTabService's `sessions(scope:)` is static, though (matches
+    //   the phone fixture's existing, pre-F3-T6 behavior), so tapping Accept
+    //   under `-CaseFixtures` won't itself re-fetch T. Becker into nextUp —
+    //   only the LIVE app demonstrates the full cross. The static screenshot
+    //   still shows T. Becker correctly seated in PENDING pre-accept.
+    static let tabletPendingReceived: [Proposal] = [
+        Proposal(
+            id: 201, fromName: "T. Becker", fromRole: "interviewer", caseId: 4,
+            caseTitle: "Private equity eyes a dental roll-up", caseType: "M&A", difficulty: "Hard",
+            message: nil, proposedTimes: [tonight(hour: 18, minute: 0)],
+            createdAt: date("2026-07-16"), direction: "received", state: "pending"
+        ),
+        pendingReceived[1],   // S. Park's tonight-21:30 ask, unchanged.
+    ]
 }
 
 /// Stub CaseTabService seeded with CaseFixtures — no network, and mutation
 /// actions are no-ops/canned success so a screenshot hatch never crashes.
+/// F3 T6: parameterized (defaults = the original phone/July-16 data
+/// unchanged) so `CaseFixtures.makeTabletViewModel()` below can seed the
+/// July-17 day-advance set without a second service type.
 final class FixtureCaseTabService: CaseTabService {
-    func recaps() async throws -> [RecapItem] { [CaseFixtures.gateRecap] }
-    func proposals() async throws -> [Proposal] { CaseFixtures.pendingReceived + CaseFixtures.sentAwaiting }
+    private let recap: RecapItem?
+    private let pendingReceived: [Proposal]
+    private let sentAwaiting: [Proposal]
+    private let upcoming: [SessionSummary]
+    private let history: [SessionSummary]
+
+    init(
+        recap: RecapItem? = CaseFixtures.gateRecap,
+        pendingReceived: [Proposal] = CaseFixtures.pendingReceived,
+        sentAwaiting: [Proposal] = CaseFixtures.sentAwaiting,
+        upcoming: [SessionSummary] = [CaseFixtures.nextUp] + CaseFixtures.upcoming,
+        history: [SessionSummary] = CaseFixtures.history
+    ) {
+        self.recap = recap
+        self.pendingReceived = pendingReceived
+        self.sentAwaiting = sentAwaiting
+        self.upcoming = upcoming
+        self.history = history
+    }
+
+    func recaps() async throws -> [RecapItem] { recap.map { [$0] } ?? [] }
+    func proposals() async throws -> [Proposal] { pendingReceived + sentAwaiting }
 
     func sessions(scope: String) async throws -> [SessionSummary] {
         switch scope {
-        case "upcoming": return [CaseFixtures.nextUp] + CaseFixtures.upcoming
-        case "recent": return CaseFixtures.history
+        case "upcoming": return upcoming
+        case "recent": return history
         default: return []
         }
     }
@@ -148,6 +216,14 @@ final class FixtureCaseTabService: CaseTabService {
 
     func declineProposal(id: Int) async throws {}
     func counterProposal(id: Int, times: [Date]) async throws {}
+
+    // MARK: F3 T6 — tablet tray's LIVE NOW board; same persona in both the
+    // phone and tablet fixture VMs (CaseFixtures.liveNow).
+    func availability() async throws -> AvailabilityStatus {
+        AvailabilityStatus(freeUntil: nil, others: CaseFixtures.liveNow)
+    }
+
+    func createNowInvite(toUserId: Int) async throws {}
 }
 
 /// No-op CalendarAdding for screenshot hatches — never touches real EventKit.
@@ -156,9 +232,32 @@ private struct NoOpCalendarWriter: CalendarAdding {
 }
 
 extension CaseFixtures {
-    /// Fixture-backed CaseTabViewModel for `-CaseFixtures` screenshots/Previews.
+    /// Fixture-backed CaseTabViewModel for `-CaseFixtures` screenshots/Previews
+    /// (phone, July-16 persona).
     static func makeViewModel() -> CaseTabViewModel {
-        CaseTabViewModel(service: FixtureCaseTabService(), calendar: NoOpCalendarWriter())
+        CaseTabViewModel(
+            service: FixtureCaseTabService(), calendar: NoOpCalendarWriter(), schools: liveNowSchools
+        )
+    }
+
+    /// F3 T6: fixture-backed CaseTabViewModel for the tablet's `-CaseFixtures`
+    /// path (RootShell's `caseTabRoot`, `hSize == .regular`) — the July-17
+    /// day-advance persona (see the F3 T6 mark above): gate cleared, T.
+    /// Becker's dental-roll-up re-timed to today 18:00, Nordic dropped from
+    /// upcoming (already in history). sentAwaiting/history are continuity
+    /// data, unpinned by §7, so they're reused verbatim from the phone set.
+    static func makeTabletViewModel() -> CaseTabViewModel {
+        CaseTabViewModel(
+            service: FixtureCaseTabService(
+                recap: nil,
+                pendingReceived: tabletPendingReceived,
+                sentAwaiting: sentAwaiting,
+                upcoming: upcoming,
+                history: history
+            ),
+            calendar: NoOpCalendarWriter(),
+            schools: liveNowSchools
+        )
     }
 }
 #endif

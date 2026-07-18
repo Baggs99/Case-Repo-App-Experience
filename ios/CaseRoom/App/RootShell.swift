@@ -227,11 +227,16 @@ struct RootShell: View {
     // fixture-backed CaseTabViewModel (CaseFixtures.makeViewModel(), no dev
     // server) so the Case tab screenshot path needs no live server; the live
     // path uses CaseTabView's default (live APIClient-backed) init.
+    // F3 T6: on `.regular` (iPad), swap in the July-17 tablet persona
+    // (CaseFixtures.makeTabletViewModel(), Decisions §7 day-advance) instead
+    // of the phone's July-16 set — picked by size class (this shell already
+    // reads `hSize` for the rest of its tablet chrome), so `-CaseFixtures`
+    // needs no separate launch arg per platform.
     @ViewBuilder
     private var caseTabRoot: some View {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-CaseFixtures") {
-            CaseTabView(viewModel: CaseFixtures.makeViewModel())
+            CaseTabView(viewModel: hSize == .regular ? CaseFixtures.makeTabletViewModel() : CaseFixtures.makeViewModel())
         } else {
             CaseTabView()
         }

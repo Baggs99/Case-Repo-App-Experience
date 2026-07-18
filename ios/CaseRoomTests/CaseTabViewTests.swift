@@ -13,6 +13,7 @@
  */
 
 import XCTest
+import SwiftUI
 @testable import CaseRoom
 
 final class CaseTabViewTests: XCTestCase {
@@ -198,5 +199,13 @@ final class CaseTabViewTests: XCTestCase {
     func testCaseSheetIdentifiableIdentityIsCaseItself() {
         XCTAssertEqual(CaseSheet.getCased.id, .getCased)
         XCTAssertNotEqual(CaseSheet.getCased.id, .caseSomeone)
+    }
+
+    // MARK: - CaseTabLayout (F3 T6 — tablet vs phone size-class selection)
+
+    func testLayoutIsTabletOnlyOnRegularSizeClass() {
+        XCTAssertTrue(CaseTabLayout.isTablet(.regular))
+        XCTAssertFalse(CaseTabLayout.isTablet(.compact))
+        XCTAssertFalse(CaseTabLayout.isTablet(nil))
     }
 }

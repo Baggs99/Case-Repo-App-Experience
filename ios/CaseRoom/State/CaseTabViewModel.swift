@@ -23,6 +23,11 @@ protocol CaseTabService {
     func acceptProposal(id: Int, scheduledAt: Date) async throws -> AcceptedSession
     func declineProposal(id: Int) async throws
     func counterProposal(id: Int, times: [Date]) async throws
+    // MARK: F3 T6 — tablet tray's LIVE NOW board. Both already live on
+    // APIClient (T3's GetCasedService); harmless additions here (unused by
+    // the phone spine).
+    func availability() async throws -> AvailabilityStatus
+    func createNowInvite(toUserId: Int) async throws
 }
 
 extension APIClient: CaseTabService {}
@@ -44,12 +49,40 @@ final class CaseTabViewModel {
     var gatedRecapSessionID: Int?
     var isLoading = false
 
+    // MARK: F3 T6 — tablet tray's LIVE NOW board (availability others).
+    // Mirrors GetCasedNowViewModel's LiveNowRow/schools pattern: FreeUser
+    // carries no school field, so a fixture-only schools map fills it in for
+    // screenshots; live rows omit the "· school" segment gracefully.
+    struct LiveNowRow: Identifiable, Equatable {
+        let id: Int
+        let name: String
+        let school: String?
+        let minutesFree: Int
+    }
+
+    var others: [FreeUser] = []
+    var liveNow: [LiveNowRow] {
+        others.map { user in
+            LiveNowRow(
+                id: user.userId, name: user.name, school: schools[user.userId],
+                minutesFree: Self.minutesFree(until: user.freeUntil, from: now())
+            )
+        }
+    }
+
     private let service: CaseTabService
     private let calendar: CalendarAdding
+    private let now: () -> Date
+    private let schools: [Int: String]
 
-    init(service: CaseTabService = APIClient.shared, calendar: CalendarAdding = EventKitCalendarWriter()) {
+    init(
+        service: CaseTabService = APIClient.shared, calendar: CalendarAdding = EventKitCalendarWriter(),
+        now: @escaping () -> Date = { Date() }, schools: [Int: String] = [:]
+    ) {
         self.service = service
         self.calendar = calendar
+        self.now = now
+        self.schools = schools
     }
 
     func load() async {
@@ -61,6 +94,10 @@ final class CaseTabViewModel {
             async let proposalsResult = service.proposals()
             async let upcomingResult = service.sessions(scope: "upcoming")
             async let recentResult = service.sessions(scope: "recent")
+            // F3 T6: fetched alongside the rest, but consumed outside this
+            // do/catch (below) so a failure here never blanks out the phone
+            // spine, which doesn't read `others` at all.
+            async let availabilityResult = service.availability()
 
             let recaps = try await recapsResult
             let proposals = try await proposalsResult
@@ -71,8 +108,32 @@ final class CaseTabViewModel {
             bucketProposals(proposals)
             bucketUpcoming(upcomingSessions)
             history = recentSessions
+
+            if let availability = try? await availabilityResult {
+                others = availability.others
+            }
         } catch {
             errorMessage = "Couldn't load your cases. Try again."
+        }
+    }
+
+    /// Whole minutes of availability remaining, clamped at 0 (never negative).
+    /// Mirrors GetCasedNowViewModel.minutesFree.
+    static func minutesFree(until freeUntil: Date, from now: Date) -> Int {
+        max(0, Int((freeUntil.timeIntervalSince(now) / 60).rounded()))
+    }
+
+    /// "Ping" a free classmate from the tablet tray — a now-invite, mirrors
+    /// T3's GetCasedNowViewModel.ping. Returns success/failure (rather than
+    /// owning a toast message itself) so the tablet view can toast the exact
+    /// pinged name, which only the view's row context has.
+    func ping(userId: Int) async -> Bool {
+        do {
+            try await service.createNowInvite(toUserId: userId)
+            return true
+        } catch {
+            errorMessage = "Couldn't send the invite. Try again."
+            return false
         }
     }
 

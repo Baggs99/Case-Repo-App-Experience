@@ -103,6 +103,13 @@ enum CaseTabGateSteering {
     }
 }
 
+// MARK: - Pure tablet-vs-phone layout selection (unit-tested; F3 T6) — mirrors
+// CasesListView/CommunityView's `hSize == .regular` branch, extracted so the
+// selection rule is testable without rendering SwiftUI.
+enum CaseTabLayout {
+    static func isTablet(_ hSize: UserInterfaceSizeClass?) -> Bool { hSize == .regular }
+}
+
 // MARK: - Pure F4→F3 prefill-steering (unit-tested) — maps the router's
 // case-prefill state onto which verb-bar sheet to open. The two prefill fields
 // are mutually exclusive by construction (a done case → caseSomeone; an open
@@ -129,6 +136,7 @@ struct CaseSomeonePrefillContext: Equatable {
 
 struct CaseTabView: View {
     @Environment(\.dsPalette) private var palette
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var router = AppRouter.shared
     @State private var viewModel: CaseTabViewModel
     @State private var activeSheet: CaseSheet?
@@ -295,7 +303,19 @@ struct CaseTabView: View {
         #endif
     }
 
+    // F3 T6: tablet (`.regular`) gets canvas Tablet 1b's tray hero +
+    // two-column spine; every other size class keeps the unchanged phone
+    // spine below.
+    @ViewBuilder
     private var content: some View {
+        if CaseTabLayout.isTablet(hSize) {
+            caseTabTablet
+        } else {
+            casePhoneSpine
+        }
+    }
+
+    private var casePhoneSpine: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
@@ -315,6 +335,182 @@ struct CaseTabView: View {
         }
         .scrollIndicators(.hidden)
         .dsHeaderFade()
+    }
+
+    // MARK: - Tablet layout (canvas Tablet 1b "tray hero + two-column spine",
+    // Decisions §7 T6). REUSES recapGateCard/nextUpSection/upcomingSection/
+    // pendingSection/historySection verbatim — new here is only the glass
+    // tray hero (verb column + LIVE NOW board) and the two-column grid
+    // wrapper. RootShell already draws the centered "Case" H1 + top pills
+    // chrome on `.regular` (same "no H1 here" convention as
+    // CasesListView/LibraryMasterDetailView), so `header` is intentionally
+    // omitted below.
+
+    private var caseTabTablet: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let errorMessage = viewModel.errorMessage {
+                errorBanner(errorMessage).padding(.horizontal, 28).padding(.top, 10)
+            }
+            tabletTrayHero
+                // The tray isn't inside a ScrollView, so RootShell's
+                // `.contentMargins(.top, 64, for: .scrollContent)` (which
+                // clears its floating wordmark/H1/avatar header row for
+                // scrollable content) doesn't reach it — match that same
+                // 64pt clearance directly so the tray doesn't sit under it.
+                .padding(.horizontal, 28).padding(.top, 64)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    emptyState.padding(.horizontal, 28).padding(.top, 18)
+                    tabletSpine
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    // MARK: - Tray hero (canvas: 32px-radius glass panel, 300px verb column |
+    // vertical hairline | inline LIVE-NOW board). The screen's glass hero —
+    // recapGateCard below stays glass too (tablet 1b shows both; canvas §5's
+    // "one glass hero" rule is a Part-I/phone rule).
+
+    // A bare `Rectangle()` with only `.frame(width:)` has no bounded height,
+    // so SwiftUI treats it as vertically flexible — inside an HStack that
+    // makes the WHOLE row (and the glassPanel behind it) report as flexible
+    // too, and it balloons to fill the tab's entire available height. Pin the
+    // divider to the verb column's own fixed height (its tallest sibling —
+    // 54pt ink button + 8pt spacing + 42pt glass row = 104) so the row — and
+    // the tray card around it — hugs its real content height instead.
+    private static let tabletVerbColumnHeight: CGFloat = 54 + 8 + 42
+
+    private var tabletTrayHero: some View {
+        HStack(alignment: .center, spacing: 18) {
+            tabletVerbColumn
+            Rectangle().fill(palette.ink.opacity(0.12)).frame(width: 1, height: Self.tabletVerbColumnHeight)
+            tabletLiveNowBoard
+        }
+        .padding(.horizontal, 20).padding(.vertical, 18)
+        .glassPanel(cornerRadius: 32)
+    }
+
+    /// 300pt verb column: filled ink "Get cased now" (h54) + two glass verbs
+    /// (h42 each) — "Case someone" / "Schedule later" (verbatim tablet
+    /// copy — phone's third verb says "Schedule"). Same three sheets, same
+    /// `activeSheet` seam as phone's verbBar.
+    private var tabletVerbColumn: some View {
+        VStack(spacing: 8) {
+            Button { activeSheet = .getCased } label: {
+                Text("Get cased now")
+                    .font(.archivo(14.5, weight: 600))
+                    .foregroundStyle(palette.onInk)
+                    .frame(maxWidth: .infinity).frame(height: 54)
+            }
+            .buttonStyle(DSPressStyle())
+            .background(Capsule().fill(palette.ink))
+
+            HStack(spacing: 8) {
+                Button { activeSheet = .caseSomeone } label: {
+                    Text("Case someone")
+                        .font(.archivo(12, weight: 600))
+                        .foregroundStyle(palette.ink)
+                        .frame(maxWidth: .infinity).frame(height: 42)
+                }
+                .buttonStyle(DSPressStyle())
+                .glassChipFlat()
+
+                Button { activeSheet = .schedule } label: {
+                    Text("Schedule later")
+                        .font(.archivo(12, weight: 600))
+                        .foregroundStyle(palette.ink)
+                        .frame(maxWidth: .infinity).frame(height: 42)
+                }
+                .buttonStyle(DSPressStyle())
+                .glassChipFlat()
+            }
+        }
+        .frame(width: 300)
+    }
+
+    /// Inline LIVE-NOW board — same free-right-now data (VM's `liveNow`,
+    /// F3 T6) as T3's Get-cased-now sheet, surfaced right in the tray so a
+    /// "Ping" needs no sheet at all.
+    private var tabletLiveNowBoard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("LIVE NOW — FREE TO CASE YOU")
+                    .font(.archivo(9.5, weight: 600)).tracking(0.15 * 9.5)
+                    .foregroundStyle(palette.muted)
+                Spacer()
+                Text("PINGS EXPIRE IN 2 H")
+                    .font(.archivo(8.5, weight: 600)).tracking(0.12 * 8.5)
+                    .foregroundStyle(palette.faint)
+            }
+            ForEach(Array(viewModel.liveNow.enumerated()), id: \.element.id) { index, row in
+                tabletLiveNowRow(row, isLast: index == viewModel.liveNow.count - 1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func tabletLiveNowRow(_ row: CaseTabViewModel.LiveNowRow, isLast: Bool) -> some View {
+        HStack(spacing: 10) {
+            (Text("\(row.name) ").font(.archivo(13, weight: 600)).foregroundStyle(palette.ink)
+                + Text(Self.liveNowMeta(row)).font(.archivo(11, weight: 400)).foregroundStyle(palette.muted))
+            Spacer(minLength: 8)
+            Button {
+                Task {
+                    let ok = await viewModel.ping(userId: row.id)
+                    if ok { toastMessage = "Pinged \(row.name) — expires in 2 h" }
+                }
+            } label: {
+                Text("Ping")
+                    .font(.archivo(11, weight: 600))
+                    .foregroundStyle(palette.onInk)
+                    .padding(.horizontal, 14).frame(height: 32)
+            }
+            .buttonStyle(DSPressStyle())
+            .background(Capsule().fill(palette.ink))
+        }
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) {
+            if !isLast { Rectangle().fill(palette.ink.opacity(0.1)).frame(height: 1) }
+        }
+    }
+
+    private static func liveNowMeta(_ row: CaseTabViewModel.LiveNowRow) -> String {
+        let school = row.school.map { "\($0) · " } ?? ""
+        return "· \(school)\(row.minutesFree) min free"
+    }
+
+    // MARK: - Two-column spine (canvas: `grid 1fr 1fr gap 36`). Left =
+    // recap-gate card → NEXT UP → UPCOMING; right = PENDING → HISTORY, both
+    // reusing the phone's exact subviews. "Accept crosses columns" (canvas
+    // §7-1b): CaseTabViewModel.accept() already moves the proposal from
+    // pendingReceived into upcoming/nextUp (see
+    // testAcceptRemovesFromPendingReceivedRefreshesUpcomingAndAddsToCalendarOnce);
+    // the `.animation(value:)` below gives that state move a tasteful
+    // cross-column fade/rise rather than a hard cut — a full matched-geometry
+    // cross-column transition proved fiddly against reused, independently-
+    // laid-out subviews, so this is the documented "tasteful fade" fallback
+    // the brief allows.
+    private var tabletSpine: some View {
+        HStack(alignment: .top, spacing: 36) {
+            VStack(alignment: .leading, spacing: 16) {
+                recapGateCard
+                nextUpSection
+                upcomingSection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 16) {
+                pendingSection
+                historySection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 110)
+        .animation(DSMotion.riseCurve, value: viewModel.pendingReceived)
+        .animation(DSMotion.riseCurve, value: viewModel.upcoming)
+        .animation(DSMotion.riseCurve, value: viewModel.nextUp)
     }
 
     private var header: some View {
