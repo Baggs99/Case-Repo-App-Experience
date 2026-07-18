@@ -4,7 +4,8 @@
  *          registration.
  * Inputs: none (DEBUG launch-arg hatches: -DSGallery, -AvatarSheet, -F2Timeline,
  *         -F2TimelinePromptNoOffer, -F2Home, -F2HomeTablet, -F7Drills (+ optional
- *         -F7Board <c14|wharton|global|schools>), -DevLogin, -startTab <tab>,
+ *         -F7Board <c14|wharton|global|schools>), -F7Run <numeric|choice>,
+ *         -F7Result, -DevLogin, -startTab <tab>,
  *         -avatarOpen — see the #if DEBUG blocks).
  * Outputs: none.
  * Run: built as part of the CaseRoom.app target via Xcode/xcodebuild.
@@ -84,6 +85,17 @@ struct CaseRoomApp: App {
                         fixtureGlobalBoard: PreviewDrillsFixture.globalBoard,
                         fixtureSchoolsBoard: PreviewDrillsFixture.schoolsBoard))
                 }
+            } else if ProcessInfo.processInfo.arguments.contains("-F7Run") {
+                // Gauntlet run frame (canvas 5b run) fixture hatch: `-F7Run
+                // numeric` shows the keypad slot; `-F7Run choice` shows the 2×2
+                // choice grid. Constant-clock, autoTick off → deterministic 00:00.
+                GauntletRunView(viewModel: PreviewGauntletRunFixture.runVM(
+                    mode: Self.launchArgValue(after: "-F7Run")))
+            } else if ProcessInfo.processInfo.arguments.contains("-F7Result") {
+                // Gauntlet result frame (canvas 5b result) fixture hatch:
+                // percentile 66, +40 PTS, 5/6 correct, 3RD IN C-14, weak = market
+                // sizing, elapsed 04:12.
+                GauntletRunView(viewModel: PreviewGauntletRunFixture.resultVM)
             } else {
                 rootView
             }

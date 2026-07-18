@@ -57,6 +57,10 @@ final class AppRouter {
     var sessionTakeoverID: Int?
     var drillRun = false          // the shell owns the drill sheet, keyed off this
     var gauntletRun = false       // shell owns the gauntlet fullScreenCover, keyed off this (F7 Task 4)
+    // "See today's result" seam (F7 Task 4): DrillsView sets the already-scored
+    // result before flagging gauntletRun so the cover opens straight into the
+    // result phase (B8 blocks a re-run). Cleared with the flag on dismiss.
+    var gauntletResult: GauntletResult?
     var homePath: [AppRoute] = []
     var libraryPath: [AppRoute] = []
     var casePath: [AppRoute] = []

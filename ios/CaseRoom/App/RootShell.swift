@@ -21,6 +21,9 @@ struct RootShell: View {
     // The shell owns the drill sheet so the caseroom://drill widget + StartDrillIntent
     // open it reliably regardless of which tab (or a cold launch) is mounted.
     @State private var presentedDrill: DrillViewModel?
+    // The shell also owns the gauntlet run cover (mirrors presentedDrill) so the
+    // Home hero + Drills Begin both launch it identically, surviving tab switches.
+    @State private var presentedGauntlet: GauntletRunViewModel?
 
     // F4 Task 3, minimal additive (F1 deferred tab-stack mounting to F4):
     // canvas 5a's pushed case detail shows only a plain `‹ Library` back +
@@ -143,6 +146,19 @@ struct RootShell: View {
         .sheet(item: $presentedDrill, onDismiss: { router.drillRun = false }) { drill in
             DrillView(viewModel: drill)
         }
+        // Gauntlet run — the immersive server-scored cover (deliberately a
+        // fullScreenCover, not a sheet). FLAG wiring mirrors .drillRun above:
+        // onChange(initial:true) covers cold launch, onDismiss clears the flag
+        // (and the "See today's result" preview) so it can't stick true.
+        .onChange(of: router.gauntletRun, initial: true) { _, on in
+            if on, presentedGauntlet == nil { presentedGauntlet = makeGauntletRun() }
+        }
+        .fullScreenCover(item: $presentedGauntlet, onDismiss: {
+            router.gauntletRun = false
+            router.gauntletResult = nil
+        }) { runViewModel in
+            GauntletRunView(viewModel: runViewModel)
+        }
     }
 
     // Mirrors the legacy TodayView.startDrill() wiring (FM/on-device engine path).
@@ -151,6 +167,12 @@ struct RootShell: View {
             engine: DrillEngineProvider.make(service: APIClient.shared, userId: sessionStore.user?.id ?? 0),
             recorder: AttemptRecorder(service: APIClient.shared)
         )
+    }
+
+    // The live server-gauntlet run VM. When router.gauntletResult is set (Drills
+    // "See today's result"), it opens straight into the result phase — no re-run.
+    private func makeGauntletRun() -> GauntletRunViewModel {
+        GauntletRunViewModel(service: APIClient.shared, preloadedResult: router.gauntletResult)
     }
 
     @ViewBuilder

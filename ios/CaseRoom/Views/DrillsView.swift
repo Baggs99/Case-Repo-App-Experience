@@ -120,6 +120,11 @@ struct DrillsView: View {
 
     private var beginButton: some View {
         Button {
+            // Submitted → open straight into the already-scored result (B8 blocks
+            // a re-run); not-submitted → the live timed run.
+            if viewModel.submitted, let result = viewModel.gauntlet?.result {
+                AppRouter.shared.gauntletResult = result
+            }
             AppRouter.shared.go(to: .gauntletRun)
         } label: {
             Text(viewModel.beginLabel)
