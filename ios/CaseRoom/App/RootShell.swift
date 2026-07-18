@@ -72,7 +72,7 @@ struct RootShell: View {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
                 || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
-                || args.contains("-startTakeover") { return } // F5
+                || args.contains("-startTakeover") || args.contains("-startRecap") { return } // F5
             #endif
             await sessionStore.bootstrap()
         }
@@ -130,7 +130,7 @@ struct RootShell: View {
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
                 || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
-                || args.contains("-startTakeover") { return } // F5
+                || args.contains("-startTakeover") || args.contains("-startRecap") { return } // F5
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
@@ -153,6 +153,17 @@ struct RootShell: View {
             // inside this cover, so the debrief returns to daylight.
             NavigationStack { takeoverSession(id: target.id) }
                 .dsTheme(.dark)
+        }
+        // MARK: - F5 — recap report cover. Mirrors the sessionTakeover cover
+        // (keyed on an Identifiable Int wrapper) but stays LIGHT: the recap is a
+        // post-session report in daylight, so this deliberately does NOT apply
+        // .dsTheme(.dark). T7 floats its close-out sheet as an .overlay inside
+        // RecapReportView (the seam is commented at that view's root).
+        .fullScreenCover(item: Binding(
+            get: { router.recapSessionID.map(RecapTarget.init) },
+            set: { if $0 == nil { router.recapSessionID = nil } }
+        )) { target in
+            NavigationStack { recapReport(id: target.id) }
         }
         // Drill run — presented at the (stable) authenticated shell view, not inside a
         // tab, so it survives tab switches and warm foregrounding. `initial: true` also
@@ -226,6 +237,23 @@ struct RootShell: View {
         }
         #else
         SessionView(sessionId: id)
+        #endif
+    }
+
+    // MARK: - F5 — recap report builder. `-startRecap` swaps in the
+    // fixture-backed SessionFlowService (SessionFixtures.recapFlow) so simctl
+    // captures the LIGHT canvas-6b recap with no dev server; the live path is the
+    // real RecapReportView (default APIClient).
+    @ViewBuilder
+    private func recapReport(id: Int) -> some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-startRecap") {
+            SessionFixtures.recapStandalone()
+        } else {
+            RecapReportView(sessionId: id)
+        }
+        #else
+        RecapReportView(sessionId: id)
         #endif
     }
 
@@ -325,6 +353,7 @@ struct RootShell: View {
 // Identifiable wrappers so `.sheet(item:)` / `.fullScreenCover(item:)` drive off Int.
 private struct ProposeTarget: Identifiable { let id: Int }
 private struct TakeoverTarget: Identifiable { let id: Int }
+private struct RecapTarget: Identifiable { let id: Int }  // F5 — recap cover key
 
 #Preview {
     RootShell()

@@ -56,6 +56,10 @@ final class AppRouter {
     var groupCreate = false
     var proposeToUserID: Int?
     var sessionTakeoverID: Int?
+    // MARK: - F5 — recap report presentation. RootShell presents a LIGHT recap
+    // fullScreenCover keyed on this id (mirrors sessionTakeoverID's dark cover);
+    // go(to: .recap(id)) sets it. Additive — the takeover field above is F1's.
+    var recapSessionID: Int?
     var drillRun = false          // the shell owns the drill sheet, keyed off this
     var gauntletRun = false       // shell owns the gauntlet fullScreenCover, keyed off this (F7 Task 4)
     // "See today's result" seam (F7 Task 4): DrillsView sets the already-scored
@@ -95,8 +99,11 @@ final class AppRouter {
         case .timelineDetail:
             selection = .home
             homePath.append(.timelineDetail)
-        case .recap:
-            selection = .caseTab // F5 wires the recap presentation
+        case .recap(let id):
+            // F5: select the Case tab (recap lives in Case › History once
+            // closed) AND present the recap report cover over the shell.
+            selection = .caseTab
+            recapSessionID = id
         case .groupPage:
             selection = .community // F8 wires the group-page push onto communityPath
         }

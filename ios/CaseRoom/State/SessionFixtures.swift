@@ -315,6 +315,55 @@ enum SessionFixtures {
                     rubricViewModel: liveRubricVM(),
                     flowService: debriefInterviewerFlow)
     }
+
+    // MARK: - F5-T6 recap report screenshot fixtures (canvas 6b, LIGHT)
+
+    /// The session the `-startRecap` hatch presents (T. Becker's Ski resort recap
+    /// — the PreviewRecap persona: 4.1/5, "Structure held. The quant went soft…").
+    static let recapSessionId = 5150
+
+    /// The five serif paragraphs T. Becker wrote (canvas 6b, verbatim), carried
+    /// in notes_md (blank-line separated → RecapPresentation.paragraphs). The
+    /// rubric items score 7/5/8/6 out of 10 (canvas bar widths 70/50/80/60%);
+    /// their per-item notes are left empty so the report is the pure prose block
+    /// the canvas shows — the notes-present path is exercised by unit tests.
+    static let recapReport = FeedbackReport(
+        grade: 4.1,
+        finalizedAt: "2026-07-12T16:34:00Z",
+        notesMd: [
+            "Your opening was the best I've seen from you — answer-first, three branches, and you told me which one you'd start with before I asked. Structure held for the whole case.",
+            "The quant went soft in the middle. The lift-ticket yield calculation had a units slip — per-day versus per-visitor — and you carried it for two minutes before sanity-checking. You caught it yourself, which matters, but the recovery cost you the pace of the whole segment.",
+            "When the margin bridge finally came together, your so-what was right: mix shift to day-trippers, not costs. You should have said it ninety seconds earlier with half the arithmetic. The insight was cheap; you paid full price.",
+            "Close was clean but thin — one risk, no next step. Steal the last two minutes back from the quant and spend them there.",
+            "Drill sizing setups until the units are automatic. Thursday's dental case is quant-heavy on purpose.",
+        ].joined(separator: "\n\n"),
+        items: [
+            FeedbackItem(id: "structure", label: "Structure", dimension: "structure", maxPoints: 10, points: 7, note: ""),
+            FeedbackItem(id: "quant", label: "Quant", dimension: "quant", maxPoints: 10, points: 5, note: ""),
+            FeedbackItem(id: "comm", label: "Communication", dimension: "comm", maxPoints: 10, points: 8, note: ""),
+            FeedbackItem(id: "synth", label: "Synthesis", dimension: "synth", maxPoints: 10, points: 6, note: ""),
+        ],
+        reveals: [],
+        caseId: 55,
+        caseTitle: "Ski resort: revenue up, profit down")
+
+    /// The matching unread-recap row — the source of the interviewer name + /5
+    /// rating the feedback endpoint doesn't carry (RecapViewModel enriches from
+    /// recaps()).
+    static let recapListItem = RecapListItem(
+        sessionId: recapSessionId, caseId: 55,
+        caseTitle: "Ski resort: revenue up, profit down",
+        interviewerName: "T. Becker", grade: 4.1,
+        finalizedAt: "2026-07-12T16:34:00Z", viewedAt: nil)
+
+    static let recapFlow = RecapPreviewFlowService(report: recapReport, recaps: [recapListItem])
+
+    /// Standalone recap report (canvas 6b, LIGHT). Presented by RootShell's recap
+    /// cover under `-startRecap`, with no dev server and no live socket.
+    @MainActor
+    static func recapStandalone() -> some View {
+        RecapReportView(sessionId: recapSessionId, flowService: recapFlow)
+    }
 }
 
 /// Drives the LIVE candidate shot: hands CandidateLiveView the shared VM, then
@@ -434,6 +483,26 @@ struct DebriefPreviewFlowService: SessionFlowService {
         guard let report else { throw StubError.unused }
         return report
     }
+}
+
+/// Stub SessionFlowService for the recap report shot — feedbackReport() returns
+/// the canned released report and recaps() the matching unread row (so the
+/// attribution enriches); recapViewed() succeeds (candidate marks it read); the
+/// rest throw (never hit on the screenshot path).
+struct RecapPreviewFlowService: SessionFlowService {
+    enum StubError: Error { case unused }
+    let report: FeedbackReport
+    let recaps: [RecapListItem]
+
+    func negotiation(id: Int) async throws -> NegotiationView { throw StubError.unused }
+    func proposeCase(id: Int, caseId: Int) async throws -> NegotiationView { throw StubError.unused }
+    func acceptCase(id: Int, caseId: Int) async throws -> SessionDetail { throw StubError.unused }
+    func swap(id: Int) async throws -> SwapInitiated { throw StubError.unused }
+    func swapAccept(id: Int) async throws -> SwapAccepted { throw StubError.unused }
+    func recaps() async throws -> [RecapListItem] { recaps }
+    func recapViewed(id: Int) async throws -> RecapViewedResult { RecapViewedResult(viewed: true) }
+    func recapClose(id: Int, caseRating: Int, thumbs: Bool?) async throws -> RecapCloseResult { throw StubError.unused }
+    func feedbackReport(id: Int) async throws -> FeedbackReport { report }
 }
 
 /// No-op signaling for the negotiation shots — holds the stream open (no
