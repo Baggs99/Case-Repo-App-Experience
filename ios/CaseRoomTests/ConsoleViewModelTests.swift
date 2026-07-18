@@ -410,6 +410,34 @@ final class ConsoleViewModelTests: XCTestCase {
         XCTAssertEqual(ConsoleScript.pdfPages[2].corner, .interviewerOnly)
     }
 
+    /// The pager "grey at the ends" thresholds (canvas `pdfPrevColor`/`pdfNextColor`
+    /// → the T5 view greys "‹ Previous page" at page 0 and "Next page ›" at page 2).
+    func testPDFPagerGreyThresholds() {
+        let (vm, _) = tabletVM(template: realTemplate())
+        vm.openPDF()
+        XCTAssertTrue(vm.isFirstPDFPage)                 // page 0 → Previous grey
+        XCTAssertFalse(vm.isLastPDFPage)
+        vm.pdfNext()
+        XCTAssertFalse(vm.isFirstPDFPage)                // page 1 → both live
+        XCTAssertFalse(vm.isLastPDFPage)
+        vm.pdfNext()
+        XCTAssertFalse(vm.isFirstPDFPage)
+        XCTAssertTrue(vm.isLastPDFPage)                  // page 2 → Next grey
+    }
+
+    /// Page-02's Exhibit-01 corner drives the SAME reveal + SENT · mm:ss as the
+    /// script's e1 row (A2): before release the corner is `Release`, after it the
+    /// VM exposes the master-clock marker under `sentAt("e1")`.
+    func testPDFExhibitReleaseSharesE1Marker() async {
+        let (vm, _) = tabletVM(template: realTemplate(),
+                               exhibits: [ExhibitMeta(exhibitId: 900, idx: 0, sourcePages: "1",
+                                                      width: 10, height: 10, bytes: 1, ivB64: "")])
+        vm.elapsedSeconds = 754                          // 12:34
+        XCTAssertNil(vm.sentAt(scriptId: "e1"))
+        await vm.release(scriptId: "e1")
+        XCTAssertEqual(vm.sentAt(scriptId: "e1"), "12:34")
+    }
+
     // MARK: Authored dims map (name + desc)
 
     func testDimsMapCoversRealAndCanvasKeys() {
