@@ -206,6 +206,14 @@ struct CaseRoomApp: App {
         if args.contains("-avatarOpen") {
             AppRouter.shared.avatarSheet = true
         }
+        // MARK: - F5 — dark takeover screenshot hatch. Fake auth (no network) +
+        // present the session fullScreenCover; RootShell.takeoverSession reads the
+        // same arg and binds SessionView to SessionFixtures' stub service + no-op
+        // signaling, so the dark `state:"lobby"` lobby captures with no dev server.
+        if args.contains("-startTakeover") {
+            sessionStore.user = User(id: 1, email: "a@yale.edu", name: "Amara Osei")
+            AppRouter.shared.sessionTakeoverID = SessionFixtures.lobbySessionId
+        }
         if let idx = args.firstIndex(of: "-startCaseDetail"), idx + 1 < args.count,
            let caseId = Int(args[idx + 1]) {
             // Runs after the -LibraryFixtures/-DevLogin auth above so the

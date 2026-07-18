@@ -71,7 +71,8 @@ struct RootShell: View {
             // screenshot-only paths.
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
-                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
+                || args.contains("-startTakeover") { return } // F5
             #endif
             await sessionStore.bootstrap()
         }
@@ -128,7 +129,8 @@ struct RootShell: View {
             // Normal launches (and Release) always request as before.
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-DevLogin") || args.contains("-LibraryFixtures") || args.contains("-CommunityFixtures")
-                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures") { return }
+                || args.contains("-GroupPageFixtures") || args.contains("-GroupCreateFixtures")
+                || args.contains("-startTakeover") { return } // F5
             #endif
             await pushCoordinator.requestAuthorizationAndRegister()
         }
@@ -144,9 +146,13 @@ struct RootShell: View {
             get: { router.sessionTakeoverID.map(TakeoverTarget.init) },
             set: { if $0 == nil { router.sessionTakeoverID = nil } }
         )) { target in
-            // F5/F6 refit this into the dark takeover; the existing SessionView
-            // is a real, working session screen for the interim.
-            NavigationStack { SessionView(sessionId: target.id) }
+            // MARK: - F5 — dark takeover seam. The single place the whole session
+            // subtree (lobby → negotiation → live) is themed dark; every glass
+            // panel/scrim/DSBackground under here re-reads \.dsPalette and goes
+            // dark. T5's DebriefView re-overrides to .light at its own root, still
+            // inside this cover, so the debrief returns to daylight.
+            NavigationStack { takeoverSession(id: target.id) }
+                .dsTheme(.dark)
         }
         // Drill run — presented at the (stable) authenticated shell view, not inside a
         // tab, so it survives tab switches and warm foregrounding. `initial: true` also
@@ -173,6 +179,24 @@ struct RootShell: View {
         }) { runViewModel in
             GauntletRunView(viewModel: runViewModel)
         }
+    }
+
+    // MARK: - F5 — takeover session builder. `-startTakeover` swaps in the
+    // fixture-backed SessionService + no-op signaling (SessionFixtures.swift) so
+    // simctl captures the dark `state:"lobby"` takeover with no dev server and no
+    // live socket; the live path is the real SessionView (default services).
+    @ViewBuilder
+    private func takeoverSession(id: Int) -> some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-startTakeover") {
+            SessionView(sessionId: id, service: SessionFixtures.lobbyService,
+                        signaling: SessionFixtures.lobbySignaling)
+        } else {
+            SessionView(sessionId: id)
+        }
+        #else
+        SessionView(sessionId: id)
+        #endif
     }
 
     // Mirrors the legacy TodayView.startDrill() wiring (FM/on-device engine path).
